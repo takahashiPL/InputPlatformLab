@@ -1,10 +1,23 @@
-﻿// MainApp.cpp : アプリケーションのエントリ ポイントを定義します。
+// MainApp.cpp : アプリケーションのエントリ ポイントを定義します。
 //
 
 #include "framework.h"
 #include "MainApp.h"
 
+#include <cstdint>
+#include <stdio.h>
+
 #define MAX_LOADSTRING 100
+
+// プラットフォーム中立な物理キーイベント（将来 input/ 配下へ移設可能）
+struct PhysicalKeyEvent
+{
+    std::uint16_t native_key_code; // Win32 では仮想キー（VK）に相当
+    std::uint16_t scan_code;       // スキャンコード（拡張プレフィックスは is_extended_* と併用）
+    bool is_extended_0;            // 拡張キー前置 E0 相当
+    bool is_extended_1;            // 拡張キー前置 E1 相当
+    bool is_key_up;                // 離上（break）なら true
+};
 
 // グローバル変数:
 HINSTANCE hInst;                                // 現在のインターフェイス
@@ -16,6 +29,10 @@ ATOM                MyRegisterClass(HINSTANCE hInstance);
 BOOL                InitInstance(HINSTANCE, int);
 LRESULT CALLBACK    WndProc(HWND, UINT, WPARAM, LPARAM);
 INT_PTR CALLBACK    About(HWND, UINT, WPARAM, LPARAM);
+
+static BOOL Win32_RegisterKeyboardRawInput(HWND hwnd);
+static bool Win32_TryFillPhysicalKeyFromRawInput(HRAWINPUT hRaw, PhysicalKeyEvent& out);
+static void PhysicalKey_FormatDebugLine(const PhysicalKeyEvent& ev, wchar_t* buffer, size_t bufferCount);
 
 int APIENTRY wWinMain(_In_ HINSTANCE hInstance,
                      _In_opt_ HINSTANCE hPrevInstance,
@@ -105,10 +122,58 @@ BOOL InitInstance(HINSTANCE hInstance, int nCmdShow)
       return FALSE;
    }
 
+   if (!Win32_RegisterKeyboardRawInput(hWnd))
+   {
+      OutputDebugStringW(L"RegisterRawInputDevices failed\r\n");
+   }
+
    ShowWindow(hWnd, nCmdShow);
    UpdateWindow(hWnd);
 
    return TRUE;
+}
+
+static BOOL Win32_RegisterKeyboardRawInput(HWND hwnd)
+{
+    RAWINPUTDEVICE rid = {};
+    rid.usUsagePage = 0x01;
+    rid.usUsage = 0x06;
+    rid.dwFlags = 0;
+    rid.hwndTarget = hwnd;
+    return RegisterRawInputDevices(&rid, 1, sizeof(rid));
+}
+
+static bool Win32_TryFillPhysicalKeyFromRawInput(HRAWINPUT hRaw, PhysicalKeyEvent& out)
+{
+    RAWINPUT raw = {};
+    UINT cbSize = sizeof(raw);
+    if (GetRawInputData(hRaw, RID_INPUT, &raw, &cbSize, sizeof(RAWINPUTHEADER)) == (UINT)-1)
+    {
+        return false;
+    }
+    if (raw.header.dwType != RIM_TYPEKEYBOARD)
+    {
+        return false;
+    }
+
+    const RAWKEYBOARD& kb = raw.data.keyboard;
+    out.native_key_code = static_cast<std::uint16_t>(kb.VKey);
+    out.scan_code = kb.MakeCode;
+    out.is_extended_0 = (kb.Flags & RI_KEY_E0) != 0;
+    out.is_extended_1 = (kb.Flags & RI_KEY_E1) != 0;
+    out.is_key_up = (kb.Flags & RI_KEY_BREAK) != 0;
+    return true;
+}
+
+static void PhysicalKey_FormatDebugLine(const PhysicalKeyEvent& ev, wchar_t* buffer, size_t bufferCount)
+{
+    swprintf_s(buffer, bufferCount,
+        L"PhysicalKey: native=0x%04X scan=0x%04X ext0=%d ext1=%d %s\r\n",
+        ev.native_key_code,
+        ev.scan_code,
+        ev.is_extended_0 ? 1 : 0,
+        ev.is_extended_1 ? 1 : 0,
+        ev.is_key_up ? L"break" : L"make");
 }
 
 //
@@ -117,6 +182,7 @@ BOOL InitInstance(HINSTANCE hInstance, int nCmdShow)
 //  目的: メイン ウィンドウのメッセージを処理します。
 //
 //  WM_COMMAND  - アプリケーション メニューの処理
+//  WM_INPUT    - Raw Input（物理キー）
 //  WM_PAINT    - メイン ウィンドウを描画する
 //  WM_DESTROY  - 中止メッセージを表示して戻る
 //
@@ -142,6 +208,17 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam)
             }
         }
         break;
+    case WM_INPUT:
+        {
+            PhysicalKeyEvent ev{};
+            if (Win32_TryFillPhysicalKeyFromRawInput(reinterpret_cast<HRAWINPUT>(lParam), ev))
+            {
+                wchar_t line[256];
+                PhysicalKey_FormatDebugLine(ev, line, 256);
+                OutputDebugStringW(line);
+            }
+        }
+        return 0;
     case WM_PAINT:
         {
             PAINTSTRUCT ps;
