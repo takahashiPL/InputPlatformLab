@@ -33,7 +33,8 @@ INT_PTR CALLBACK    About(HWND, UINT, WPARAM, LPARAM);
 static BOOL Win32_RegisterKeyboardRawInput(HWND hwnd);
 static bool Win32_TryFillPhysicalKeyFromRawInput(HRAWINPUT hRaw, PhysicalKeyEvent& out);
 static bool Win32_TryFillDisplayLabel(const PhysicalKeyEvent& ev, wchar_t* buffer, size_t bufferCount);
-static void PhysicalKey_FormatDebugLine(const PhysicalKeyEvent& ev, const wchar_t* displayLabel, wchar_t* buffer, size_t bufferCount);
+static void Win32_FillLayoutTag(wchar_t* buffer, size_t bufferCount);
+static void PhysicalKey_FormatDebugLine(const PhysicalKeyEvent& ev, const wchar_t* displayLabel, const wchar_t* layoutTag, wchar_t* buffer, size_t bufferCount);
 
 int APIENTRY wWinMain(_In_ HINSTANCE hInstance,
                      _In_opt_ HINSTANCE hPrevInstance,
@@ -189,14 +190,32 @@ static bool Win32_TryFillDisplayLabel(const PhysicalKeyEvent& ev, wchar_t* buffe
         {
             n = cchUnicode - 1;
         }
-        const size_t maxCopy = (bufferCount > 0) ? (bufferCount - 1) : 0;
-        const size_t copyCount = (static_cast<size_t>(n) < maxCopy) ? static_cast<size_t>(n) : maxCopy;
-        for (size_t i = 0; i < copyCount; ++i)
+        bool unicodeOk = false;
+        if (n > 0)
         {
-            buffer[i] = unicodeBuf[i];
+            unicodeOk = true;
+            for (int i = 0; i < n; ++i)
+            {
+                const wchar_t c = unicodeBuf[i];
+                if (c < 0x20 || c == 0x7F)
+                {
+                    unicodeOk = false;
+                    break;
+                }
+            }
         }
-        buffer[copyCount] = L'\0';
-        return true;
+        if (unicodeOk)
+        {
+            const size_t maxCopy = (bufferCount > 0) ? (bufferCount - 1) : 0;
+            const size_t copyCount = (static_cast<size_t>(n) < maxCopy) ? static_cast<size_t>(n) : maxCopy;
+            for (size_t i = 0; i < copyCount; ++i)
+            {
+                buffer[i] = unicodeBuf[i];
+            }
+            buffer[copyCount] = L'\0';
+            return true;
+        }
+        buffer[0] = L'\0';
     }
 
     if (n < 0)
@@ -214,15 +233,34 @@ static bool Win32_TryFillDisplayLabel(const PhysicalKeyEvent& ev, wchar_t* buffe
     return gkn > 0;
 }
 
-static void PhysicalKey_FormatDebugLine(const PhysicalKeyEvent& ev, const wchar_t* displayLabel, wchar_t* buffer, size_t bufferCount)
+static void Win32_FillLayoutTag(wchar_t* buffer, size_t bufferCount)
+{
+    if (bufferCount == 0)
+    {
+        return;
+    }
+    const HKL hkl = GetKeyboardLayout(0);
+    wchar_t klid[KL_NAMELENGTH] = {};
+    if (GetKeyboardLayoutNameW(klid))
+    {
+        swprintf_s(buffer, bufferCount, L"KLID=%s HKL=%p", klid, hkl);
+    }
+    else
+    {
+        swprintf_s(buffer, bufferCount, L"KLID=(fail) HKL=%p", hkl);
+    }
+}
+
+static void PhysicalKey_FormatDebugLine(const PhysicalKeyEvent& ev, const wchar_t* displayLabel, const wchar_t* layoutTag, wchar_t* buffer, size_t bufferCount)
 {
     swprintf_s(buffer, bufferCount,
-        L"PhysicalKey: native=0x%04X scan=0x%04X ext0=%d ext1=%d %s | label=\"%s\"\r\n",
+        L"PhysicalKey: native=0x%04X scan=0x%04X ext0=%d ext1=%d %s | layout=\"%s\" | label=\"%s\"\r\n",
         ev.native_key_code,
         ev.scan_code,
         ev.is_extended_0 ? 1 : 0,
         ev.is_extended_1 ? 1 : 0,
         ev.is_key_up ? L"break" : L"make",
+        layoutTag ? layoutTag : L"",
         displayLabel ? displayLabel : L"");
 }
 
@@ -276,8 +314,10 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam)
                         labelPtr = L"(none)";
                     }
                 }
-                wchar_t line[384];
-                PhysicalKey_FormatDebugLine(ev, labelPtr, line, _countof(line));
+                wchar_t layoutTag[96] = {};
+                Win32_FillLayoutTag(layoutTag, _countof(layoutTag));
+                wchar_t line[512];
+                PhysicalKey_FormatDebugLine(ev, labelPtr, layoutTag, line, _countof(line));
                 OutputDebugStringW(line);
             }
         }
