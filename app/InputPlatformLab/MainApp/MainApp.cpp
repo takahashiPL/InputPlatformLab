@@ -32,7 +32,8 @@ INT_PTR CALLBACK    About(HWND, UINT, WPARAM, LPARAM);
 
 static BOOL Win32_RegisterKeyboardRawInput(HWND hwnd);
 static bool Win32_TryFillPhysicalKeyFromRawInput(HRAWINPUT hRaw, PhysicalKeyEvent& out);
-static void PhysicalKey_FormatDebugLine(const PhysicalKeyEvent& ev, wchar_t* buffer, size_t bufferCount);
+static bool Win32_TryFillDisplayLabel(const PhysicalKeyEvent& ev, wchar_t* buffer, size_t bufferCount);
+static void PhysicalKey_FormatDebugLine(const PhysicalKeyEvent& ev, const wchar_t* displayLabel, wchar_t* buffer, size_t bufferCount);
 
 int APIENTRY wWinMain(_In_ HINSTANCE hInstance,
                      _In_opt_ HINSTANCE hPrevInstance,
@@ -165,15 +166,64 @@ static bool Win32_TryFillPhysicalKeyFromRawInput(HRAWINPUT hRaw, PhysicalKeyEven
     return true;
 }
 
-static void PhysicalKey_FormatDebugLine(const PhysicalKeyEvent& ev, wchar_t* buffer, size_t bufferCount)
+static bool Win32_TryFillDisplayLabel(const PhysicalKeyEvent& ev, wchar_t* buffer, size_t bufferCount)
+{
+    if (bufferCount == 0)
+    {
+        return false;
+    }
+    buffer[0] = L'\0';
+
+    const HKL hkl = GetKeyboardLayout(0);
+    BYTE keyState[256] = {};
+    const UINT vk = static_cast<UINT>(ev.native_key_code);
+    const UINT scan = static_cast<UINT>(ev.scan_code & 0xFF);
+
+    wchar_t unicodeBuf[8] = {};
+    const int cchUnicode = static_cast<int>(_countof(unicodeBuf));
+    int n = ToUnicodeEx(vk, scan, keyState, unicodeBuf, cchUnicode, 0, hkl);
+
+    if (n > 0)
+    {
+        if (n >= cchUnicode)
+        {
+            n = cchUnicode - 1;
+        }
+        const size_t maxCopy = (bufferCount > 0) ? (bufferCount - 1) : 0;
+        const size_t copyCount = (static_cast<size_t>(n) < maxCopy) ? static_cast<size_t>(n) : maxCopy;
+        for (size_t i = 0; i < copyCount; ++i)
+        {
+            buffer[i] = unicodeBuf[i];
+        }
+        buffer[copyCount] = L'\0';
+        return true;
+    }
+
+    if (n < 0)
+    {
+        ToUnicodeEx(vk, scan, keyState, nullptr, 0, 0, hkl);
+    }
+
+    LPARAM lParam = static_cast<LPARAM>(1) | (static_cast<LPARAM>(ev.scan_code & 0xFF) << 16);
+    if (ev.is_extended_0)
+    {
+        lParam |= (1 << 24);
+    }
+
+    const int gkn = GetKeyNameTextW(lParam, buffer, static_cast<int>(bufferCount));
+    return gkn > 0;
+}
+
+static void PhysicalKey_FormatDebugLine(const PhysicalKeyEvent& ev, const wchar_t* displayLabel, wchar_t* buffer, size_t bufferCount)
 {
     swprintf_s(buffer, bufferCount,
-        L"PhysicalKey: native=0x%04X scan=0x%04X ext0=%d ext1=%d %s\r\n",
+        L"PhysicalKey: native=0x%04X scan=0x%04X ext0=%d ext1=%d %s | label=\"%s\"\r\n",
         ev.native_key_code,
         ev.scan_code,
         ev.is_extended_0 ? 1 : 0,
         ev.is_extended_1 ? 1 : 0,
-        ev.is_key_up ? L"break" : L"make");
+        ev.is_key_up ? L"break" : L"make",
+        displayLabel ? displayLabel : L"");
 }
 
 //
@@ -213,8 +263,21 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam)
             PhysicalKeyEvent ev{};
             if (Win32_TryFillPhysicalKeyFromRawInput(reinterpret_cast<HRAWINPUT>(lParam), ev))
             {
-                wchar_t line[256];
-                PhysicalKey_FormatDebugLine(ev, line, 256);
+                const wchar_t* labelPtr = L"-";
+                wchar_t labelBuf[64] = {};
+                if (!ev.is_key_up)
+                {
+                    if (Win32_TryFillDisplayLabel(ev, labelBuf, _countof(labelBuf)))
+                    {
+                        labelPtr = labelBuf;
+                    }
+                    else
+                    {
+                        labelPtr = L"(none)";
+                    }
+                }
+                wchar_t line[384];
+                PhysicalKey_FormatDebugLine(ev, labelPtr, line, _countof(line));
                 OutputDebugStringW(line);
             }
         }
