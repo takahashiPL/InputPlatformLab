@@ -11,8 +11,10 @@ Windowsアプリの入力基盤試作プロジェクト。
 
 ## 環境
 - C++
-- Visual Studio 2019
+- Visual Studio 2026
 - Windows
+
+ビルド設定の正は `app/InputPlatformLab/MainApp/MainApp.vcxproj` とする。
 
 ## 方針
 - 1マイルストーン = 1ブランチ = 1検証可能単位
