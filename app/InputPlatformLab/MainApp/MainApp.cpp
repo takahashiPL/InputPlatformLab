@@ -353,6 +353,65 @@ static VirtualInputConsumerFrame VirtualInputConsumer_BuildFrame(
     return f;
 }
 
+// T12: キーボード最小アクション（配列非依存の安定キーのみ）。タイマー境界で prev→curr エッジを取る。
+struct KeyboardActionState
+{
+    bool up;
+    bool down;
+    bool left;
+    bool right;
+    bool enter;
+    bool backspace;
+    bool tab;
+};
+
+static VirtualInputConsumerFrame VirtualInputConsumer_BuildFrameFromKeyboardState(
+    const KeyboardActionState& prevKs,
+    const KeyboardActionState& currKs)
+{
+    VirtualInputConsumerFrame f{};
+    std::int8_t mx = 0;
+    std::int8_t my = 0;
+    if (currKs.left && !currKs.right)
+    {
+        mx = -1;
+    }
+    else if (currKs.right && !currKs.left)
+    {
+        mx = 1;
+    }
+    if (currKs.up && !currKs.down)
+    {
+        my = 1;
+    }
+    else if (currKs.down && !currKs.up)
+    {
+        my = -1;
+    }
+    f.moveX = mx;
+    f.moveY = my;
+    f.menuPressed = !prevKs.tab && currKs.tab;
+    f.confirmPressed = !prevKs.enter && currKs.enter;
+    f.cancelPressed = !prevKs.backspace && currKs.backspace;
+    return f;
+}
+
+static VirtualInputConsumerFrame VirtualInputConsumer_MergeKeyboardController(
+    const VirtualInputConsumerFrame& kb,
+    const VirtualInputConsumerFrame& pad)
+{
+    VirtualInputConsumerFrame u{};
+    u.moveX = (pad.moveX != 0) ? pad.moveX : kb.moveX;
+    u.moveY = (pad.moveY != 0) ? pad.moveY : kb.moveY;
+    u.confirmPressed = kb.confirmPressed || pad.confirmPressed;
+    u.cancelPressed = kb.cancelPressed || pad.cancelPressed;
+    u.menuPressed = kb.menuPressed || pad.menuPressed;
+    return u;
+}
+
+static KeyboardActionState s_keyboardActionState{};
+static KeyboardActionState s_keyboardActionStateAtLastTimer{};
+
 // === T25 [2] 補助：HID 属性（分類用。Raw Input 取得は [8]） — 将来: GamepadFamily.cpp など ===
 // Raw Input HID から得た属性（将来 input/ 配下へ移設可能）
 struct GameControllerHidSummary
@@ -417,9 +476,8 @@ static void Win32_LogVirtualInputPolicyIfChanged(
 static void Win32_LogVirtualInputConsumerIfChanged(
     const VirtualInputSnapshot& prev,
     const VirtualInputSnapshot& curr);
-static void Win32_LogVirtualInputMenuSampleIfChanged(
-    const VirtualInputSnapshot& prev,
-    const VirtualInputSnapshot& curr);
+static void Win32_LogVirtualInputMenuSampleIfChanged(const VirtualInputConsumerFrame& unifiedFrame);
+static void Win32_UnifiedInputConsumerMenuTick();
 static void Win32_LogVirtualInputMenuSample_Events(
     const VirtualInputMenuSampleEvents& ev,
     const VirtualInputMenuSampleState& s);
@@ -1055,15 +1113,26 @@ static void Win32_LogVirtualInputMenuSample_StateDumpIfChanged(
     s_virtualInputMenuSampleDumpPrev = s;
 }
 
-static void Win32_LogVirtualInputMenuSampleIfChanged(
-    const VirtualInputSnapshot& prev,
-    const VirtualInputSnapshot& curr)
+static void Win32_LogVirtualInputMenuSampleIfChanged(const VirtualInputConsumerFrame& unifiedFrame)
 {
-    const VirtualInputConsumerFrame f = VirtualInputConsumer_BuildFrame(prev, curr);
     const VirtualInputMenuSampleEvents ev =
-        VirtualInputMenuSample_Apply(s_virtualInputMenuSampleState, f);
+        VirtualInputMenuSample_Apply(s_virtualInputMenuSampleState, unifiedFrame);
     Win32_LogVirtualInputMenuSample_Events(ev, s_virtualInputMenuSampleState);
     Win32_LogVirtualInputMenuSample_StateDumpIfChanged(s_virtualInputMenuSampleState);
+}
+
+static void Win32_UnifiedInputConsumerMenuTick()
+{
+    const VirtualInputConsumerFrame kbFrame =
+        VirtualInputConsumer_BuildFrameFromKeyboardState(
+            s_keyboardActionStateAtLastTimer,
+            s_keyboardActionState);
+    const VirtualInputConsumerFrame ctrlFrame =
+        VirtualInputConsumer_BuildFrame(s_virtualInputPrev, s_virtualInputCurr);
+    const VirtualInputConsumerFrame unified =
+        VirtualInputConsumer_MergeKeyboardController(kbFrame, ctrlFrame);
+    Win32_LogVirtualInputMenuSampleIfChanged(unified);
+    s_keyboardActionStateAtLastTimer = s_keyboardActionState;
 }
 
 // === T25 [8] Win32: 先頭接続スロット取得 + タイマーでの XInput 統合（VirtualInput 更新・エッジログ） ===
@@ -1103,6 +1172,7 @@ static void Win32_XInputPollDigitalEdgesOnTimer(HWND hwnd)
         s_virtualInputConsumerHasPrev = false;
         VirtualInputMenuSample_Reset(s_virtualInputMenuSampleState);
         s_virtualInputMenuSampleDumpHasPrev = false;
+        s_keyboardActionStateAtLastTimer = s_keyboardActionState;
         return;
     }
 
@@ -1123,6 +1193,7 @@ static void Win32_XInputPollDigitalEdgesOnTimer(HWND hwnd)
         s_virtualInputConsumerHasPrev = false;
         VirtualInputMenuSample_Reset(s_virtualInputMenuSampleState);
         s_virtualInputMenuSampleDumpHasPrev = false;
+        s_keyboardActionStateAtLastTimer = s_keyboardActionState;
         return;
     }
 
@@ -1162,12 +1233,12 @@ static void Win32_XInputPollDigitalEdgesOnTimer(HWND hwnd)
         s_virtualInputConsumerHasPrev = false;
         VirtualInputMenuSample_Reset(s_virtualInputMenuSampleState);
         s_virtualInputMenuSampleDumpHasPrev = false;
+        s_keyboardActionStateAtLastTimer = s_keyboardActionState;
         return;
     }
 
     Win32_LogVirtualInputPolicyIfChanged(s_virtualInputPrev, s_virtualInputCurr);
     Win32_LogVirtualInputConsumerIfChanged(s_virtualInputPrev, s_virtualInputCurr);
-    Win32_LogVirtualInputMenuSampleIfChanged(s_virtualInputPrev, s_virtualInputCurr);
 
     const WORD changed = static_cast<WORD>(w ^ s_xinputPollPrevWButtons);
     const bool l2Edge = (l2Now != s_xinputPrevL2Pressed);
@@ -1509,6 +1580,25 @@ static void Win32_LogRawInputHidGameControllersClassified()
     }
 }
 
+// T12: 矢印 / Enter / Backspace / Tab の make-break を追跡（表示ラベルとは独立）
+static void Win32_UpdateKeyboardActionStateFromPhysicalKey(const PhysicalKeyEvent& ev)
+{
+    const UINT vk = static_cast<UINT>(ev.native_key_code);
+    bool* target = nullptr;
+    switch (vk)
+    {
+    case VK_UP: target = &s_keyboardActionState.up; break;
+    case VK_DOWN: target = &s_keyboardActionState.down; break;
+    case VK_LEFT: target = &s_keyboardActionState.left; break;
+    case VK_RIGHT: target = &s_keyboardActionState.right; break;
+    case VK_RETURN: target = &s_keyboardActionState.enter; break;
+    case VK_BACK: target = &s_keyboardActionState.backspace; break;
+    case VK_TAB: target = &s_keyboardActionState.tab; break;
+    default: return;
+    }
+    *target = !ev.is_key_up;
+}
+
 // === T25 [1] 続き: PhysicalKeyEvent の Raw Input 取得・表示ラベル・デバッグ行 ===
 static bool Win32_TryFillPhysicalKeyFromRawInput(HRAWINPUT hRaw, PhysicalKeyEvent& out)
 {
@@ -1712,6 +1802,7 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam)
             PhysicalKeyEvent ev{};
             if (Win32_TryFillPhysicalKeyFromRawInput(reinterpret_cast<HRAWINPUT>(lParam), ev))
             {
+                Win32_UpdateKeyboardActionStateFromPhysicalKey(ev);
                 const wchar_t* labelPtr = L"-";
                 wchar_t labelBuf[64] = {};
                 if (!ev.is_key_up)
@@ -1737,6 +1828,7 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam)
         if (wParam == TIMER_ID_XINPUT_POLL)
         {
             Win32_XInputPollDigitalEdgesOnTimer(hWnd);
+            Win32_UnifiedInputConsumerMenuTick();
         }
         break;
     case WM_PAINT:
