@@ -815,10 +815,6 @@ static void Win32_XInputPollDigitalEdgesOnTimer(HWND hwnd)
     {
         Win32_LogVirtualInputSnapshotSummary(s_virtualInputCurr, slot);
     }
-    if ((s_virtualInputSnapshotLogCounter % 120) == 0)
-    {
-        Win32_LogVirtualInputHelperProbe(s_virtualInputPrev, s_virtualInputCurr, slot);
-    }
 
     if (slot != s_xinputPollPrevSlot)
     {
@@ -857,6 +853,11 @@ static void Win32_XInputPollDigitalEdgesOnTimer(HWND hwnd)
             continue;
         }
         const bool down = (w & e.mask) != 0;
+        VirtualInputSnapshot snapCurr{};
+        if (e.id == GamepadButtonId::South)
+        {
+            Win32_FillVirtualInputSnapshotFromXInputState(state, snapCurr);
+        }
         wchar_t line[256] = {};
         swprintf_s(line, _countof(line),
             L"XInput[slot=%u] id=%s label=\"%s\" %s\r\n",
@@ -865,10 +866,16 @@ static void Win32_XInputPollDigitalEdgesOnTimer(HWND hwnd)
             GamepadButton_GetDisplayLabel(e.id, kFamily),
             down ? L"down" : L"up");
         OutputDebugStringW(line);
+        if (e.id == GamepadButtonId::South)
+        {
+            Win32_LogVirtualInputHelperProbe(s_virtualInputPrev, snapCurr, slot);
+        }
     }
 
     if (l2Edge)
     {
+        VirtualInputSnapshot snapCurr{};
+        Win32_FillVirtualInputSnapshotFromXInputState(state, snapCurr);
         wchar_t line[256] = {};
         swprintf_s(line, _countof(line),
             L"XInput[slot=%u] id=%s label=\"%s\" %s value=%u\r\n",
@@ -878,10 +885,13 @@ static void Win32_XInputPollDigitalEdgesOnTimer(HWND hwnd)
             l2Now ? L"down" : L"up",
             static_cast<unsigned int>(lt));
         OutputDebugStringW(line);
+        Win32_LogVirtualInputHelperProbe(s_virtualInputPrev, snapCurr, slot);
     }
 
     if (r2Edge)
     {
+        VirtualInputSnapshot snapCurr{};
+        Win32_FillVirtualInputSnapshotFromXInputState(state, snapCurr);
         wchar_t line[256] = {};
         swprintf_s(line, _countof(line),
             L"XInput[slot=%u] id=%s label=\"%s\" %s value=%u\r\n",
@@ -891,12 +901,15 @@ static void Win32_XInputPollDigitalEdgesOnTimer(HWND hwnd)
             r2Now ? L"down" : L"up",
             static_cast<unsigned int>(rt));
         OutputDebugStringW(line);
+        Win32_LogVirtualInputHelperProbe(s_virtualInputPrev, snapCurr, slot);
     }
 
     if (stickEvent)
     {
         if (leftDzEdge)
         {
+            VirtualInputSnapshot snapCurr{};
+            Win32_FillVirtualInputSnapshotFromXInputState(state, snapCurr);
             wchar_t line[320] = {};
             if (leftInDz)
             {
@@ -916,9 +929,12 @@ static void Win32_XInputPollDigitalEdgesOnTimer(HWND hwnd)
                     Win32_LeftStickDirLabel(leftDir));
             }
             OutputDebugStringW(line);
+            Win32_LogVirtualInputHelperProbe(s_virtualInputPrev, snapCurr, slot);
         }
         else if (leftDirEdge)
         {
+            VirtualInputSnapshot snapCurr{};
+            Win32_FillVirtualInputSnapshotFromXInputState(state, snapCurr);
             wchar_t line[320] = {};
             swprintf_s(line, _countof(line),
                 L"XInput[slot=%u] LeftStick dz=out raw=(%d,%d) dir=%s->%s\r\n",
@@ -928,10 +944,13 @@ static void Win32_XInputPollDigitalEdgesOnTimer(HWND hwnd)
                 Win32_LeftStickDirLabel(s_xinputPrevLeftDir),
                 Win32_LeftStickDirLabel(leftDir));
             OutputDebugStringW(line);
+            Win32_LogVirtualInputHelperProbe(s_virtualInputPrev, snapCurr, slot);
         }
 
         if (rightDzEdge)
         {
+            VirtualInputSnapshot snapCurr{};
+            Win32_FillVirtualInputSnapshotFromXInputState(state, snapCurr);
             wchar_t line[320] = {};
             if (rightInDz)
             {
@@ -951,9 +970,12 @@ static void Win32_XInputPollDigitalEdgesOnTimer(HWND hwnd)
                     Win32_LeftStickDirLabel(rightDir));
             }
             OutputDebugStringW(line);
+            Win32_LogVirtualInputHelperProbe(s_virtualInputPrev, snapCurr, slot);
         }
         else if (rightDirEdge)
         {
+            VirtualInputSnapshot snapCurr{};
+            Win32_FillVirtualInputSnapshotFromXInputState(state, snapCurr);
             wchar_t line[320] = {};
             swprintf_s(line, _countof(line),
                 L"XInput[slot=%u] axis=RightStick dz=out raw=(%d,%d) dir=%s->%s\r\n",
@@ -963,6 +985,7 @@ static void Win32_XInputPollDigitalEdgesOnTimer(HWND hwnd)
                 Win32_LeftStickDirLabel(s_xinputPrevRightDir),
                 Win32_LeftStickDirLabel(rightDir));
             OutputDebugStringW(line);
+            Win32_LogVirtualInputHelperProbe(s_virtualInputPrev, snapCurr, slot);
         }
     }
 
