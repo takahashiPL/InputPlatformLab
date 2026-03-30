@@ -315,6 +315,31 @@ static VirtualInputPolicyMenuEdges VirtualInputPolicy_MenuEdges(
     return e;
 }
 
+// T21: 消費側 1 フレーム分（VirtualInputSnapshot / XInput を知らない層向け。policy から組み立てる）
+struct VirtualInputConsumerFrame
+{
+    std::int8_t moveX;
+    std::int8_t moveY;
+    bool confirmPressed;
+    bool cancelPressed;
+    bool menuPressed;
+};
+
+static VirtualInputConsumerFrame VirtualInputConsumer_BuildFrame(
+    const VirtualInputSnapshot& prev,
+    const VirtualInputSnapshot& curr)
+{
+    VirtualInputConsumerFrame f{};
+    const VirtualInputPolicyHeld held = VirtualInputPolicy_MoveHeld(curr);
+    f.moveX = held.moveX;
+    f.moveY = held.moveY;
+    const VirtualInputPolicyMenuEdges e = VirtualInputPolicy_MenuEdges(prev, curr);
+    f.confirmPressed = e.confirm;
+    f.cancelPressed = e.cancel;
+    f.menuPressed = e.menu;
+    return f;
+}
+
 // Raw Input HID から得た属性（将来 input/ 配下へ移設可能）
 struct GameControllerHidSummary
 {
@@ -367,6 +392,9 @@ static void Win32_LogVirtualInputHelperProbe(
     const VirtualInputSnapshot& curr,
     DWORD slot);
 static void Win32_LogVirtualInputPolicyIfChanged(
+    const VirtualInputSnapshot& prev,
+    const VirtualInputSnapshot& curr);
+static void Win32_LogVirtualInputConsumerIfChanged(
     const VirtualInputSnapshot& prev,
     const VirtualInputSnapshot& curr);
 
@@ -700,6 +728,8 @@ static GamepadLeftStickDir s_xinputPrevRightDir = GamepadLeftStickDir::None;
 static UINT s_virtualInputSnapshotLogCounter = 0;
 static VirtualInputSnapshot s_virtualInputPrev{};
 static VirtualInputSnapshot s_virtualInputCurr{};
+static VirtualInputConsumerFrame s_virtualInputConsumerPrev{};
+static bool s_virtualInputConsumerHasPrev = false;
 
 static bool Win32_LeftStickInDeadzone(SHORT x, SHORT y)
 {
@@ -876,6 +906,41 @@ static void Win32_LogVirtualInputPolicyIfChanged(
     }
 }
 
+static void Win32_LogVirtualInputConsumerIfChanged(
+    const VirtualInputSnapshot& prev,
+    const VirtualInputSnapshot& curr)
+{
+    const VirtualInputConsumerFrame now = VirtualInputConsumer_BuildFrame(prev, curr);
+    if (!s_virtualInputConsumerHasPrev)
+    {
+        s_virtualInputConsumerPrev = now;
+        s_virtualInputConsumerHasPrev = true;
+        return;
+    }
+
+    const bool changed =
+        s_virtualInputConsumerPrev.moveX != now.moveX ||
+        s_virtualInputConsumerPrev.moveY != now.moveY ||
+        s_virtualInputConsumerPrev.confirmPressed != now.confirmPressed ||
+        s_virtualInputConsumerPrev.cancelPressed != now.cancelPressed ||
+        s_virtualInputConsumerPrev.menuPressed != now.menuPressed;
+    if (!changed)
+    {
+        return;
+    }
+
+    wchar_t line[256] = {};
+    swprintf_s(line, _countof(line),
+        L"VirtualInputConsumer move=(%d,%d) confirm=%d cancel=%d menu=%d\r\n",
+        static_cast<int>(now.moveX),
+        static_cast<int>(now.moveY),
+        now.confirmPressed ? 1 : 0,
+        now.cancelPressed ? 1 : 0,
+        now.menuPressed ? 1 : 0);
+    OutputDebugStringW(line);
+    s_virtualInputConsumerPrev = now;
+}
+
 static DWORD Win32_GetFirstConnectedXInputSlotOrMax()
 {
     for (DWORD i = 0; i < XUSER_MAX_COUNT; ++i)
@@ -909,6 +974,7 @@ static void Win32_XInputPollDigitalEdgesOnTimer(HWND hwnd)
         s_virtualInputSnapshotLogCounter = 0;
         VirtualInput_ResetDisconnected(s_virtualInputPrev);
         VirtualInput_ResetDisconnected(s_virtualInputCurr);
+        s_virtualInputConsumerHasPrev = false;
         return;
     }
 
@@ -926,6 +992,7 @@ static void Win32_XInputPollDigitalEdgesOnTimer(HWND hwnd)
         s_virtualInputSnapshotLogCounter = 0;
         VirtualInput_ResetDisconnected(s_virtualInputPrev);
         VirtualInput_ResetDisconnected(s_virtualInputCurr);
+        s_virtualInputConsumerHasPrev = false;
         return;
     }
 
@@ -962,10 +1029,12 @@ static void Win32_XInputPollDigitalEdgesOnTimer(HWND hwnd)
         s_xinputPrevLeftDir = leftDir;
         s_xinputPrevRightInDeadzone = rightInDz;
         s_xinputPrevRightDir = rightDir;
+        s_virtualInputConsumerHasPrev = false;
         return;
     }
 
     Win32_LogVirtualInputPolicyIfChanged(s_virtualInputPrev, s_virtualInputCurr);
+    Win32_LogVirtualInputConsumerIfChanged(s_virtualInputPrev, s_virtualInputCurr);
 
     const WORD changed = static_cast<WORD>(w ^ s_xinputPollPrevWButtons);
     const bool l2Edge = (l2Now != s_xinputPrevL2Pressed);
