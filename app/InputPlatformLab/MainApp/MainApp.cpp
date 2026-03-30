@@ -1532,6 +1532,43 @@ static bool Win32_TryFillPhysicalKeyFromRawInput(HRAWINPUT hRaw, PhysicalKeyEven
     return true;
 }
 
+// ToUnicodeEx 用 keyState: 修飾キー自身の make では従来どおり空配列（GetKeyNameTextW フォールバック）を優先する。
+// 非修飾キーでは Shift のみ GetAsyncKeyState で反映（Ctrl/Alt/AltGr/CapsLock は T07 スコープ外）。
+static bool Win32_IsModifierVirtualKeyForLabel(UINT vk)
+{
+    switch (vk)
+    {
+    case VK_SHIFT:
+    case VK_LSHIFT:
+    case VK_RSHIFT:
+    case VK_CONTROL:
+    case VK_LCONTROL:
+    case VK_RCONTROL:
+    case VK_MENU:
+    case VK_LMENU:
+    case VK_RMENU:
+        return true;
+    default:
+        return false;
+    }
+}
+
+static void Win32_ApplyShiftOnlyToKeyStateForToUnicodeEx(BYTE keyState[256])
+{
+    if ((GetAsyncKeyState(VK_SHIFT) & 0x8000) != 0)
+    {
+        keyState[VK_SHIFT] |= 0x80;
+    }
+    if ((GetAsyncKeyState(VK_LSHIFT) & 0x8000) != 0)
+    {
+        keyState[VK_LSHIFT] |= 0x80;
+    }
+    if ((GetAsyncKeyState(VK_RSHIFT) & 0x8000) != 0)
+    {
+        keyState[VK_RSHIFT] |= 0x80;
+    }
+}
+
 static bool Win32_TryFillDisplayLabel(const PhysicalKeyEvent& ev, wchar_t* buffer, size_t bufferCount)
 {
     if (bufferCount == 0)
@@ -1544,6 +1581,11 @@ static bool Win32_TryFillDisplayLabel(const PhysicalKeyEvent& ev, wchar_t* buffe
     BYTE keyState[256] = {};
     const UINT vk = static_cast<UINT>(ev.native_key_code);
     const UINT scan = static_cast<UINT>(ev.scan_code & 0xFF);
+
+    if (!Win32_IsModifierVirtualKeyForLabel(vk))
+    {
+        Win32_ApplyShiftOnlyToKeyStateForToUnicodeEx(keyState);
+    }
 
     wchar_t unicodeBuf[8] = {};
     const int cchUnicode = static_cast<int>(_countof(unicodeBuf));
