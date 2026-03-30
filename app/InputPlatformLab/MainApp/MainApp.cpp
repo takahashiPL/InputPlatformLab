@@ -214,6 +214,80 @@ static bool VirtualInput_RightInDeadzone(const VirtualInputSnapshot& s)
     return s.rightInDeadzone;
 }
 
+// T17: ゲーム側に近い最小 action（Win32 / XInput 非依存。DPad が 1 つでも押されていれば移動は DPad のみ、それ以外は左スティック）
+struct VirtualInputGameActions
+{
+    std::int8_t moveX;
+    std::int8_t moveY;
+};
+
+static std::int8_t VirtualInput_ClampNeg1_0_1(int v)
+{
+    if (v < -1)
+    {
+        return -1;
+    }
+    if (v > 1)
+    {
+        return 1;
+    }
+    return static_cast<std::int8_t>(v);
+}
+
+static void VirtualInput_FillMoveFromDpad(const VirtualInputSnapshot& s, std::int8_t& outX, std::int8_t& outY)
+{
+    int x = 0;
+    int y = 0;
+    if (s.dpadLeft)
+    {
+        x -= 1;
+    }
+    if (s.dpadRight)
+    {
+        x += 1;
+    }
+    if (s.dpadUp)
+    {
+        y += 1;
+    }
+    if (s.dpadDown)
+    {
+        y -= 1;
+    }
+    outX = VirtualInput_ClampNeg1_0_1(x);
+    outY = VirtualInput_ClampNeg1_0_1(y);
+}
+
+static void VirtualInput_FillMoveFromLeftStick(const VirtualInputSnapshot& s, std::int8_t& outX, std::int8_t& outY)
+{
+    outX = 0;
+    outY = 0;
+    switch (s.leftDir)
+    {
+    case GamepadLeftStickDir::Left: outX = -1; break;
+    case GamepadLeftStickDir::Right: outX = 1; break;
+    case GamepadLeftStickDir::Up: outY = 1; break;
+    case GamepadLeftStickDir::Down: outY = -1; break;
+    default: break;
+    }
+}
+
+static VirtualInputGameActions VirtualInput_DeriveMoveActions(const VirtualInputSnapshot& s)
+{
+    VirtualInputGameActions a{};
+    const bool dpadAny =
+        s.dpadUp || s.dpadDown || s.dpadLeft || s.dpadRight;
+    if (dpadAny)
+    {
+        VirtualInput_FillMoveFromDpad(s, a.moveX, a.moveY);
+    }
+    else
+    {
+        VirtualInput_FillMoveFromLeftStick(s, a.moveX, a.moveY);
+    }
+    return a;
+}
+
 // Raw Input HID から得た属性（将来 input/ 配下へ移設可能）
 struct GameControllerHidSummary
 {
@@ -265,6 +339,9 @@ static void Win32_LogVirtualInputHelperProbe(
     const VirtualInputSnapshot& prev,
     const VirtualInputSnapshot& curr,
     DWORD slot);
+static void Win32_LogVirtualInputT17IfChanged(
+    const VirtualInputSnapshot& prev,
+    const VirtualInputSnapshot& curr);
 
 static DWORD Win32_GetFirstConnectedXInputSlotOrMax();
 static void Win32_XInputPollDigitalEdgesOnTimer(HWND hwnd);
@@ -740,6 +817,39 @@ static void Win32_LogVirtualInputHelperProbe(
     OutputDebugStringW(line);
 }
 
+static void Win32_LogVirtualInputT17IfChanged(
+    const VirtualInputSnapshot& prev,
+    const VirtualInputSnapshot& curr)
+{
+    const VirtualInputGameActions pm = VirtualInput_DeriveMoveActions(prev);
+    const VirtualInputGameActions cm = VirtualInput_DeriveMoveActions(curr);
+    const bool moveChanged =
+        (pm.moveX != cm.moveX) || (pm.moveY != cm.moveY);
+
+    if (moveChanged)
+    {
+        wchar_t line[160] = {};
+        swprintf_s(line, _countof(line),
+            L"VirtualInputT17 move=(%d,%d)\r\n",
+            static_cast<int>(cm.moveX),
+            static_cast<int>(cm.moveY));
+        OutputDebugStringW(line);
+    }
+
+    if (VirtualInput_WasButtonPressed(prev, curr, GamepadButtonId::South))
+    {
+        OutputDebugStringW(L"VirtualInputT17 Confirm\r\n");
+    }
+    if (VirtualInput_WasButtonPressed(prev, curr, GamepadButtonId::East))
+    {
+        OutputDebugStringW(L"VirtualInputT17 Cancel\r\n");
+    }
+    if (VirtualInput_WasButtonPressed(prev, curr, GamepadButtonId::Start))
+    {
+        OutputDebugStringW(L"VirtualInputT17 Menu\r\n");
+    }
+}
+
 static DWORD Win32_GetFirstConnectedXInputSlotOrMax()
 {
     for (DWORD i = 0; i < XUSER_MAX_COUNT; ++i)
@@ -828,6 +938,8 @@ static void Win32_XInputPollDigitalEdgesOnTimer(HWND hwnd)
         s_xinputPrevRightDir = rightDir;
         return;
     }
+
+    Win32_LogVirtualInputT17IfChanged(s_virtualInputPrev, s_virtualInputCurr);
 
     const WORD changed = static_cast<WORD>(w ^ s_xinputPollPrevWButtons);
     const bool l2Edge = (l2Now != s_xinputPrevL2Pressed);
