@@ -214,14 +214,30 @@ static bool VirtualInput_RightInDeadzone(const VirtualInputSnapshot& s)
     return s.rightInDeadzone;
 }
 
-// T17: ゲーム側に近い最小 action（Win32 / XInput 非依存。DPad が 1 つでも押されていれば移動は DPad のみ、それ以外は左スティック）
-struct VirtualInputGameActions
+// T17/T19: 仮想入力の最小ポリシー（Win32 / XInput 非依存。VirtualInputSnapshot と既存 helper の上に載せる）
+//
+// 固定ルール:
+// - Confirm = South の pressed（遷移 1 フレーム）
+// - Cancel  = East の pressed
+// - Menu    = Start の pressed
+// - Move    = DPad 優先（1 つでも押されていれば DPad のみ）。なければ左スティック最小 4 方向
+// - DPad    = 斜め合成あり（各軸 -1/0/+1 にクランプ）
+// - Move は curr スナップショットから held として読む / メニュー系は prev→curr で pressed（遷移）として読む
+
+struct VirtualInputPolicyHeld
 {
     std::int8_t moveX;
     std::int8_t moveY;
 };
 
-static std::int8_t VirtualInput_ClampNeg1_0_1(int v)
+struct VirtualInputPolicyMenuEdges
+{
+    bool confirm;
+    bool cancel;
+    bool menu;
+};
+
+static std::int8_t VirtualInputPolicy_ClampNeg1_0_1(int v)
 {
     if (v < -1)
     {
@@ -234,7 +250,7 @@ static std::int8_t VirtualInput_ClampNeg1_0_1(int v)
     return static_cast<std::int8_t>(v);
 }
 
-static void VirtualInput_FillMoveFromDpad(const VirtualInputSnapshot& s, std::int8_t& outX, std::int8_t& outY)
+static void VirtualInputPolicy_FillMoveFromDpad(const VirtualInputSnapshot& s, std::int8_t& outX, std::int8_t& outY)
 {
     int x = 0;
     int y = 0;
@@ -254,11 +270,11 @@ static void VirtualInput_FillMoveFromDpad(const VirtualInputSnapshot& s, std::in
     {
         y -= 1;
     }
-    outX = VirtualInput_ClampNeg1_0_1(x);
-    outY = VirtualInput_ClampNeg1_0_1(y);
+    outX = VirtualInputPolicy_ClampNeg1_0_1(x);
+    outY = VirtualInputPolicy_ClampNeg1_0_1(y);
 }
 
-static void VirtualInput_FillMoveFromLeftStick(const VirtualInputSnapshot& s, std::int8_t& outX, std::int8_t& outY)
+static void VirtualInputPolicy_FillMoveFromLeftStick(const VirtualInputSnapshot& s, std::int8_t& outX, std::int8_t& outY)
 {
     outX = 0;
     outY = 0;
@@ -272,20 +288,31 @@ static void VirtualInput_FillMoveFromLeftStick(const VirtualInputSnapshot& s, st
     }
 }
 
-static VirtualInputGameActions VirtualInput_DeriveMoveActions(const VirtualInputSnapshot& s)
+static VirtualInputPolicyHeld VirtualInputPolicy_MoveHeld(const VirtualInputSnapshot& s)
 {
-    VirtualInputGameActions a{};
+    VirtualInputPolicyHeld h{};
     const bool dpadAny =
         s.dpadUp || s.dpadDown || s.dpadLeft || s.dpadRight;
     if (dpadAny)
     {
-        VirtualInput_FillMoveFromDpad(s, a.moveX, a.moveY);
+        VirtualInputPolicy_FillMoveFromDpad(s, h.moveX, h.moveY);
     }
     else
     {
-        VirtualInput_FillMoveFromLeftStick(s, a.moveX, a.moveY);
+        VirtualInputPolicy_FillMoveFromLeftStick(s, h.moveX, h.moveY);
     }
-    return a;
+    return h;
+}
+
+static VirtualInputPolicyMenuEdges VirtualInputPolicy_MenuEdges(
+    const VirtualInputSnapshot& prev,
+    const VirtualInputSnapshot& curr)
+{
+    VirtualInputPolicyMenuEdges e{};
+    e.confirm = VirtualInput_WasButtonPressed(prev, curr, GamepadButtonId::South);
+    e.cancel = VirtualInput_WasButtonPressed(prev, curr, GamepadButtonId::East);
+    e.menu = VirtualInput_WasButtonPressed(prev, curr, GamepadButtonId::Start);
+    return e;
 }
 
 // Raw Input HID から得た属性（将来 input/ 配下へ移設可能）
@@ -339,7 +366,7 @@ static void Win32_LogVirtualInputHelperProbe(
     const VirtualInputSnapshot& prev,
     const VirtualInputSnapshot& curr,
     DWORD slot);
-static void Win32_LogVirtualInputT17IfChanged(
+static void Win32_LogVirtualInputPolicyIfChanged(
     const VirtualInputSnapshot& prev,
     const VirtualInputSnapshot& curr);
 
@@ -817,12 +844,12 @@ static void Win32_LogVirtualInputHelperProbe(
     OutputDebugStringW(line);
 }
 
-static void Win32_LogVirtualInputT17IfChanged(
+static void Win32_LogVirtualInputPolicyIfChanged(
     const VirtualInputSnapshot& prev,
     const VirtualInputSnapshot& curr)
 {
-    const VirtualInputGameActions pm = VirtualInput_DeriveMoveActions(prev);
-    const VirtualInputGameActions cm = VirtualInput_DeriveMoveActions(curr);
+    const VirtualInputPolicyHeld pm = VirtualInputPolicy_MoveHeld(prev);
+    const VirtualInputPolicyHeld cm = VirtualInputPolicy_MoveHeld(curr);
     const bool moveChanged =
         (pm.moveX != cm.moveX) || (pm.moveY != cm.moveY);
 
@@ -830,23 +857,24 @@ static void Win32_LogVirtualInputT17IfChanged(
     {
         wchar_t line[160] = {};
         swprintf_s(line, _countof(line),
-            L"VirtualInputT17 move=(%d,%d)\r\n",
+            L"VirtualInputPolicy moveHeld=(%d,%d)\r\n",
             static_cast<int>(cm.moveX),
             static_cast<int>(cm.moveY));
         OutputDebugStringW(line);
     }
 
-    if (VirtualInput_WasButtonPressed(prev, curr, GamepadButtonId::South))
+    const VirtualInputPolicyMenuEdges e = VirtualInputPolicy_MenuEdges(prev, curr);
+    if (e.confirm)
     {
-        OutputDebugStringW(L"VirtualInputT17 Confirm\r\n");
+        OutputDebugStringW(L"VirtualInputPolicy Confirm(pressed)\r\n");
     }
-    if (VirtualInput_WasButtonPressed(prev, curr, GamepadButtonId::East))
+    if (e.cancel)
     {
-        OutputDebugStringW(L"VirtualInputT17 Cancel\r\n");
+        OutputDebugStringW(L"VirtualInputPolicy Cancel(pressed)\r\n");
     }
-    if (VirtualInput_WasButtonPressed(prev, curr, GamepadButtonId::Start))
+    if (e.menu)
     {
-        OutputDebugStringW(L"VirtualInputT17 Menu\r\n");
+        OutputDebugStringW(L"VirtualInputPolicy Menu(pressed)\r\n");
     }
 }
 
@@ -939,7 +967,7 @@ static void Win32_XInputPollDigitalEdgesOnTimer(HWND hwnd)
         return;
     }
 
-    Win32_LogVirtualInputT17IfChanged(s_virtualInputPrev, s_virtualInputCurr);
+    Win32_LogVirtualInputPolicyIfChanged(s_virtualInputPrev, s_virtualInputCurr);
 
     const WORD changed = static_cast<WORD>(w ^ s_xinputPollPrevWButtons);
     const bool l2Edge = (l2Now != s_xinputPrevL2Pressed);
