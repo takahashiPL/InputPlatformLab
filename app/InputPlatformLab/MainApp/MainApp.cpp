@@ -502,6 +502,8 @@ static void Win32_LogVirtualInputMenuSampleIfChanged(
 static void Win32_LogVirtualInputMenuSample_Events(
     const VirtualInputMenuSampleEvents& ev,
     const VirtualInputMenuSampleState& s);
+static void Win32_LogVirtualInputMenuSample_StateDumpIfChanged(
+    const VirtualInputMenuSampleState& s);
 
 static DWORD Win32_GetFirstConnectedXInputSlotOrMax();
 static void Win32_XInputPollDigitalEdgesOnTimer(HWND hwnd);
@@ -836,6 +838,8 @@ static VirtualInputSnapshot s_virtualInputCurr{};
 static VirtualInputConsumerFrame s_virtualInputConsumerPrev{};
 static bool s_virtualInputConsumerHasPrev = false;
 static VirtualInputMenuSampleState s_virtualInputMenuSampleState{};
+static VirtualInputMenuSampleState s_virtualInputMenuSampleDumpPrev{};
+static bool s_virtualInputMenuSampleDumpHasPrev = false;
 
 static bool Win32_LeftStickInDeadzone(SHORT x, SHORT y)
 {
@@ -1087,6 +1091,40 @@ static void Win32_LogVirtualInputMenuSample_Events(
     }
 }
 
+// T24: メニューサンプル状態の 1 行ダンプ（Apply/Reset は変更しない。state 変化時のみ）
+static void Win32_LogVirtualInputMenuSample_StateDumpIfChanged(
+    const VirtualInputMenuSampleState& s)
+{
+    if (!s_virtualInputMenuSampleDumpHasPrev)
+    {
+        s_virtualInputMenuSampleDumpPrev = s;
+        s_virtualInputMenuSampleDumpHasPrev = true;
+        return;
+    }
+
+    const bool stateChanged =
+        s.menuOpen != s_virtualInputMenuSampleDumpPrev.menuOpen ||
+        s.selectionX != s_virtualInputMenuSampleDumpPrev.selectionX ||
+        s.selectionY != s_virtualInputMenuSampleDumpPrev.selectionY ||
+        s.prevMoveX != s_virtualInputMenuSampleDumpPrev.prevMoveX ||
+        s.prevMoveY != s_virtualInputMenuSampleDumpPrev.prevMoveY;
+    if (!stateChanged)
+    {
+        return;
+    }
+
+    wchar_t line[192] = {};
+    swprintf_s(line, _countof(line),
+        L"VirtualInputMenuSampleDump open=%d sel=(%d,%d) prevMove=(%d,%d) changed=1\r\n",
+        s.menuOpen ? 1 : 0,
+        static_cast<int>(s.selectionX),
+        static_cast<int>(s.selectionY),
+        static_cast<int>(s.prevMoveX),
+        static_cast<int>(s.prevMoveY));
+    OutputDebugStringW(line);
+    s_virtualInputMenuSampleDumpPrev = s;
+}
+
 static void Win32_LogVirtualInputMenuSampleIfChanged(
     const VirtualInputSnapshot& prev,
     const VirtualInputSnapshot& curr)
@@ -1095,6 +1133,7 @@ static void Win32_LogVirtualInputMenuSampleIfChanged(
     const VirtualInputMenuSampleEvents ev =
         VirtualInputMenuSample_Apply(s_virtualInputMenuSampleState, f);
     Win32_LogVirtualInputMenuSample_Events(ev, s_virtualInputMenuSampleState);
+    Win32_LogVirtualInputMenuSample_StateDumpIfChanged(s_virtualInputMenuSampleState);
 }
 
 static DWORD Win32_GetFirstConnectedXInputSlotOrMax()
@@ -1132,6 +1171,7 @@ static void Win32_XInputPollDigitalEdgesOnTimer(HWND hwnd)
         VirtualInput_ResetDisconnected(s_virtualInputCurr);
         s_virtualInputConsumerHasPrev = false;
         VirtualInputMenuSample_Reset(s_virtualInputMenuSampleState);
+        s_virtualInputMenuSampleDumpHasPrev = false;
         return;
     }
 
@@ -1151,6 +1191,7 @@ static void Win32_XInputPollDigitalEdgesOnTimer(HWND hwnd)
         VirtualInput_ResetDisconnected(s_virtualInputCurr);
         s_virtualInputConsumerHasPrev = false;
         VirtualInputMenuSample_Reset(s_virtualInputMenuSampleState);
+        s_virtualInputMenuSampleDumpHasPrev = false;
         return;
     }
 
@@ -1189,6 +1230,7 @@ static void Win32_XInputPollDigitalEdgesOnTimer(HWND hwnd)
         s_xinputPrevRightDir = rightDir;
         s_virtualInputConsumerHasPrev = false;
         VirtualInputMenuSample_Reset(s_virtualInputMenuSampleState);
+        s_virtualInputMenuSampleDumpHasPrev = false;
         return;
     }
 
