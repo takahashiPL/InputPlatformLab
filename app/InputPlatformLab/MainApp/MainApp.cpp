@@ -26,6 +26,10 @@
 #define XINPUT_GAMEPAD_LEFT_THUMB_DEADZONE 7849
 #endif
 
+#ifndef XINPUT_GAMEPAD_RIGHT_THUMB_DEADZONE
+#define XINPUT_GAMEPAD_RIGHT_THUMB_DEADZONE 8689
+#endif
+
 // Windows 8.1+（targetver によっては未定義のため）
 #ifndef RIDI_PRODUCTNAME
 #define RIDI_PRODUCTNAME 0x20000007
@@ -462,6 +466,8 @@ static bool s_xinputPrevL2Pressed = false;
 static bool s_xinputPrevR2Pressed = false;
 static bool s_xinputPrevLeftInDeadzone = true;
 static GamepadLeftStickDir s_xinputPrevLeftDir = GamepadLeftStickDir::None;
+static bool s_xinputPrevRightInDeadzone = true;
+static GamepadLeftStickDir s_xinputPrevRightDir = GamepadLeftStickDir::None;
 
 static bool Win32_LeftStickInDeadzone(SHORT x, SHORT y)
 {
@@ -469,6 +475,14 @@ static bool Win32_LeftStickInDeadzone(SHORT x, SHORT y)
     const double dy = static_cast<double>(y);
     const double mag = std::sqrt(dx * dx + dy * dy);
     return mag < static_cast<double>(XINPUT_GAMEPAD_LEFT_THUMB_DEADZONE);
+}
+
+static bool Win32_RightStickInDeadzone(SHORT x, SHORT y)
+{
+    const double dx = static_cast<double>(x);
+    const double dy = static_cast<double>(y);
+    const double mag = std::sqrt(dx * dx + dy * dy);
+    return mag < static_cast<double>(XINPUT_GAMEPAD_RIGHT_THUMB_DEADZONE);
 }
 
 static GamepadLeftStickDir Win32_ClassifyLeftStickDir(SHORT x, SHORT y, bool inDeadzone)
@@ -526,6 +540,8 @@ static void Win32_XInputPollDigitalEdgesOnTimer(HWND hwnd)
         s_xinputPrevR2Pressed = false;
         s_xinputPrevLeftInDeadzone = true;
         s_xinputPrevLeftDir = GamepadLeftStickDir::None;
+        s_xinputPrevRightInDeadzone = true;
+        s_xinputPrevRightDir = GamepadLeftStickDir::None;
         return;
     }
 
@@ -538,6 +554,8 @@ static void Win32_XInputPollDigitalEdgesOnTimer(HWND hwnd)
         s_xinputPrevR2Pressed = false;
         s_xinputPrevLeftInDeadzone = true;
         s_xinputPrevLeftDir = GamepadLeftStickDir::None;
+        s_xinputPrevRightInDeadzone = true;
+        s_xinputPrevRightDir = GamepadLeftStickDir::None;
         return;
     }
 
@@ -552,6 +570,11 @@ static void Win32_XInputPollDigitalEdgesOnTimer(HWND hwnd)
     const bool leftInDz = Win32_LeftStickInDeadzone(lx, ly);
     const GamepadLeftStickDir leftDir = Win32_ClassifyLeftStickDir(lx, ly, leftInDz);
 
+    const SHORT rx = state.Gamepad.sThumbRX;
+    const SHORT ry = state.Gamepad.sThumbRY;
+    const bool rightInDz = Win32_RightStickInDeadzone(rx, ry);
+    const GamepadLeftStickDir rightDir = Win32_ClassifyLeftStickDir(rx, ry, rightInDz);
+
     if (slot != s_xinputPollPrevSlot)
     {
         s_xinputPollPrevSlot = slot;
@@ -560,6 +583,8 @@ static void Win32_XInputPollDigitalEdgesOnTimer(HWND hwnd)
         s_xinputPrevR2Pressed = r2Now;
         s_xinputPrevLeftInDeadzone = leftInDz;
         s_xinputPrevLeftDir = leftDir;
+        s_xinputPrevRightInDeadzone = rightInDz;
+        s_xinputPrevRightDir = rightDir;
         return;
     }
 
@@ -570,7 +595,10 @@ static void Win32_XInputPollDigitalEdgesOnTimer(HWND hwnd)
     const bool leftDzEdge = (leftInDz != s_xinputPrevLeftInDeadzone);
     const bool leftDirEdge =
         !leftInDz && !s_xinputPrevLeftInDeadzone && (leftDir != s_xinputPrevLeftDir);
-    const bool stickEvent = leftDzEdge || leftDirEdge;
+    const bool rightDzEdge = (rightInDz != s_xinputPrevRightInDeadzone);
+    const bool rightDirEdge =
+        !rightInDz && !s_xinputPrevRightInDeadzone && (rightDir != s_xinputPrevRightDir);
+    const bool stickEvent = leftDzEdge || leftDirEdge || rightDzEdge || rightDirEdge;
 
     if (changed == 0 && !l2Edge && !r2Edge && !stickEvent)
     {
@@ -656,6 +684,41 @@ static void Win32_XInputPollDigitalEdgesOnTimer(HWND hwnd)
                 Win32_LeftStickDirLabel(leftDir));
             OutputDebugStringW(line);
         }
+
+        if (rightDzEdge)
+        {
+            wchar_t line[320] = {};
+            if (rightInDz)
+            {
+                swprintf_s(line, _countof(line),
+                    L"XInput[slot=%u] axis=RightStick dz=in raw=(%d,%d)\r\n",
+                    static_cast<unsigned int>(slot),
+                    static_cast<int>(rx),
+                    static_cast<int>(ry));
+            }
+            else
+            {
+                swprintf_s(line, _countof(line),
+                    L"XInput[slot=%u] axis=RightStick dz=out raw=(%d,%d) dir=%s\r\n",
+                    static_cast<unsigned int>(slot),
+                    static_cast<int>(rx),
+                    static_cast<int>(ry),
+                    Win32_LeftStickDirLabel(rightDir));
+            }
+            OutputDebugStringW(line);
+        }
+        else if (rightDirEdge)
+        {
+            wchar_t line[320] = {};
+            swprintf_s(line, _countof(line),
+                L"XInput[slot=%u] axis=RightStick dz=out raw=(%d,%d) dir=%s->%s\r\n",
+                static_cast<unsigned int>(slot),
+                static_cast<int>(rx),
+                static_cast<int>(ry),
+                Win32_LeftStickDirLabel(s_xinputPrevRightDir),
+                Win32_LeftStickDirLabel(rightDir));
+            OutputDebugStringW(line);
+        }
     }
 
     s_xinputPollPrevWButtons = w;
@@ -663,6 +726,8 @@ static void Win32_XInputPollDigitalEdgesOnTimer(HWND hwnd)
     s_xinputPrevR2Pressed = r2Now;
     s_xinputPrevLeftInDeadzone = leftInDz;
     s_xinputPrevLeftDir = leftDir;
+    s_xinputPrevRightInDeadzone = rightInDz;
+    s_xinputPrevRightDir = rightDir;
 }
 
 static GameControllerKind Win32_ClassifyGameControllerKind(
