@@ -340,7 +340,15 @@ static VirtualInputConsumerFrame VirtualInputConsumer_BuildFrame(
     return f;
 }
 
-// T22: consumer frame のみを入力とする最小サンプル状態機械（2x2 メニュー。Win32 / XInput 非依存）
+// T22/T23: 2x2 サンプルメニュー状態機械（入力は VirtualInputConsumerFrame のみ。状態更新は Win32 非依存）
+//
+// 固定仕様（ここ以外にロジックを書かない）:
+// - menuPressed        -> menuOpen を toggle
+// - confirmPressed     -> menuOpen のとき activate イベント（選択は変えない）
+// - cancelPressed      -> cancel イベント。menuOpen なら false にし menuClosedByCancel
+// - moveX/moveY        -> prev が 0 かつ今フレームが非 0 のときだけ 1 マス（repeat なし）
+// - selectionX/Y       -> 0..1 にクランプ。menuOpen=false のときは移動しない
+// - 毎フレーム末尾で prevMoveX/Y <- f.moveX/moveY（次フレームのエッジ検出用）
 struct VirtualInputMenuSampleState
 {
     bool menuOpen;
@@ -358,6 +366,11 @@ struct VirtualInputMenuSampleEvents
     bool cancelled;
     bool menuClosedByCancel;
 };
+
+static void VirtualInputMenuSample_Reset(VirtualInputMenuSampleState& s)
+{
+    s = {};
+}
 
 static std::int8_t VirtualInputMenuSample_ClampSelection(std::int8_t v)
 {
@@ -486,6 +499,9 @@ static void Win32_LogVirtualInputConsumerIfChanged(
 static void Win32_LogVirtualInputMenuSampleIfChanged(
     const VirtualInputSnapshot& prev,
     const VirtualInputSnapshot& curr);
+static void Win32_LogVirtualInputMenuSample_Events(
+    const VirtualInputMenuSampleEvents& ev,
+    const VirtualInputMenuSampleState& s);
 
 static DWORD Win32_GetFirstConnectedXInputSlotOrMax();
 static void Win32_XInputPollDigitalEdgesOnTimer(HWND hwnd);
@@ -1031,20 +1047,16 @@ static void Win32_LogVirtualInputConsumerIfChanged(
     s_virtualInputConsumerPrev = now;
 }
 
-static void Win32_LogVirtualInputMenuSampleIfChanged(
-    const VirtualInputSnapshot& prev,
-    const VirtualInputSnapshot& curr)
+static void Win32_LogVirtualInputMenuSample_Events(
+    const VirtualInputMenuSampleEvents& ev,
+    const VirtualInputMenuSampleState& s)
 {
-    const VirtualInputConsumerFrame f = VirtualInputConsumer_BuildFrame(prev, curr);
-    const VirtualInputMenuSampleEvents ev =
-        VirtualInputMenuSample_Apply(s_virtualInputMenuSampleState, f);
-
     if (ev.menuToggled)
     {
         wchar_t line[128] = {};
         swprintf_s(line, _countof(line),
             L"VirtualInputMenuSample menuOpen=%d\r\n",
-            s_virtualInputMenuSampleState.menuOpen ? 1 : 0);
+            s.menuOpen ? 1 : 0);
         OutputDebugStringW(line);
     }
     if (ev.selectionChanged)
@@ -1052,8 +1064,8 @@ static void Win32_LogVirtualInputMenuSampleIfChanged(
         wchar_t line[128] = {};
         swprintf_s(line, _countof(line),
             L"VirtualInputMenuSample selection=(%d,%d)\r\n",
-            static_cast<int>(s_virtualInputMenuSampleState.selectionX),
-            static_cast<int>(s_virtualInputMenuSampleState.selectionY));
+            static_cast<int>(s.selectionX),
+            static_cast<int>(s.selectionY));
         OutputDebugStringW(line);
     }
     if (ev.activated)
@@ -1061,8 +1073,8 @@ static void Win32_LogVirtualInputMenuSampleIfChanged(
         wchar_t line[128] = {};
         swprintf_s(line, _countof(line),
             L"VirtualInputMenuSample activate=(%d,%d)\r\n",
-            static_cast<int>(s_virtualInputMenuSampleState.selectionX),
-            static_cast<int>(s_virtualInputMenuSampleState.selectionY));
+            static_cast<int>(s.selectionX),
+            static_cast<int>(s.selectionY));
         OutputDebugStringW(line);
     }
     if (ev.cancelled)
@@ -1073,6 +1085,16 @@ static void Win32_LogVirtualInputMenuSampleIfChanged(
     {
         OutputDebugStringW(L"VirtualInputMenuSample menuOpen=0\r\n");
     }
+}
+
+static void Win32_LogVirtualInputMenuSampleIfChanged(
+    const VirtualInputSnapshot& prev,
+    const VirtualInputSnapshot& curr)
+{
+    const VirtualInputConsumerFrame f = VirtualInputConsumer_BuildFrame(prev, curr);
+    const VirtualInputMenuSampleEvents ev =
+        VirtualInputMenuSample_Apply(s_virtualInputMenuSampleState, f);
+    Win32_LogVirtualInputMenuSample_Events(ev, s_virtualInputMenuSampleState);
 }
 
 static DWORD Win32_GetFirstConnectedXInputSlotOrMax()
@@ -1109,7 +1131,7 @@ static void Win32_XInputPollDigitalEdgesOnTimer(HWND hwnd)
         VirtualInput_ResetDisconnected(s_virtualInputPrev);
         VirtualInput_ResetDisconnected(s_virtualInputCurr);
         s_virtualInputConsumerHasPrev = false;
-        s_virtualInputMenuSampleState = {};
+        VirtualInputMenuSample_Reset(s_virtualInputMenuSampleState);
         return;
     }
 
@@ -1128,7 +1150,7 @@ static void Win32_XInputPollDigitalEdgesOnTimer(HWND hwnd)
         VirtualInput_ResetDisconnected(s_virtualInputPrev);
         VirtualInput_ResetDisconnected(s_virtualInputCurr);
         s_virtualInputConsumerHasPrev = false;
-        s_virtualInputMenuSampleState = {};
+        VirtualInputMenuSample_Reset(s_virtualInputMenuSampleState);
         return;
     }
 
@@ -1166,7 +1188,7 @@ static void Win32_XInputPollDigitalEdgesOnTimer(HWND hwnd)
         s_xinputPrevRightInDeadzone = rightInDz;
         s_xinputPrevRightDir = rightDir;
         s_virtualInputConsumerHasPrev = false;
-        s_virtualInputMenuSampleState = {};
+        VirtualInputMenuSample_Reset(s_virtualInputMenuSampleState);
         return;
     }
 
