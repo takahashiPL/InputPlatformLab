@@ -340,6 +340,92 @@ static VirtualInputConsumerFrame VirtualInputConsumer_BuildFrame(
     return f;
 }
 
+// T22: consumer frame のみを入力とする最小サンプル状態機械（2x2 メニュー。Win32 / XInput 非依存）
+struct VirtualInputMenuSampleState
+{
+    bool menuOpen;
+    std::int8_t selectionX;
+    std::int8_t selectionY;
+    std::int8_t prevMoveX;
+    std::int8_t prevMoveY;
+};
+
+struct VirtualInputMenuSampleEvents
+{
+    bool menuToggled;
+    bool selectionChanged;
+    bool activated;
+    bool cancelled;
+    bool menuClosedByCancel;
+};
+
+static std::int8_t VirtualInputMenuSample_ClampSelection(std::int8_t v)
+{
+    if (v < 0)
+    {
+        return 0;
+    }
+    if (v > 1)
+    {
+        return 1;
+    }
+    return v;
+}
+
+static VirtualInputMenuSampleEvents VirtualInputMenuSample_Apply(
+    VirtualInputMenuSampleState& s,
+    const VirtualInputConsumerFrame& f)
+{
+    VirtualInputMenuSampleEvents ev{};
+
+    if (f.menuPressed)
+    {
+        s.menuOpen = !s.menuOpen;
+        ev.menuToggled = true;
+    }
+
+    if (f.confirmPressed && s.menuOpen)
+    {
+        ev.activated = true;
+    }
+
+    if (f.cancelPressed)
+    {
+        ev.cancelled = true;
+        if (s.menuOpen)
+        {
+            s.menuOpen = false;
+            ev.menuClosedByCancel = true;
+        }
+    }
+
+    if (s.menuOpen)
+    {
+        const std::int8_t osx = s.selectionX;
+        const std::int8_t osy = s.selectionY;
+        const bool mxEdge = (s.prevMoveX == 0 && f.moveX != 0);
+        const bool myEdge = (s.prevMoveY == 0 && f.moveY != 0);
+        if (mxEdge)
+        {
+            s.selectionX = VirtualInputMenuSample_ClampSelection(
+                static_cast<std::int8_t>(s.selectionX + f.moveX));
+        }
+        if (myEdge)
+        {
+            s.selectionY = VirtualInputMenuSample_ClampSelection(
+                static_cast<std::int8_t>(s.selectionY + f.moveY));
+        }
+        if (osx != s.selectionX || osy != s.selectionY)
+        {
+            ev.selectionChanged = true;
+        }
+    }
+
+    s.prevMoveX = f.moveX;
+    s.prevMoveY = f.moveY;
+    return ev;
+}
+
 // Raw Input HID から得た属性（将来 input/ 配下へ移設可能）
 struct GameControllerHidSummary
 {
@@ -395,6 +481,9 @@ static void Win32_LogVirtualInputPolicyIfChanged(
     const VirtualInputSnapshot& prev,
     const VirtualInputSnapshot& curr);
 static void Win32_LogVirtualInputConsumerIfChanged(
+    const VirtualInputSnapshot& prev,
+    const VirtualInputSnapshot& curr);
+static void Win32_LogVirtualInputMenuSampleIfChanged(
     const VirtualInputSnapshot& prev,
     const VirtualInputSnapshot& curr);
 
@@ -730,6 +819,7 @@ static VirtualInputSnapshot s_virtualInputPrev{};
 static VirtualInputSnapshot s_virtualInputCurr{};
 static VirtualInputConsumerFrame s_virtualInputConsumerPrev{};
 static bool s_virtualInputConsumerHasPrev = false;
+static VirtualInputMenuSampleState s_virtualInputMenuSampleState{};
 
 static bool Win32_LeftStickInDeadzone(SHORT x, SHORT y)
 {
@@ -941,6 +1031,50 @@ static void Win32_LogVirtualInputConsumerIfChanged(
     s_virtualInputConsumerPrev = now;
 }
 
+static void Win32_LogVirtualInputMenuSampleIfChanged(
+    const VirtualInputSnapshot& prev,
+    const VirtualInputSnapshot& curr)
+{
+    const VirtualInputConsumerFrame f = VirtualInputConsumer_BuildFrame(prev, curr);
+    const VirtualInputMenuSampleEvents ev =
+        VirtualInputMenuSample_Apply(s_virtualInputMenuSampleState, f);
+
+    if (ev.menuToggled)
+    {
+        wchar_t line[128] = {};
+        swprintf_s(line, _countof(line),
+            L"VirtualInputMenuSample menuOpen=%d\r\n",
+            s_virtualInputMenuSampleState.menuOpen ? 1 : 0);
+        OutputDebugStringW(line);
+    }
+    if (ev.selectionChanged)
+    {
+        wchar_t line[128] = {};
+        swprintf_s(line, _countof(line),
+            L"VirtualInputMenuSample selection=(%d,%d)\r\n",
+            static_cast<int>(s_virtualInputMenuSampleState.selectionX),
+            static_cast<int>(s_virtualInputMenuSampleState.selectionY));
+        OutputDebugStringW(line);
+    }
+    if (ev.activated)
+    {
+        wchar_t line[128] = {};
+        swprintf_s(line, _countof(line),
+            L"VirtualInputMenuSample activate=(%d,%d)\r\n",
+            static_cast<int>(s_virtualInputMenuSampleState.selectionX),
+            static_cast<int>(s_virtualInputMenuSampleState.selectionY));
+        OutputDebugStringW(line);
+    }
+    if (ev.cancelled)
+    {
+        OutputDebugStringW(L"VirtualInputMenuSample cancel\r\n");
+    }
+    if (ev.menuClosedByCancel)
+    {
+        OutputDebugStringW(L"VirtualInputMenuSample menuOpen=0\r\n");
+    }
+}
+
 static DWORD Win32_GetFirstConnectedXInputSlotOrMax()
 {
     for (DWORD i = 0; i < XUSER_MAX_COUNT; ++i)
@@ -975,6 +1109,7 @@ static void Win32_XInputPollDigitalEdgesOnTimer(HWND hwnd)
         VirtualInput_ResetDisconnected(s_virtualInputPrev);
         VirtualInput_ResetDisconnected(s_virtualInputCurr);
         s_virtualInputConsumerHasPrev = false;
+        s_virtualInputMenuSampleState = {};
         return;
     }
 
@@ -993,6 +1128,7 @@ static void Win32_XInputPollDigitalEdgesOnTimer(HWND hwnd)
         VirtualInput_ResetDisconnected(s_virtualInputPrev);
         VirtualInput_ResetDisconnected(s_virtualInputCurr);
         s_virtualInputConsumerHasPrev = false;
+        s_virtualInputMenuSampleState = {};
         return;
     }
 
@@ -1030,11 +1166,13 @@ static void Win32_XInputPollDigitalEdgesOnTimer(HWND hwnd)
         s_xinputPrevRightInDeadzone = rightInDz;
         s_xinputPrevRightDir = rightDir;
         s_virtualInputConsumerHasPrev = false;
+        s_virtualInputMenuSampleState = {};
         return;
     }
 
     Win32_LogVirtualInputPolicyIfChanged(s_virtualInputPrev, s_virtualInputCurr);
     Win32_LogVirtualInputConsumerIfChanged(s_virtualInputPrev, s_virtualInputCurr);
+    Win32_LogVirtualInputMenuSampleIfChanged(s_virtualInputPrev, s_virtualInputCurr);
 
     const WORD changed = static_cast<WORD>(w ^ s_xinputPollPrevWButtons);
     const bool l2Edge = (l2Now != s_xinputPrevL2Pressed);
