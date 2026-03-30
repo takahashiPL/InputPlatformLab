@@ -427,6 +427,7 @@ struct GameControllerHidSummary
 HINSTANCE hInst;                                // 現在のインターフェイス
 WCHAR szTitle[MAX_LOADSTRING];                  // タイトル バーのテキスト
 WCHAR szWindowClass[MAX_LOADSTRING];            // メイン ウィンドウ クラス名
+static HWND s_mainWindowHwnd = nullptr;         // T13: サンプル画面 InvalidateRect 用
 
 // --- T25: 前方宣言（責務は上記 [1]〜[8] に対応。実装はファイル後半） ---
 // このコード モジュールに含まれる関数の宣言を転送します:
@@ -476,8 +477,10 @@ static void Win32_LogVirtualInputPolicyIfChanged(
 static void Win32_LogVirtualInputConsumerIfChanged(
     const VirtualInputSnapshot& prev,
     const VirtualInputSnapshot& curr);
-static void Win32_LogVirtualInputMenuSampleIfChanged(const VirtualInputConsumerFrame& unifiedFrame);
-static void Win32_UnifiedInputConsumerMenuTick();
+static void Win32_LogVirtualInputMenuSampleIfChanged(
+    const VirtualInputConsumerFrame& unifiedFrame,
+    HWND hwndForPaint);
+static void Win32_UnifiedInputConsumerMenuTick(HWND hwndForPaint);
 static void Win32_LogVirtualInputMenuSample_Events(
     const VirtualInputMenuSampleEvents& ev,
     const VirtualInputMenuSampleState& s);
@@ -575,6 +578,8 @@ BOOL InitInstance(HINSTANCE hInstance, int nCmdShow)
    {
       return FALSE;
    }
+
+   s_mainWindowHwnd = hWnd;
 
    if (!Win32_RegisterKeyboardRawInput(hWnd))
    {
@@ -825,6 +830,22 @@ static bool s_virtualInputConsumerHasPrev = false;
 static VirtualInputMenuSampleState s_virtualInputMenuSampleState{};
 static VirtualInputMenuSampleState s_virtualInputMenuSampleDumpPrev{};
 static bool s_virtualInputMenuSampleDumpHasPrev = false;
+
+// T13: サンプル画面用（prevMove は毎フレーム変わり得るため Invalidate 判定から除外）
+enum class MenuSampleUiLastEventKind : std::uint8_t
+{
+    None = 0,
+    Toggle,
+    Move,
+    Activate,
+    Cancel,
+};
+static MenuSampleUiLastEventKind s_menuSampleUiLastEvent = MenuSampleUiLastEventKind::None;
+static bool s_menuSamplePaintHasPrev = false;
+static bool s_menuSamplePaintPrevOpen = false;
+static std::int8_t s_menuSamplePaintPrevSelX = 0;
+static std::int8_t s_menuSamplePaintPrevSelY = 0;
+static MenuSampleUiLastEventKind s_menuSamplePaintPrevEvent = MenuSampleUiLastEventKind::None;
 
 // === T25 [8] Win32: スティックデッドゾーン・方向（XInput 生値 → 中立 enum） ===
 static bool Win32_LeftStickInDeadzone(SHORT x, SHORT y)
@@ -1113,15 +1134,142 @@ static void Win32_LogVirtualInputMenuSample_StateDumpIfChanged(
     s_virtualInputMenuSampleDumpPrev = s;
 }
 
-static void Win32_LogVirtualInputMenuSampleIfChanged(const VirtualInputConsumerFrame& unifiedFrame)
+static const wchar_t* Win32_MenuSampleUiLastEventLabel(MenuSampleUiLastEventKind k)
+{
+    switch (k)
+    {
+    case MenuSampleUiLastEventKind::None: return L"none";
+    case MenuSampleUiLastEventKind::Toggle: return L"toggle";
+    case MenuSampleUiLastEventKind::Move: return L"move";
+    case MenuSampleUiLastEventKind::Activate: return L"activate";
+    case MenuSampleUiLastEventKind::Cancel: return L"cancel";
+    default: return L"none";
+    }
+}
+
+static void Win32_MenuSample_UpdateUiLastEventFromEvents(const VirtualInputMenuSampleEvents& ev)
+{
+    if (ev.menuToggled)
+    {
+        s_menuSampleUiLastEvent = MenuSampleUiLastEventKind::Toggle;
+    }
+    else if (ev.selectionChanged)
+    {
+        s_menuSampleUiLastEvent = MenuSampleUiLastEventKind::Move;
+    }
+    else if (ev.activated)
+    {
+        s_menuSampleUiLastEvent = MenuSampleUiLastEventKind::Activate;
+    }
+    else if (ev.cancelled)
+    {
+        s_menuSampleUiLastEvent = MenuSampleUiLastEventKind::Cancel;
+    }
+}
+
+static void Win32_MenuSample_RequestInvalidateIfNeeded(HWND hwnd)
+{
+    if (!hwnd)
+    {
+        return;
+    }
+    const VirtualInputMenuSampleState& s = s_virtualInputMenuSampleState;
+    if (!s_menuSamplePaintHasPrev)
+    {
+        s_menuSamplePaintHasPrev = true;
+        s_menuSamplePaintPrevOpen = s.menuOpen;
+        s_menuSamplePaintPrevSelX = s.selectionX;
+        s_menuSamplePaintPrevSelY = s.selectionY;
+        s_menuSamplePaintPrevEvent = s_menuSampleUiLastEvent;
+        InvalidateRect(hwnd, nullptr, FALSE);
+        return;
+    }
+    const bool stChanged =
+        (s.menuOpen != s_menuSamplePaintPrevOpen) ||
+        (s.selectionX != s_menuSamplePaintPrevSelX) ||
+        (s.selectionY != s_menuSamplePaintPrevSelY);
+    const bool evChanged = (s_menuSampleUiLastEvent != s_menuSamplePaintPrevEvent);
+    if (stChanged || evChanged)
+    {
+        s_menuSamplePaintPrevOpen = s.menuOpen;
+        s_menuSamplePaintPrevSelX = s.selectionX;
+        s_menuSamplePaintPrevSelY = s.selectionY;
+        s_menuSamplePaintPrevEvent = s_menuSampleUiLastEvent;
+        InvalidateRect(hwnd, nullptr, FALSE);
+    }
+}
+
+static void Win32_MenuSample_ResetPaintTracking(HWND hwnd)
+{
+    s_menuSampleUiLastEvent = MenuSampleUiLastEventKind::None;
+    s_menuSamplePaintHasPrev = false;
+    if (hwnd)
+    {
+        InvalidateRect(hwnd, nullptr, FALSE);
+    }
+}
+
+static void Win32_PaintMenuSampleScreen(HWND hwnd, HDC hdc)
+{
+    RECT rc{};
+    GetClientRect(hwnd, &rc);
+    FillRect(hdc, &rc, (HBRUSH)GetStockObject(WHITE_BRUSH));
+    SetBkMode(hdc, TRANSPARENT);
+
+    const VirtualInputMenuSampleState& s = s_virtualInputMenuSampleState;
+    const wchar_t* evLabel = Win32_MenuSampleUiLastEventLabel(s_menuSampleUiLastEvent);
+
+    wchar_t c00[4] = L" ";
+    wchar_t c10[4] = L" ";
+    wchar_t c01[4] = L" ";
+    wchar_t c11[4] = L" ";
+    if (s.selectionX == 0 && s.selectionY == 0)
+    {
+        wcscpy_s(c00, _countof(c00), L"@");
+    }
+    else if (s.selectionX == 1 && s.selectionY == 0)
+    {
+        wcscpy_s(c10, _countof(c10), L"@");
+    }
+    else if (s.selectionX == 0 && s.selectionY == 1)
+    {
+        wcscpy_s(c01, _countof(c01), L"@");
+    }
+    else if (s.selectionX == 1 && s.selectionY == 1)
+    {
+        wcscpy_s(c11, _countof(c11), L"@");
+    }
+
+    wchar_t buf[768] = {};
+    swprintf_s(buf, _countof(buf),
+        L"InputPlatformLab Sample\r\n\r\n"
+        L"menuOpen: %d\r\n"
+        L"selection: (%d,%d)\r\n"
+        L"last event: %s\r\n\r\n"
+        L"2x2 selection:\r\n"
+        L"  [ %s ] [ %s ]\r\n"
+        L"  [ %s ] [ %s ]\r\n",
+        s.menuOpen ? 1 : 0,
+        static_cast<int>(s.selectionX),
+        static_cast<int>(s.selectionY),
+        evLabel,
+        c00, c10, c01, c11);
+    DrawTextW(hdc, buf, -1, &rc, DT_LEFT | DT_TOP | DT_NOPREFIX);
+}
+
+static void Win32_LogVirtualInputMenuSampleIfChanged(
+    const VirtualInputConsumerFrame& unifiedFrame,
+    HWND hwndForPaint)
 {
     const VirtualInputMenuSampleEvents ev =
         VirtualInputMenuSample_Apply(s_virtualInputMenuSampleState, unifiedFrame);
+    Win32_MenuSample_UpdateUiLastEventFromEvents(ev);
+    Win32_MenuSample_RequestInvalidateIfNeeded(hwndForPaint);
     Win32_LogVirtualInputMenuSample_Events(ev, s_virtualInputMenuSampleState);
     Win32_LogVirtualInputMenuSample_StateDumpIfChanged(s_virtualInputMenuSampleState);
 }
 
-static void Win32_UnifiedInputConsumerMenuTick()
+static void Win32_UnifiedInputConsumerMenuTick(HWND hwndForPaint)
 {
     const VirtualInputConsumerFrame kbFrame =
         VirtualInputConsumer_BuildFrameFromKeyboardState(
@@ -1131,7 +1279,7 @@ static void Win32_UnifiedInputConsumerMenuTick()
         VirtualInputConsumer_BuildFrame(s_virtualInputPrev, s_virtualInputCurr);
     const VirtualInputConsumerFrame unified =
         VirtualInputConsumer_MergeKeyboardController(kbFrame, ctrlFrame);
-    Win32_LogVirtualInputMenuSampleIfChanged(unified);
+    Win32_LogVirtualInputMenuSampleIfChanged(unified, hwndForPaint);
     s_keyboardActionStateAtLastTimer = s_keyboardActionState;
 }
 
@@ -1173,6 +1321,7 @@ static void Win32_XInputPollDigitalEdgesOnTimer(HWND hwnd)
         VirtualInputMenuSample_Reset(s_virtualInputMenuSampleState);
         s_virtualInputMenuSampleDumpHasPrev = false;
         s_keyboardActionStateAtLastTimer = s_keyboardActionState;
+        Win32_MenuSample_ResetPaintTracking(s_mainWindowHwnd);
         return;
     }
 
@@ -1194,6 +1343,7 @@ static void Win32_XInputPollDigitalEdgesOnTimer(HWND hwnd)
         VirtualInputMenuSample_Reset(s_virtualInputMenuSampleState);
         s_virtualInputMenuSampleDumpHasPrev = false;
         s_keyboardActionStateAtLastTimer = s_keyboardActionState;
+        Win32_MenuSample_ResetPaintTracking(s_mainWindowHwnd);
         return;
     }
 
@@ -1234,6 +1384,7 @@ static void Win32_XInputPollDigitalEdgesOnTimer(HWND hwnd)
         VirtualInputMenuSample_Reset(s_virtualInputMenuSampleState);
         s_virtualInputMenuSampleDumpHasPrev = false;
         s_keyboardActionStateAtLastTimer = s_keyboardActionState;
+        Win32_MenuSample_ResetPaintTracking(s_mainWindowHwnd);
         return;
     }
 
@@ -1828,18 +1979,19 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam)
         if (wParam == TIMER_ID_XINPUT_POLL)
         {
             Win32_XInputPollDigitalEdgesOnTimer(hWnd);
-            Win32_UnifiedInputConsumerMenuTick();
+            Win32_UnifiedInputConsumerMenuTick(hWnd);
         }
         break;
     case WM_PAINT:
         {
             PAINTSTRUCT ps;
             HDC hdc = BeginPaint(hWnd, &ps);
-            // TODO: HDC を使用する描画コードをここに追加してください...
+            Win32_PaintMenuSampleScreen(hWnd, hdc);
             EndPaint(hWnd, &ps);
         }
         break;
     case WM_DESTROY:
+        s_mainWindowHwnd = nullptr;
         KillTimer(hWnd, TIMER_ID_XINPUT_POLL);
         PostQuitMessage(0);
         break;
