@@ -96,6 +96,43 @@ enum class GamepadLeftStickDir : std::uint8_t
     Down,
 };
 
+// 1 フレーム分の仮想入力（Win32 型なし。将来 input/ 配下へ移設可能）
+struct VirtualInputSnapshot
+{
+    bool connected;
+    GameControllerKind family;
+
+    bool south;
+    bool east;
+    bool west;
+    bool north;
+    bool l1;
+    bool r1;
+    bool l3;
+    bool r3;
+    bool start;
+    bool select;
+    bool dpadUp;
+    bool dpadDown;
+    bool dpadLeft;
+    bool dpadRight;
+
+    bool l2Pressed;
+    bool r2Pressed;
+    std::uint8_t leftTriggerRaw;
+    std::uint8_t rightTriggerRaw;
+
+    std::int16_t leftStickX;
+    std::int16_t leftStickY;
+    std::int16_t rightStickX;
+    std::int16_t rightStickY;
+
+    bool leftInDeadzone;
+    GamepadLeftStickDir leftDir;
+    bool rightInDeadzone;
+    GamepadLeftStickDir rightDir;
+};
+
 // Raw Input HID から得た属性（将来 input/ 配下へ移設可能）
 struct GameControllerHidSummary
 {
@@ -140,6 +177,9 @@ static void Win32_LogRawInputHidGameControllersClassified();
 static const wchar_t* GamepadButton_GetIdName(GamepadButtonId id);
 static const wchar_t* GamepadButton_GetDisplayLabel(GamepadButtonId id, GameControllerKind family);
 static void GamepadButton_LogLabelTablesAtStartup();
+
+static void Win32_FillVirtualInputSnapshotFromXInputState(const XINPUT_STATE& st, VirtualInputSnapshot& out);
+static void Win32_LogVirtualInputSnapshotSummary(const VirtualInputSnapshot& snap, DWORD slot);
 
 static DWORD Win32_GetFirstConnectedXInputSlotOrMax();
 static void Win32_XInputPollDigitalEdgesOnTimer(HWND hwnd);
@@ -468,6 +508,7 @@ static bool s_xinputPrevLeftInDeadzone = true;
 static GamepadLeftStickDir s_xinputPrevLeftDir = GamepadLeftStickDir::None;
 static bool s_xinputPrevRightInDeadzone = true;
 static GamepadLeftStickDir s_xinputPrevRightDir = GamepadLeftStickDir::None;
+static UINT s_virtualInputSnapshotLogCounter = 0;
 
 static bool Win32_LeftStickInDeadzone(SHORT x, SHORT y)
 {
@@ -512,6 +553,83 @@ static const wchar_t* Win32_LeftStickDirLabel(GamepadLeftStickDir d)
     }
 }
 
+static void Win32_FillVirtualInputSnapshotFromXInputState(const XINPUT_STATE& st, VirtualInputSnapshot& out)
+{
+    out.connected = true;
+    out.family = GameControllerKind::Xbox;
+
+    const WORD wb = st.Gamepad.wButtons;
+    out.south = (wb & XINPUT_GAMEPAD_A) != 0;
+    out.east = (wb & XINPUT_GAMEPAD_B) != 0;
+    out.west = (wb & XINPUT_GAMEPAD_X) != 0;
+    out.north = (wb & XINPUT_GAMEPAD_Y) != 0;
+    out.l1 = (wb & XINPUT_GAMEPAD_LEFT_SHOULDER) != 0;
+    out.r1 = (wb & XINPUT_GAMEPAD_RIGHT_SHOULDER) != 0;
+    out.l3 = (wb & XINPUT_GAMEPAD_LEFT_THUMB) != 0;
+    out.r3 = (wb & XINPUT_GAMEPAD_RIGHT_THUMB) != 0;
+    out.start = (wb & XINPUT_GAMEPAD_START) != 0;
+    out.select = (wb & XINPUT_GAMEPAD_BACK) != 0;
+    out.dpadUp = (wb & XINPUT_GAMEPAD_DPAD_UP) != 0;
+    out.dpadDown = (wb & XINPUT_GAMEPAD_DPAD_DOWN) != 0;
+    out.dpadLeft = (wb & XINPUT_GAMEPAD_DPAD_LEFT) != 0;
+    out.dpadRight = (wb & XINPUT_GAMEPAD_DPAD_RIGHT) != 0;
+
+    out.leftTriggerRaw = st.Gamepad.bLeftTrigger;
+    out.rightTriggerRaw = st.Gamepad.bRightTrigger;
+    out.l2Pressed = (out.leftTriggerRaw >= XINPUT_GAMEPAD_TRIGGER_THRESHOLD);
+    out.r2Pressed = (out.rightTriggerRaw >= XINPUT_GAMEPAD_TRIGGER_THRESHOLD);
+
+    out.leftStickX = st.Gamepad.sThumbLX;
+    out.leftStickY = st.Gamepad.sThumbLY;
+    out.rightStickX = st.Gamepad.sThumbRX;
+    out.rightStickY = st.Gamepad.sThumbRY;
+
+    out.leftInDeadzone = Win32_LeftStickInDeadzone(st.Gamepad.sThumbLX, st.Gamepad.sThumbLY);
+    out.leftDir = Win32_ClassifyLeftStickDir(st.Gamepad.sThumbLX, st.Gamepad.sThumbLY, out.leftInDeadzone);
+    out.rightInDeadzone = Win32_RightStickInDeadzone(st.Gamepad.sThumbRX, st.Gamepad.sThumbRY);
+    out.rightDir = Win32_ClassifyLeftStickDir(st.Gamepad.sThumbRX, st.Gamepad.sThumbRY, out.rightInDeadzone);
+}
+
+static void Win32_LogVirtualInputSnapshotSummary(const VirtualInputSnapshot& s, DWORD slot)
+{
+    wchar_t line[768] = {};
+    swprintf_s(line, _countof(line),
+        L"VirtualInput slot=%u fam=%s conn=%d "
+        L"faceABXY=%d%d%d%d L1R1=%d%d L2R2=%d/%d raw=%u/%u L3R3=%d%d StSel=%d%d "
+        L"Dpad=%d%d%d%d "
+        L"L(%d,%d)z=%d Ldir=%s R(%d,%d)z=%d Rdir=%s\r\n",
+        static_cast<unsigned int>(slot),
+        Win32_GameControllerKindLabel(s.family),
+        s.connected ? 1 : 0,
+        s.south ? 1 : 0,
+        s.east ? 1 : 0,
+        s.west ? 1 : 0,
+        s.north ? 1 : 0,
+        s.l1 ? 1 : 0,
+        s.r1 ? 1 : 0,
+        s.l2Pressed ? 1 : 0,
+        s.r2Pressed ? 1 : 0,
+        static_cast<unsigned int>(s.leftTriggerRaw),
+        static_cast<unsigned int>(s.rightTriggerRaw),
+        s.l3 ? 1 : 0,
+        s.r3 ? 1 : 0,
+        s.start ? 1 : 0,
+        s.select ? 1 : 0,
+        s.dpadUp ? 1 : 0,
+        s.dpadDown ? 1 : 0,
+        s.dpadLeft ? 1 : 0,
+        s.dpadRight ? 1 : 0,
+        static_cast<int>(s.leftStickX),
+        static_cast<int>(s.leftStickY),
+        s.leftInDeadzone ? 1 : 0,
+        Win32_LeftStickDirLabel(s.leftDir),
+        static_cast<int>(s.rightStickX),
+        static_cast<int>(s.rightStickY),
+        s.rightInDeadzone ? 1 : 0,
+        Win32_LeftStickDirLabel(s.rightDir));
+    OutputDebugStringW(line);
+}
+
 static DWORD Win32_GetFirstConnectedXInputSlotOrMax()
 {
     for (DWORD i = 0; i < XUSER_MAX_COUNT; ++i)
@@ -542,6 +660,7 @@ static void Win32_XInputPollDigitalEdgesOnTimer(HWND hwnd)
         s_xinputPrevLeftDir = GamepadLeftStickDir::None;
         s_xinputPrevRightInDeadzone = true;
         s_xinputPrevRightDir = GamepadLeftStickDir::None;
+        s_virtualInputSnapshotLogCounter = 0;
         return;
     }
 
@@ -556,6 +675,7 @@ static void Win32_XInputPollDigitalEdgesOnTimer(HWND hwnd)
         s_xinputPrevLeftDir = GamepadLeftStickDir::None;
         s_xinputPrevRightInDeadzone = true;
         s_xinputPrevRightDir = GamepadLeftStickDir::None;
+        s_virtualInputSnapshotLogCounter = 0;
         return;
     }
 
@@ -574,6 +694,13 @@ static void Win32_XInputPollDigitalEdgesOnTimer(HWND hwnd)
     const SHORT ry = state.Gamepad.sThumbRY;
     const bool rightInDz = Win32_RightStickInDeadzone(rx, ry);
     const GamepadLeftStickDir rightDir = Win32_ClassifyLeftStickDir(rx, ry, rightInDz);
+
+    VirtualInputSnapshot virtualSnap{};
+    Win32_FillVirtualInputSnapshotFromXInputState(state, virtualSnap);
+    if ((++s_virtualInputSnapshotLogCounter % 60) == 0)
+    {
+        Win32_LogVirtualInputSnapshotSummary(virtualSnap, slot);
+    }
 
     if (slot != s_xinputPollPrevSlot)
     {
