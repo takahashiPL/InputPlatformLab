@@ -133,6 +133,87 @@ struct VirtualInputSnapshot
     GamepadLeftStickDir rightDir;
 };
 
+// T16: 中立ヘルパー（Win32 / XInput 型なし）
+static void VirtualInput_ResetDisconnected(VirtualInputSnapshot& s)
+{
+    s = {};
+    s.connected = false;
+    s.family = GameControllerKind::Unknown;
+    s.leftInDeadzone = true;
+    s.rightInDeadzone = true;
+}
+
+static bool VirtualInput_IsButtonDown(const VirtualInputSnapshot& s, GamepadButtonId id)
+{
+    switch (id)
+    {
+    case GamepadButtonId::South: return s.south;
+    case GamepadButtonId::East: return s.east;
+    case GamepadButtonId::West: return s.west;
+    case GamepadButtonId::North: return s.north;
+    case GamepadButtonId::L1: return s.l1;
+    case GamepadButtonId::R1: return s.r1;
+    case GamepadButtonId::L2: return s.l2Pressed;
+    case GamepadButtonId::R2: return s.r2Pressed;
+    case GamepadButtonId::L3: return s.l3;
+    case GamepadButtonId::R3: return s.r3;
+    case GamepadButtonId::Start: return s.start;
+    case GamepadButtonId::Select: return s.select;
+    case GamepadButtonId::DPadUp: return s.dpadUp;
+    case GamepadButtonId::DPadDown: return s.dpadDown;
+    case GamepadButtonId::DPadLeft: return s.dpadLeft;
+    case GamepadButtonId::DPadRight: return s.dpadRight;
+    case GamepadButtonId::Count: break;
+    }
+    return false;
+}
+
+static bool VirtualInput_WasButtonPressed(
+    const VirtualInputSnapshot& prev,
+    const VirtualInputSnapshot& curr,
+    GamepadButtonId id)
+{
+    return !VirtualInput_IsButtonDown(prev, id) && VirtualInput_IsButtonDown(curr, id);
+}
+
+static bool VirtualInput_WasButtonReleased(
+    const VirtualInputSnapshot& prev,
+    const VirtualInputSnapshot& curr,
+    GamepadButtonId id)
+{
+    return VirtualInput_IsButtonDown(prev, id) && !VirtualInput_IsButtonDown(curr, id);
+}
+
+static bool VirtualInput_IsL2Pressed(const VirtualInputSnapshot& s)
+{
+    return s.l2Pressed;
+}
+
+static bool VirtualInput_IsR2Pressed(const VirtualInputSnapshot& s)
+{
+    return s.r2Pressed;
+}
+
+static GamepadLeftStickDir VirtualInput_GetLeftDir(const VirtualInputSnapshot& s)
+{
+    return s.leftDir;
+}
+
+static GamepadLeftStickDir VirtualInput_GetRightDir(const VirtualInputSnapshot& s)
+{
+    return s.rightDir;
+}
+
+static bool VirtualInput_LeftInDeadzone(const VirtualInputSnapshot& s)
+{
+    return s.leftInDeadzone;
+}
+
+static bool VirtualInput_RightInDeadzone(const VirtualInputSnapshot& s)
+{
+    return s.rightInDeadzone;
+}
+
 // Raw Input HID から得た属性（将来 input/ 配下へ移設可能）
 struct GameControllerHidSummary
 {
@@ -180,6 +261,10 @@ static void GamepadButton_LogLabelTablesAtStartup();
 
 static void Win32_FillVirtualInputSnapshotFromXInputState(const XINPUT_STATE& st, VirtualInputSnapshot& out);
 static void Win32_LogVirtualInputSnapshotSummary(const VirtualInputSnapshot& snap, DWORD slot);
+static void Win32_LogVirtualInputHelperProbe(
+    const VirtualInputSnapshot& prev,
+    const VirtualInputSnapshot& curr,
+    DWORD slot);
 
 static DWORD Win32_GetFirstConnectedXInputSlotOrMax();
 static void Win32_XInputPollDigitalEdgesOnTimer(HWND hwnd);
@@ -509,6 +594,8 @@ static GamepadLeftStickDir s_xinputPrevLeftDir = GamepadLeftStickDir::None;
 static bool s_xinputPrevRightInDeadzone = true;
 static GamepadLeftStickDir s_xinputPrevRightDir = GamepadLeftStickDir::None;
 static UINT s_virtualInputSnapshotLogCounter = 0;
+static VirtualInputSnapshot s_virtualInputPrev{};
+static VirtualInputSnapshot s_virtualInputCurr{};
 
 static bool Win32_LeftStickInDeadzone(SHORT x, SHORT y)
 {
@@ -630,6 +717,29 @@ static void Win32_LogVirtualInputSnapshotSummary(const VirtualInputSnapshot& s, 
     OutputDebugStringW(line);
 }
 
+static void Win32_LogVirtualInputHelperProbe(
+    const VirtualInputSnapshot& prev,
+    const VirtualInputSnapshot& curr,
+    DWORD slot)
+{
+    wchar_t line[512] = {};
+    swprintf_s(line, _countof(line),
+        L"VirtualInputHelper[slot=%u] SouthDown=%d "
+        L"Pressed(South)=%d Released(South)=%d "
+        L"L2=%d R2=%d Ldz=%d Rdz=%d Ldir=%s Rdir=%s\r\n",
+        static_cast<unsigned int>(slot),
+        VirtualInput_IsButtonDown(curr, GamepadButtonId::South) ? 1 : 0,
+        VirtualInput_WasButtonPressed(prev, curr, GamepadButtonId::South) ? 1 : 0,
+        VirtualInput_WasButtonReleased(prev, curr, GamepadButtonId::South) ? 1 : 0,
+        VirtualInput_IsL2Pressed(curr) ? 1 : 0,
+        VirtualInput_IsR2Pressed(curr) ? 1 : 0,
+        VirtualInput_LeftInDeadzone(curr) ? 1 : 0,
+        VirtualInput_RightInDeadzone(curr) ? 1 : 0,
+        Win32_LeftStickDirLabel(VirtualInput_GetLeftDir(curr)),
+        Win32_LeftStickDirLabel(VirtualInput_GetRightDir(curr)));
+    OutputDebugStringW(line);
+}
+
 static DWORD Win32_GetFirstConnectedXInputSlotOrMax()
 {
     for (DWORD i = 0; i < XUSER_MAX_COUNT; ++i)
@@ -661,6 +771,8 @@ static void Win32_XInputPollDigitalEdgesOnTimer(HWND hwnd)
         s_xinputPrevRightInDeadzone = true;
         s_xinputPrevRightDir = GamepadLeftStickDir::None;
         s_virtualInputSnapshotLogCounter = 0;
+        VirtualInput_ResetDisconnected(s_virtualInputPrev);
+        VirtualInput_ResetDisconnected(s_virtualInputCurr);
         return;
     }
 
@@ -676,6 +788,8 @@ static void Win32_XInputPollDigitalEdgesOnTimer(HWND hwnd)
         s_xinputPrevRightInDeadzone = true;
         s_xinputPrevRightDir = GamepadLeftStickDir::None;
         s_virtualInputSnapshotLogCounter = 0;
+        VirtualInput_ResetDisconnected(s_virtualInputPrev);
+        VirtualInput_ResetDisconnected(s_virtualInputCurr);
         return;
     }
 
@@ -695,11 +809,15 @@ static void Win32_XInputPollDigitalEdgesOnTimer(HWND hwnd)
     const bool rightInDz = Win32_RightStickInDeadzone(rx, ry);
     const GamepadLeftStickDir rightDir = Win32_ClassifyLeftStickDir(rx, ry, rightInDz);
 
-    VirtualInputSnapshot virtualSnap{};
-    Win32_FillVirtualInputSnapshotFromXInputState(state, virtualSnap);
+    s_virtualInputPrev = s_virtualInputCurr;
+    Win32_FillVirtualInputSnapshotFromXInputState(state, s_virtualInputCurr);
     if ((++s_virtualInputSnapshotLogCounter % 60) == 0)
     {
-        Win32_LogVirtualInputSnapshotSummary(virtualSnap, slot);
+        Win32_LogVirtualInputSnapshotSummary(s_virtualInputCurr, slot);
+    }
+    if ((s_virtualInputSnapshotLogCounter % 120) == 0)
+    {
+        Win32_LogVirtualInputHelperProbe(s_virtualInputPrev, s_virtualInputCurr, slot);
     }
 
     if (slot != s_xinputPollPrevSlot)
