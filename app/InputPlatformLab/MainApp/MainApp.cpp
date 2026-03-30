@@ -17,6 +17,10 @@
 #define TIMER_ID_XINPUT_POLL 1001
 #define XINPUT_POLL_INTERVAL_MS 33
 
+#ifndef XINPUT_GAMEPAD_TRIGGER_THRESHOLD
+#define XINPUT_GAMEPAD_TRIGGER_THRESHOLD 30
+#endif
+
 // Windows 8.1+（targetver によっては未定義のため）
 #ifndef RIDI_PRODUCTNAME
 #define RIDI_PRODUCTNAME 0x20000007
@@ -439,6 +443,8 @@ static const XInputDigitalButtonMapEntry g_XInputDigitalMap[] = {
 
 static DWORD s_xinputPollPrevSlot = XUSER_MAX_COUNT;
 static WORD s_xinputPollPrevWButtons = 0;
+static bool s_xinputPrevL2Pressed = false;
+static bool s_xinputPrevR2Pressed = false;
 
 static DWORD Win32_GetFirstConnectedXInputSlotOrMax()
 {
@@ -457,11 +463,15 @@ static void Win32_XInputPollDigitalEdgesOnTimer(HWND hwnd)
 {
     UNREFERENCED_PARAMETER(hwnd);
 
+    constexpr GameControllerKind kFamily = GameControllerKind::Xbox;
+
     const DWORD slot = Win32_GetFirstConnectedXInputSlotOrMax();
     if (slot >= XUSER_MAX_COUNT)
     {
         s_xinputPollPrevSlot = XUSER_MAX_COUNT;
         s_xinputPollPrevWButtons = 0;
+        s_xinputPrevL2Pressed = false;
+        s_xinputPrevR2Pressed = false;
         return;
     }
 
@@ -470,25 +480,34 @@ static void Win32_XInputPollDigitalEdgesOnTimer(HWND hwnd)
     {
         s_xinputPollPrevSlot = XUSER_MAX_COUNT;
         s_xinputPollPrevWButtons = 0;
+        s_xinputPrevL2Pressed = false;
+        s_xinputPrevR2Pressed = false;
         return;
     }
 
     const WORD w = state.Gamepad.wButtons;
+    const BYTE lt = state.Gamepad.bLeftTrigger;
+    const BYTE rt = state.Gamepad.bRightTrigger;
+    const bool l2Now = (lt >= XINPUT_GAMEPAD_TRIGGER_THRESHOLD);
+    const bool r2Now = (rt >= XINPUT_GAMEPAD_TRIGGER_THRESHOLD);
 
     if (slot != s_xinputPollPrevSlot)
     {
         s_xinputPollPrevSlot = slot;
         s_xinputPollPrevWButtons = w;
+        s_xinputPrevL2Pressed = l2Now;
+        s_xinputPrevR2Pressed = r2Now;
         return;
     }
 
     const WORD changed = static_cast<WORD>(w ^ s_xinputPollPrevWButtons);
-    if (changed == 0)
+    const bool l2Edge = (l2Now != s_xinputPrevL2Pressed);
+    const bool r2Edge = (r2Now != s_xinputPrevR2Pressed);
+
+    if (changed == 0 && !l2Edge && !r2Edge)
     {
         return;
     }
-
-    constexpr GameControllerKind kFamily = GameControllerKind::Xbox;
 
     for (const XInputDigitalButtonMapEntry& e : g_XInputDigitalMap)
     {
@@ -507,7 +526,35 @@ static void Win32_XInputPollDigitalEdgesOnTimer(HWND hwnd)
         OutputDebugStringW(line);
     }
 
+    if (l2Edge)
+    {
+        wchar_t line[256] = {};
+        swprintf_s(line, _countof(line),
+            L"XInput[slot=%u] id=%s label=\"%s\" %s value=%u\r\n",
+            static_cast<unsigned int>(slot),
+            GamepadButton_GetIdName(GamepadButtonId::L2),
+            GamepadButton_GetDisplayLabel(GamepadButtonId::L2, kFamily),
+            l2Now ? L"down" : L"up",
+            static_cast<unsigned int>(lt));
+        OutputDebugStringW(line);
+    }
+
+    if (r2Edge)
+    {
+        wchar_t line[256] = {};
+        swprintf_s(line, _countof(line),
+            L"XInput[slot=%u] id=%s label=\"%s\" %s value=%u\r\n",
+            static_cast<unsigned int>(slot),
+            GamepadButton_GetIdName(GamepadButtonId::R2),
+            GamepadButton_GetDisplayLabel(GamepadButtonId::R2, kFamily),
+            r2Now ? L"down" : L"up",
+            static_cast<unsigned int>(rt));
+        OutputDebugStringW(line);
+    }
+
     s_xinputPollPrevWButtons = w;
+    s_xinputPrevL2Pressed = l2Now;
+    s_xinputPrevR2Pressed = r2Now;
 }
 
 static GameControllerKind Win32_ClassifyGameControllerKind(
