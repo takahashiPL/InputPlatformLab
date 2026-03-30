@@ -864,17 +864,15 @@ static void Win32_LogVirtualInputPolicyIfChanged(
     }
 
     const VirtualInputPolicyMenuEdges e = VirtualInputPolicy_MenuEdges(prev, curr);
-    if (e.confirm)
+    if (e.confirm || e.cancel || e.menu)
     {
-        OutputDebugStringW(L"VirtualInputPolicy Confirm(pressed)\r\n");
-    }
-    if (e.cancel)
-    {
-        OutputDebugStringW(L"VirtualInputPolicy Cancel(pressed)\r\n");
-    }
-    if (e.menu)
-    {
-        OutputDebugStringW(L"VirtualInputPolicy Menu(pressed)\r\n");
+        wchar_t line[192] = {};
+        swprintf_s(line, _countof(line),
+            L"VirtualInputPolicy edges confirm=%d cancel=%d menu=%d\r\n",
+            e.confirm ? 1 : 0,
+            e.cancel ? 1 : 0,
+            e.menu ? 1 : 0);
+        OutputDebugStringW(line);
     }
 }
 
