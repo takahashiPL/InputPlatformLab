@@ -6,6 +6,7 @@
 
 #include <cstdint>
 #include <climits>
+#include <cmath>
 #include <stdio.h>
 #include <vector>
 
@@ -19,6 +20,10 @@
 
 #ifndef XINPUT_GAMEPAD_TRIGGER_THRESHOLD
 #define XINPUT_GAMEPAD_TRIGGER_THRESHOLD 30
+#endif
+
+#ifndef XINPUT_GAMEPAD_LEFT_THUMB_DEADZONE
+#define XINPUT_GAMEPAD_LEFT_THUMB_DEADZONE 7849
 #endif
 
 // Windows 8.1+（targetver によっては未定義のため）
@@ -75,6 +80,16 @@ enum class GamepadButtonId : std::uint8_t
     DPadLeft,
     DPadRight,
     Count,
+};
+
+// 左スティックの粗い方向（T13。将来 input/ 配下へ移設可能）
+enum class GamepadLeftStickDir : std::uint8_t
+{
+    None = 0,
+    Left,
+    Right,
+    Up,
+    Down,
 };
 
 // Raw Input HID から得た属性（将来 input/ 配下へ移設可能）
@@ -445,6 +460,43 @@ static DWORD s_xinputPollPrevSlot = XUSER_MAX_COUNT;
 static WORD s_xinputPollPrevWButtons = 0;
 static bool s_xinputPrevL2Pressed = false;
 static bool s_xinputPrevR2Pressed = false;
+static bool s_xinputPrevLeftInDeadzone = true;
+static GamepadLeftStickDir s_xinputPrevLeftDir = GamepadLeftStickDir::None;
+
+static bool Win32_LeftStickInDeadzone(SHORT x, SHORT y)
+{
+    const double dx = static_cast<double>(x);
+    const double dy = static_cast<double>(y);
+    const double mag = std::sqrt(dx * dx + dy * dy);
+    return mag < static_cast<double>(XINPUT_GAMEPAD_LEFT_THUMB_DEADZONE);
+}
+
+static GamepadLeftStickDir Win32_ClassifyLeftStickDir(SHORT x, SHORT y, bool inDeadzone)
+{
+    if (inDeadzone)
+    {
+        return GamepadLeftStickDir::None;
+    }
+    const double dx = static_cast<double>(x);
+    const double dy = static_cast<double>(y);
+    if (std::fabs(dx) >= std::fabs(dy))
+    {
+        return dx < 0.0 ? GamepadLeftStickDir::Left : GamepadLeftStickDir::Right;
+    }
+    return dy < 0.0 ? GamepadLeftStickDir::Down : GamepadLeftStickDir::Up;
+}
+
+static const wchar_t* Win32_LeftStickDirLabel(GamepadLeftStickDir d)
+{
+    switch (d)
+    {
+    case GamepadLeftStickDir::Left: return L"Left";
+    case GamepadLeftStickDir::Right: return L"Right";
+    case GamepadLeftStickDir::Up: return L"Up";
+    case GamepadLeftStickDir::Down: return L"Down";
+    default: return L"None";
+    }
+}
 
 static DWORD Win32_GetFirstConnectedXInputSlotOrMax()
 {
@@ -472,6 +524,8 @@ static void Win32_XInputPollDigitalEdgesOnTimer(HWND hwnd)
         s_xinputPollPrevWButtons = 0;
         s_xinputPrevL2Pressed = false;
         s_xinputPrevR2Pressed = false;
+        s_xinputPrevLeftInDeadzone = true;
+        s_xinputPrevLeftDir = GamepadLeftStickDir::None;
         return;
     }
 
@@ -482,6 +536,8 @@ static void Win32_XInputPollDigitalEdgesOnTimer(HWND hwnd)
         s_xinputPollPrevWButtons = 0;
         s_xinputPrevL2Pressed = false;
         s_xinputPrevR2Pressed = false;
+        s_xinputPrevLeftInDeadzone = true;
+        s_xinputPrevLeftDir = GamepadLeftStickDir::None;
         return;
     }
 
@@ -491,12 +547,19 @@ static void Win32_XInputPollDigitalEdgesOnTimer(HWND hwnd)
     const bool l2Now = (lt >= XINPUT_GAMEPAD_TRIGGER_THRESHOLD);
     const bool r2Now = (rt >= XINPUT_GAMEPAD_TRIGGER_THRESHOLD);
 
+    const SHORT lx = state.Gamepad.sThumbLX;
+    const SHORT ly = state.Gamepad.sThumbLY;
+    const bool leftInDz = Win32_LeftStickInDeadzone(lx, ly);
+    const GamepadLeftStickDir leftDir = Win32_ClassifyLeftStickDir(lx, ly, leftInDz);
+
     if (slot != s_xinputPollPrevSlot)
     {
         s_xinputPollPrevSlot = slot;
         s_xinputPollPrevWButtons = w;
         s_xinputPrevL2Pressed = l2Now;
         s_xinputPrevR2Pressed = r2Now;
+        s_xinputPrevLeftInDeadzone = leftInDz;
+        s_xinputPrevLeftDir = leftDir;
         return;
     }
 
@@ -504,7 +567,12 @@ static void Win32_XInputPollDigitalEdgesOnTimer(HWND hwnd)
     const bool l2Edge = (l2Now != s_xinputPrevL2Pressed);
     const bool r2Edge = (r2Now != s_xinputPrevR2Pressed);
 
-    if (changed == 0 && !l2Edge && !r2Edge)
+    const bool leftDzEdge = (leftInDz != s_xinputPrevLeftInDeadzone);
+    const bool leftDirEdge =
+        !leftInDz && !s_xinputPrevLeftInDeadzone && (leftDir != s_xinputPrevLeftDir);
+    const bool stickEvent = leftDzEdge || leftDirEdge;
+
+    if (changed == 0 && !l2Edge && !r2Edge && !stickEvent)
     {
         return;
     }
@@ -552,9 +620,49 @@ static void Win32_XInputPollDigitalEdgesOnTimer(HWND hwnd)
         OutputDebugStringW(line);
     }
 
+    if (stickEvent)
+    {
+        if (leftDzEdge)
+        {
+            wchar_t line[320] = {};
+            if (leftInDz)
+            {
+                swprintf_s(line, _countof(line),
+                    L"XInput[slot=%u] LeftStick dz=in raw=(%d,%d)\r\n",
+                    static_cast<unsigned int>(slot),
+                    static_cast<int>(lx),
+                    static_cast<int>(ly));
+            }
+            else
+            {
+                swprintf_s(line, _countof(line),
+                    L"XInput[slot=%u] LeftStick dz=out raw=(%d,%d) dir=%s\r\n",
+                    static_cast<unsigned int>(slot),
+                    static_cast<int>(lx),
+                    static_cast<int>(ly),
+                    Win32_LeftStickDirLabel(leftDir));
+            }
+            OutputDebugStringW(line);
+        }
+        else if (leftDirEdge)
+        {
+            wchar_t line[320] = {};
+            swprintf_s(line, _countof(line),
+                L"XInput[slot=%u] LeftStick dz=out raw=(%d,%d) dir=%s->%s\r\n",
+                static_cast<unsigned int>(slot),
+                static_cast<int>(lx),
+                static_cast<int>(ly),
+                Win32_LeftStickDirLabel(s_xinputPrevLeftDir),
+                Win32_LeftStickDirLabel(leftDir));
+            OutputDebugStringW(line);
+        }
+    }
+
     s_xinputPollPrevWButtons = w;
     s_xinputPrevL2Pressed = l2Now;
     s_xinputPrevR2Pressed = r2Now;
+    s_xinputPrevLeftInDeadzone = leftInDz;
+    s_xinputPrevLeftDir = leftDir;
 }
 
 static GameControllerKind Win32_ClassifyGameControllerKind(
