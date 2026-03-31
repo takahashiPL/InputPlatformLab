@@ -808,16 +808,19 @@ static void Win32_T14_TryScrollFromKeyboardEdges(bool upEdge, bool downEdge, HWN
     InvalidateRect(hwnd, nullptr, FALSE);
 }
 
+// T15 non-exact: 主に W/H のズレ（縦を強め）と総ピクセル差。アスペクト差はタイブレーク。
+static constexpr int kT15HeightMismatchWeightSq = 4;
+
 static bool Win32_T15_IsBetterMatch(
     bool exactNew,
-    double arDiffNew,
-    long long distSqNew,
+    long long weightedDistSqNew,
     long long areaDiffNew,
+    double arDiffNew,
     int hzNew,
     bool exactBest,
-    double arDiffBest,
-    long long distSqBest,
+    long long weightedDistSqBest,
     long long areaDiffBest,
+    double arDiffBest,
     int hzBest)
 {
     if (exactNew != exactBest)
@@ -828,19 +831,11 @@ static bool Win32_T15_IsBetterMatch(
     {
         return hzNew > hzBest;
     }
-    if (arDiffNew < arDiffBest)
+    if (weightedDistSqNew < weightedDistSqBest)
     {
         return true;
     }
-    if (arDiffNew > arDiffBest)
-    {
-        return false;
-    }
-    if (distSqNew < distSqBest)
-    {
-        return true;
-    }
-    if (distSqNew > distSqBest)
+    if (weightedDistSqNew > weightedDistSqBest)
     {
         return false;
     }
@@ -849,6 +844,14 @@ static bool Win32_T15_IsBetterMatch(
         return true;
     }
     if (areaDiffNew > areaDiffBest)
+    {
+        return false;
+    }
+    if (arDiffNew < arDiffBest)
+    {
+        return true;
+    }
+    if (arDiffNew > arDiffBest)
     {
         return false;
     }
@@ -871,6 +874,7 @@ static DisplayModeMatchResult Win32_FindNearestDisplayMode(
     }
 
     const double desireAR = static_cast<double>(desiredW) / static_cast<double>(desiredH);
+    const long long kH = static_cast<long long>(kT15HeightMismatchWeightSq);
 
     const DisplayModeInfo& b0 = modes[0];
     size_t bestIdx = 0;
@@ -880,7 +884,7 @@ static DisplayModeMatchResult Win32_FindNearestDisplayMode(
     double bestArDiff = std::fabs(ar0 - desireAR);
     const long long dw0 = static_cast<long long>(b0.width) - desiredW;
     const long long dh0 = static_cast<long long>(b0.height) - desiredH;
-    long long bestDistSq = dw0 * dw0 + dh0 * dh0;
+    long long bestWeightedDistSq = dw0 * dw0 + kH * dh0 * dh0;
     long long bestAreaDiff =
         std::llabs(static_cast<long long>(b0.width) * b0.height -
                    static_cast<long long>(desiredW) * desiredH);
@@ -895,27 +899,27 @@ static DisplayModeMatchResult Win32_FindNearestDisplayMode(
         const double arDiff = std::fabs(arM - desireAR);
         const long long dw = static_cast<long long>(m.width) - desiredW;
         const long long dh = static_cast<long long>(m.height) - desiredH;
-        const long long distSq = dw * dw + dh * dh;
+        const long long weightedDistSq = dw * dw + kH * dh * dh;
         const long long areaDiff =
             std::llabs(static_cast<long long>(m.width) * m.height -
                        static_cast<long long>(desiredW) * desiredH);
 
         if (Win32_T15_IsBetterMatch(
                 exact,
-                arDiff,
-                distSq,
+                weightedDistSq,
                 areaDiff,
+                arDiff,
                 m.refresh_hz,
                 bestExact,
-                bestArDiff,
-                bestDistSq,
+                bestWeightedDistSq,
                 bestAreaDiff,
+                bestArDiff,
                 bestHz))
         {
             bestIdx = i;
             bestExact = exact;
             bestArDiff = arDiff;
-            bestDistSq = distSq;
+            bestWeightedDistSq = weightedDistSq;
             bestAreaDiff = areaDiff;
             bestHz = m.refresh_hz;
         }
