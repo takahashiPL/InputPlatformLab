@@ -9,6 +9,7 @@
 #include <climits>
 #include <cmath>
 #include <cstdlib>
+#include <algorithm>
 #include <stdio.h>
 #include <set>
 #include <string>
@@ -16,6 +17,13 @@
 
 #include <xinput.h>
 #pragma comment(lib, "Xinput.lib")
+
+#include <shellscalingapi.h>
+#pragma comment(lib, "Shcore.lib")
+
+#ifndef USER_DEFAULT_SCREEN_DPI
+#define USER_DEFAULT_SCREEN_DPI 96
+#endif
 
 #define MAX_LOADSTRING 100
 
@@ -492,6 +500,38 @@ static int s_t15DesiredWidth = 0;
 static int s_t15DesiredHeight = 0;
 static DisplayModeMatchResult s_t15MatchResult{};
 
+// T16: ウィンドウ再生成の土台（windowed のみ。display 変更・FS はしない）
+struct MainWindowConfig
+{
+    int clientWidth;  // windowed: logical client（DPI 変換後・work クランプ後）
+    int clientHeight; // logical
+    DWORD windowStyle;
+    DWORD windowExStyle;
+    BOOL useAdjustWindowRect; // TRUE のとき AdjustWindowRectExForDpi で外枠を算出
+    UINT dpiX;
+    UINT dpiY;
+};
+
+enum class T16RecreateStatus
+{
+    None,
+    Ok,
+    Fail,
+};
+
+static T16RecreateStatus s_t16RecreateStatus = T16RecreateStatus::None;
+static int s_t16LastRequestedOuterW = 0;
+static int s_t16LastRequestedOuterH = 0;
+static int s_t16LastActualOuterW = 0;
+static int s_t16LastActualOuterH = 0;
+static int s_t16LastTargetPhysicalW = 0;
+static int s_t16LastTargetPhysicalH = 0;
+static int s_t16LastTargetLogicalW = 0;
+static int s_t16LastTargetLogicalH = 0;
+static UINT s_t16LastDpiX = USER_DEFAULT_SCREEN_DPI;
+static UINT s_t16LastDpiY = USER_DEFAULT_SCREEN_DPI;
+static bool s_t16DestroyIsRecreate = false;
+
 // --- T25: 前方宣言（責務は上記 [1]〜[8] に対応。実装はファイル後半） ---
 // このコード モジュールに含まれる関数の宣言を転送します:
 ATOM                MyRegisterClass(HINSTANCE hInstance);
@@ -554,6 +594,32 @@ static void Win32_LogVirtualInputMenuSample_StateDumpIfChanged(
 static DWORD Win32_GetFirstConnectedXInputSlotOrMax();
 static void Win32_XInputPollDigitalEdgesOnTimer(HWND hwnd);
 
+static void Win32_InitProcessDpiAwareness()
+{
+    BOOL ok = FALSE;
+    HMODULE user32 = GetModuleHandleW(L"user32.dll");
+    if (user32)
+    {
+        typedef BOOL(WINAPI * SetProcessDpiAwarenessContextFn)(DPI_AWARENESS_CONTEXT);
+        auto pSet = reinterpret_cast<SetProcessDpiAwarenessContextFn>(
+            GetProcAddress(user32, "SetProcessDpiAwarenessContext"));
+        if (pSet)
+        {
+            ok = pSet(DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2);
+        }
+    }
+    if (!ok)
+    {
+        SetProcessDPIAware();
+        OutputDebugStringW(
+            L"[T16] SetProcessDpiAwarenessContext(PMv2) unavailable; using SetProcessDPIAware\r\n");
+    }
+    else
+    {
+        OutputDebugStringW(L"[T16] DPI awareness: Per-Monitor Aware V2\r\n");
+    }
+}
+
 int APIENTRY wWinMain(_In_ HINSTANCE hInstance,
                      _In_opt_ HINSTANCE hPrevInstance,
                      _In_ LPWSTR    lpCmdLine,
@@ -562,7 +628,7 @@ int APIENTRY wWinMain(_In_ HINSTANCE hInstance,
     UNREFERENCED_PARAMETER(hPrevInstance);
     UNREFERENCED_PARAMETER(lpCmdLine);
 
-    // TODO: ここにコードを挿入してください。
+    Win32_InitProcessDpiAwareness();
 
     // グローバル文字列を初期化する
     LoadStringW(hInstance, IDS_APP_TITLE, szTitle, MAX_LOADSTRING);
@@ -1041,6 +1107,522 @@ static void Win32_T15_TryChangePresetFromKeyboardEdges(bool leftEdge, bool right
     Win32_T15_ApplyDesiredPresetAndRecompute();
     Win32_T15_LogDesiredNearestLine();
     InvalidateRect(hwnd, nullptr, FALSE);
+}
+
+static bool Win32_T16_GetTargetClientSizeFromNearestMode(int& outW, int& outH)
+{
+    if (s_t15MatchResult.nearestModeIndex == static_cast<size_t>(-1))
+    {
+        return false;
+    }
+    if (s_displayMonitorsCache.empty() ||
+        kT14SelectedMonitorIndex >= s_displayMonitorsCache.size())
+    {
+        return false;
+    }
+    const std::vector<DisplayModeInfo>& modes =
+        s_displayMonitorsCache[kT14SelectedMonitorIndex].modes;
+    if (s_t15MatchResult.nearestModeIndex >= modes.size())
+    {
+        return false;
+    }
+    const DisplayModeInfo& m = modes[s_t15MatchResult.nearestModeIndex];
+    outW = m.width;
+    outH = m.height;
+    return true;
+}
+
+static bool Win32_T16_GetDpiForWindowBest(HWND hwnd, UINT& outDpiX, UINT& outDpiY)
+{
+    if (hwnd && IsWindow(hwnd))
+    {
+        const UINT dpi = GetDpiForWindow(hwnd);
+        if (dpi != 0)
+        {
+            outDpiX = dpi;
+            outDpiY = dpi;
+            return true;
+        }
+    }
+    HMONITOR hm = MonitorFromWindow(hwnd ? hwnd : nullptr, MONITOR_DEFAULTTOPRIMARY);
+    if (hm)
+    {
+        UINT dx = 0;
+        UINT dy = 0;
+        if (GetDpiForMonitor(hm, MDT_EFFECTIVE_DPI, &dx, &dy) == S_OK)
+        {
+            outDpiX = dx;
+            outDpiY = dy;
+            return true;
+        }
+    }
+    HDC hdc = GetDC(nullptr);
+    outDpiX = static_cast<UINT>(GetDeviceCaps(hdc, LOGPIXELSX));
+    outDpiY = static_cast<UINT>(GetDeviceCaps(hdc, LOGPIXELSY));
+    ReleaseDC(nullptr, hdc);
+    return true;
+}
+
+static void Win32_T16_ClampLogicalClientToWorkArea(
+    HWND hwnd,
+    UINT dpiX,
+    UINT dpiY,
+    int& inOutLogicalW,
+    int& inOutLogicalH)
+{
+    HMONITOR hMon = MonitorFromWindow(hwnd, MONITOR_DEFAULTTONEAREST);
+    MONITORINFO mi{};
+    mi.cbSize = sizeof(mi);
+    if (!GetMonitorInfo(hMon, &mi))
+    {
+        return;
+    }
+    const int workPhysW = mi.rcWork.right - mi.rcWork.left;
+    const int workPhysH = mi.rcWork.bottom - mi.rcWork.top;
+
+    RECT tryRc{};
+    tryRc.left = 0;
+    tryRc.top = 0;
+    tryRc.right = inOutLogicalW;
+    tryRc.bottom = inOutLogicalH;
+    if (!AdjustWindowRectExForDpi(&tryRc, WS_OVERLAPPEDWINDOW, TRUE, 0, dpiX))
+    {
+        return;
+    }
+    const int outerLogicalW = static_cast<int>(tryRc.right - tryRc.left);
+    const int outerLogicalH = static_cast<int>(tryRc.bottom - tryRc.top);
+    const int outerPhysW = MulDiv(outerLogicalW, dpiX, USER_DEFAULT_SCREEN_DPI);
+    const int outerPhysH = MulDiv(outerLogicalH, dpiY, USER_DEFAULT_SCREEN_DPI);
+
+    if (outerPhysW <= workPhysW && outerPhysH <= workPhysH)
+    {
+        return;
+    }
+    const double scaleX = static_cast<double>(workPhysW) /
+                          static_cast<double>(outerPhysW > 0 ? outerPhysW : 1);
+    const double scaleY = static_cast<double>(workPhysH) /
+                          static_cast<double>(outerPhysH > 0 ? outerPhysH : 1);
+    const double scale = (std::min)(scaleX, scaleY);
+    if (scale >= 1.0)
+    {
+        return;
+    }
+    inOutLogicalW = static_cast<int>(static_cast<double>(inOutLogicalW) * scale);
+    inOutLogicalH = static_cast<int>(static_cast<double>(inOutLogicalH) * scale);
+    if (inOutLogicalW < 64)
+    {
+        inOutLogicalW = 64;
+    }
+    if (inOutLogicalH < 64)
+    {
+        inOutLogicalH = 64;
+    }
+}
+
+static bool Win32_BuildWindowConfigFromCurrentSelection(HWND hwnd, MainWindowConfig& out)
+{
+    int physW = 0;
+    int physH = 0;
+    if (!Win32_T16_GetTargetClientSizeFromNearestMode(physW, physH))
+    {
+        return false;
+    }
+    if (physW <= 0 || physH <= 0)
+    {
+        return false;
+    }
+    UINT dpiX = USER_DEFAULT_SCREEN_DPI;
+    UINT dpiY = USER_DEFAULT_SCREEN_DPI;
+    Win32_T16_GetDpiForWindowBest(hwnd, dpiX, dpiY);
+
+    int lw = MulDiv(physW, USER_DEFAULT_SCREEN_DPI, dpiX);
+    int lh = MulDiv(physH, USER_DEFAULT_SCREEN_DPI, dpiY);
+    Win32_T16_ClampLogicalClientToWorkArea(hwnd, dpiX, dpiY, lw, lh);
+
+    out.clientWidth = lw;
+    out.clientHeight = lh;
+    out.windowStyle = WS_OVERLAPPEDWINDOW;
+    out.windowExStyle = 0;
+    out.useAdjustWindowRect = TRUE;
+    out.dpiX = dpiX;
+    out.dpiY = dpiY;
+
+    s_t16LastTargetPhysicalW = physW;
+    s_t16LastTargetPhysicalH = physH;
+    s_t16LastTargetLogicalW = lw;
+    s_t16LastTargetLogicalH = lh;
+    s_t16LastDpiX = dpiX;
+    s_t16LastDpiY = dpiY;
+
+    return true;
+}
+
+static bool Win32_RecreateMainWindowFromConfig(HWND oldHwnd, const MainWindowConfig& cfg)
+{
+    if (!oldHwnd || !IsWindow(oldHwnd))
+    {
+        return false;
+    }
+    if (cfg.clientWidth <= 0 || cfg.clientHeight <= 0)
+    {
+        return false;
+    }
+
+    RECT rc{};
+    rc.left = 0;
+    rc.top = 0;
+    rc.right = cfg.clientWidth;
+    rc.bottom = cfg.clientHeight;
+
+    int outerPhysW = cfg.clientWidth;
+    int outerPhysH = cfg.clientHeight;
+    if (cfg.useAdjustWindowRect)
+    {
+        if (!AdjustWindowRectExForDpi(&rc, cfg.windowStyle, TRUE, cfg.windowExStyle, cfg.dpiX))
+        {
+            s_t16RecreateStatus = T16RecreateStatus::Fail;
+            OutputDebugStringW(L"[T16] AdjustWindowRectExForDpi failed\r\n");
+            return false;
+        }
+        const int outerLogicalW = static_cast<int>(rc.right - rc.left);
+        const int outerLogicalH = static_cast<int>(rc.bottom - rc.top);
+        outerPhysW = MulDiv(outerLogicalW, cfg.dpiX, USER_DEFAULT_SCREEN_DPI);
+        outerPhysH = MulDiv(outerLogicalH, cfg.dpiY, USER_DEFAULT_SCREEN_DPI);
+    }
+
+    RECT wr{};
+    GetWindowRect(oldHwnd, &wr);
+
+    wchar_t logBefore[512] = {};
+    swprintf_s(
+        logBefore,
+        _countof(logBefore),
+        L"[T16] recreate BEFORE: mode physical=%dx%d logical client=%dx%d dpi=%u/%u "
+        L"outer physical=%dx%d style=0x%08X exStyle=0x%08X topleft=(%d,%d)\r\n",
+        s_t16LastTargetPhysicalW,
+        s_t16LastTargetPhysicalH,
+        cfg.clientWidth,
+        cfg.clientHeight,
+        cfg.dpiX,
+        cfg.dpiY,
+        outerPhysW,
+        outerPhysH,
+        cfg.windowStyle,
+        cfg.windowExStyle,
+        static_cast<int>(wr.left),
+        static_cast<int>(wr.top));
+    OutputDebugStringW(logBefore);
+
+    HWND newHwnd = CreateWindowExW(
+        cfg.windowExStyle,
+        szWindowClass,
+        szTitle,
+        cfg.windowStyle,
+        static_cast<int>(wr.left),
+        static_cast<int>(wr.top),
+        outerPhysW,
+        outerPhysH,
+        nullptr,
+        nullptr,
+        hInst,
+        nullptr);
+
+    if (!newHwnd)
+    {
+        s_t16RecreateStatus = T16RecreateStatus::Fail;
+        wchar_t logErr[160] = {};
+        swprintf_s(
+            logErr,
+            _countof(logErr),
+            L"[T16] CreateWindowEx failed gle=%lu\r\n",
+            static_cast<unsigned long>(GetLastError()));
+        OutputDebugStringW(logErr);
+        return false;
+    }
+
+    s_mainWindowHwnd = newHwnd;
+    if (!Win32_RegisterKeyboardRawInput(newHwnd))
+    {
+        OutputDebugStringW(L"[T16] RegisterRawInputDevices failed\r\n");
+    }
+    SetTimer(newHwnd, TIMER_ID_XINPUT_POLL, XINPUT_POLL_INTERVAL_MS, nullptr);
+
+    s_t16DestroyIsRecreate = true;
+    DestroyWindow(oldHwnd);
+
+    s_t16LastRequestedOuterW = outerPhysW;
+    s_t16LastRequestedOuterH = outerPhysH;
+
+    // CreateWindow 直後の枠・既定状態のずれや SW_SHOW 系の影響を避け、通常ウィンドウとして outer を明示固定する。
+    SetWindowPos(
+        newHwnd,
+        nullptr,
+        static_cast<int>(wr.left),
+        static_cast<int>(wr.top),
+        outerPhysW,
+        outerPhysH,
+        SWP_NOZORDER | SWP_FRAMECHANGED);
+    ShowWindow(newHwnd, SW_SHOWNORMAL);
+    if (IsZoomed(newHwnd))
+    {
+        ShowWindow(newHwnd, SW_RESTORE);
+        SetWindowPos(
+            newHwnd,
+            nullptr,
+            static_cast<int>(wr.left),
+            static_cast<int>(wr.top),
+            outerPhysW,
+            outerPhysH,
+            SWP_NOZORDER | SWP_FRAMECHANGED);
+    }
+    UpdateWindow(newHwnd);
+    SetForegroundWindow(newHwnd);
+
+    RECT outerActual{};
+    GetWindowRect(newHwnd, &outerActual);
+    s_t16LastActualOuterW = outerActual.right - outerActual.left;
+    s_t16LastActualOuterH = outerActual.bottom - outerActual.top;
+
+    RECT cr{};
+    GetClientRect(newHwnd, &cr);
+    const int actualClientW = static_cast<int>(cr.right - cr.left);
+    const int actualClientH = static_cast<int>(cr.bottom - cr.top);
+
+    WINDOWPLACEMENT wp{};
+    wp.length = sizeof(wp);
+    UINT showCmd = 0;
+    if (GetWindowPlacement(newHwnd, &wp))
+    {
+        showCmd = wp.showCmd;
+    }
+
+    wchar_t logAfter[512] = {};
+    swprintf_s(
+        logAfter,
+        _countof(logAfter),
+        L"[T16] recreate AFTER: ok=1 client(phys)=%dx%d requested outer(phys)=%dx%d "
+        L"actual outer(phys)=%dx%d IsZoomed=%d showCmd=%u hwnd=%p\r\n",
+        actualClientW,
+        actualClientH,
+        outerPhysW,
+        outerPhysH,
+        s_t16LastActualOuterW,
+        s_t16LastActualOuterH,
+        IsZoomed(newHwnd) ? 1 : 0,
+        showCmd,
+        static_cast<void*>(newHwnd));
+    OutputDebugStringW(logAfter);
+
+    s_t16RecreateStatus = T16RecreateStatus::Ok;
+    return true;
+}
+
+static void Win32_T16_RecreateMainWindowFromCurrentSelection(HWND oldHwnd)
+{
+    MainWindowConfig cfg{};
+    if (!Win32_BuildWindowConfigFromCurrentSelection(oldHwnd, cfg))
+    {
+        s_t16RecreateStatus = T16RecreateStatus::Fail;
+        OutputDebugStringW(L"[T16] recreate skipped: no valid nearest mode for client size\r\n");
+        return;
+    }
+    Win32_RecreateMainWindowFromConfig(oldHwnd, cfg);
+}
+
+static const wchar_t* Win32_T16_ShowCmdLabel(UINT sc)
+{
+    switch (sc)
+    {
+    case SW_HIDE:
+        return L"SW_HIDE";
+    case SW_NORMAL: // SW_SHOWNORMAL と同値
+        return L"SW_NORMAL";
+    case SW_SHOWMINIMIZED:
+        return L"SW_SHOWMINIMIZED";
+    case SW_SHOWMAXIMIZED:
+        return L"SW_SHOWMAXIMIZED";
+    case SW_SHOWNOACTIVATE:
+        return L"SW_SHOWNOACTIVATE";
+    case SW_SHOW:
+        return L"SW_SHOW";
+    case SW_MINIMIZE:
+        return L"SW_MINIMIZE";
+    case SW_SHOWMINNOACTIVE:
+        return L"SW_SHOWMINNOACTIVE";
+    case SW_SHOWNA:
+        return L"SW_SHOWNA";
+    case SW_RESTORE:
+        return L"SW_RESTORE";
+    default:
+        return L"?";
+    }
+}
+
+static void Win32_T16_AppendPaintSection(
+    wchar_t* buf,
+    size_t bufCount,
+    HWND hwnd,
+    const RECT& rcClient)
+{
+    // Per-Monitor DPI Aware V2: GetClientRect はクライアント領域を物理ピクセルで返す。
+    // target の logical（MulDiv(mode,96,dpi)）と比較するには current も同じ式で論理化する。
+    const int cw = static_cast<int>(rcClient.right - rcClient.left);
+    const int ch = static_cast<int>(rcClient.bottom - rcClient.top);
+    int physW = 0;
+    int physH = 0;
+    const bool hasTarget = Win32_T16_GetTargetClientSizeFromNearestMode(physW, physH);
+    UINT dpiX = USER_DEFAULT_SCREEN_DPI;
+    UINT dpiY = USER_DEFAULT_SCREEN_DPI;
+    if (hwnd)
+    {
+        Win32_T16_GetDpiForWindowBest(hwnd, dpiX, dpiY);
+    }
+    const int curLogicalW = MulDiv(cw, USER_DEFAULT_SCREEN_DPI, dpiX);
+    const int curLogicalH = MulDiv(ch, USER_DEFAULT_SCREEN_DPI, dpiY);
+    int logicalFromMode = 0;
+    int logicalFromModeH = 0;
+    if (hasTarget)
+    {
+        logicalFromMode = MulDiv(physW, USER_DEFAULT_SCREEN_DPI, dpiX);
+        logicalFromModeH = MulDiv(physH, USER_DEFAULT_SCREEN_DPI, dpiY);
+    }
+    int logicalClampedW = logicalFromMode;
+    int logicalClampedH = logicalFromModeH;
+    if (hasTarget && hwnd)
+    {
+        logicalClampedW = logicalFromMode;
+        logicalClampedH = logicalFromModeH;
+        Win32_T16_ClampLogicalClientToWorkArea(hwnd, dpiX, dpiY, logicalClampedW, logicalClampedH);
+    }
+
+    const wchar_t* lastLabel = L"(none)";
+    if (s_t16RecreateStatus == T16RecreateStatus::Ok)
+    {
+        lastLabel = L"success";
+    }
+    else if (s_t16RecreateStatus == T16RecreateStatus::Fail)
+    {
+        lastLabel = L"fail";
+    }
+    wchar_t reqOuterStr[48] = L"-";
+    wchar_t actOuterStr[48] = L"-";
+    if (s_t16RecreateStatus == T16RecreateStatus::Ok)
+    {
+        swprintf_s(
+            reqOuterStr,
+            _countof(reqOuterStr),
+            L"%dx%d",
+            s_t16LastRequestedOuterW,
+            s_t16LastRequestedOuterH);
+        swprintf_s(
+            actOuterStr,
+            _countof(actOuterStr),
+            L"%dx%d",
+            s_t16LastActualOuterW,
+            s_t16LastActualOuterH);
+    }
+
+    int nowOuterW = 0;
+    int nowOuterH = 0;
+    BOOL nowZoomed = FALSE;
+    UINT nowShowCmd = 0;
+    const wchar_t* nowShowCmdLabel = L"-";
+    if (hwnd && IsWindow(hwnd))
+    {
+        RECT wrNow{};
+        GetWindowRect(hwnd, &wrNow);
+        nowOuterW = static_cast<int>(wrNow.right - wrNow.left);
+        nowOuterH = static_cast<int>(wrNow.bottom - wrNow.top);
+        nowZoomed = IsZoomed(hwnd);
+        WINDOWPLACEMENT wp{};
+        wp.length = sizeof(wp);
+        if (GetWindowPlacement(hwnd, &wp))
+        {
+            nowShowCmd = wp.showCmd;
+            nowShowCmdLabel = Win32_T16_ShowCmdLabel(wp.showCmd);
+        }
+    }
+
+    wchar_t block[2048] = {};
+    if (hasTarget)
+    {
+        swprintf_s(
+            block,
+            _countof(block),
+            L"\r\n--- T16 window (windowed) ---\r\n"
+            L"current client (raw GetClientRect): %dx%d\r\n"
+            L"current client (physical, PMv2 == raw): %dx%d\r\n"
+            L"current client (logical, MulDiv(phys,96,dpi)): %dx%d\r\n"
+            L"current outer (GetWindowRect, physical): %dx%d\r\n"
+            L"IsZoomed: %d  WINDOWPLACEMENT.showCmd: %u (%s)\r\n"
+            L"target mode (physical): %dx%d\r\n"
+            L"target client (logical, from DPI): %dx%d\r\n"
+            L"target client (logical, clamped to work): %dx%d\r\n"
+            L"effective DPI: %u x %u\r\n"
+            L"last recreate: requested outer (physical): %s\r\n"
+            L"last recreate: actual outer (physical, after SetWindowPos): %s\r\n"
+            L"last recreate result: %s\r\n"
+            L"(menu closed: Enter = recreate to nearest mode size)\r\n",
+            cw,
+            ch,
+            cw,
+            ch,
+            curLogicalW,
+            curLogicalH,
+            nowOuterW,
+            nowOuterH,
+            nowZoomed ? 1 : 0,
+            nowShowCmd,
+            nowShowCmdLabel,
+            physW,
+            physH,
+            logicalFromMode,
+            logicalFromModeH,
+            logicalClampedW,
+            logicalClampedH,
+            dpiX,
+            dpiY,
+            reqOuterStr,
+            actOuterStr,
+            lastLabel);
+    }
+    else
+    {
+        swprintf_s(
+            block,
+            _countof(block),
+            L"\r\n--- T16 window (windowed) ---\r\n"
+            L"current client (raw GetClientRect): %dx%d\r\n"
+            L"current client (physical, PMv2 == raw): %dx%d\r\n"
+            L"current client (logical, MulDiv(phys,96,dpi)): %dx%d\r\n"
+            L"current outer (GetWindowRect, physical): %dx%d\r\n"
+            L"IsZoomed: %d  WINDOWPLACEMENT.showCmd: %u (%s)\r\n"
+            L"target mode (physical): (none)\r\n"
+            L"target client (logical, from DPI): -\r\n"
+            L"target client (logical, clamped to work): -\r\n"
+            L"effective DPI: %u x %u\r\n"
+            L"last recreate: requested outer (physical): %s\r\n"
+            L"last recreate: actual outer (physical, after SetWindowPos): %s\r\n"
+            L"last recreate result: %s\r\n"
+            L"(menu closed: Enter = recreate to nearest mode size)\r\n",
+            cw,
+            ch,
+            cw,
+            ch,
+            curLogicalW,
+            curLogicalH,
+            nowOuterW,
+            nowOuterH,
+            nowZoomed ? 1 : 0,
+            nowShowCmd,
+            nowShowCmdLabel,
+            dpiX,
+            dpiY,
+            reqOuterStr,
+            actOuterStr,
+            lastLabel);
+    }
+    wcscat_s(buf, bufCount, block);
 }
 
 //
@@ -1751,7 +2333,7 @@ static void Win32_PaintMenuSampleScreen(HWND hwnd, HDC hdc)
     DrawTextW(hdc, menuBuf, -1, &rcMenu, DT_LEFT | DT_TOP | DT_NOPREFIX | DT_CALCRECT);
     DrawTextW(hdc, menuBuf, -1, &rcMenu, DT_LEFT | DT_TOP | DT_NOPREFIX);
 
-    wchar_t t14Buf[4096] = {};
+    wchar_t t14Buf[8192] = {};
     if (!s_displayMonitorsCache.empty() && kT14SelectedMonitorIndex < s_displayMonitorsCache.size())
     {
         const DisplayMonitorInfo& mon = s_displayMonitorsCache[kT14SelectedMonitorIndex];
@@ -1848,6 +2430,8 @@ static void Win32_PaintMenuSampleScreen(HWND hwnd, HDC hdc)
         swprintf_s(t14Buf, _countof(t14Buf), L"--- T14 Displays ---\r\n(no monitors)\r\n");
     }
 
+    Win32_T16_AppendPaintSection(t14Buf, _countof(t14Buf), hwnd, rcClient);
+
     RECT rcT14 = rcClient;
     rcT14.top = rcMenu.bottom + 8;
     DrawTextW(hdc, t14Buf, -1, &rcT14, DT_LEFT | DT_TOP | DT_NOPREFIX);
@@ -1867,12 +2451,14 @@ static void Win32_LogVirtualInputMenuSampleIfChanged(
 
 static void Win32_UnifiedInputConsumerMenuTick(HWND hwndForPaint)
 {
+    bool t16EnterEdge = false;
     if (hwndForPaint && !s_virtualInputMenuSampleState.menuOpen)
     {
         const bool upEdge = !s_keyboardActionStateAtLastTimer.up && s_keyboardActionState.up;
         const bool downEdge = !s_keyboardActionStateAtLastTimer.down && s_keyboardActionState.down;
         const bool leftEdge = !s_keyboardActionStateAtLastTimer.left && s_keyboardActionState.left;
         const bool rightEdge = !s_keyboardActionStateAtLastTimer.right && s_keyboardActionState.right;
+        t16EnterEdge = !s_keyboardActionStateAtLastTimer.enter && s_keyboardActionState.enter;
         if (upEdge || downEdge)
         {
             Win32_T14_TryScrollFromKeyboardEdges(upEdge, downEdge, hwndForPaint);
@@ -1892,6 +2478,10 @@ static void Win32_UnifiedInputConsumerMenuTick(HWND hwndForPaint)
     const VirtualInputConsumerFrame unified =
         VirtualInputConsumer_MergeKeyboardController(kbFrame, ctrlFrame);
     Win32_LogVirtualInputMenuSampleIfChanged(unified, hwndForPaint);
+    if (hwndForPaint && !s_virtualInputMenuSampleState.menuOpen && t16EnterEdge)
+    {
+        Win32_T16_RecreateMainWindowFromCurrentSelection(hwndForPaint);
+    }
     s_keyboardActionStateAtLastTimer = s_keyboardActionState;
 }
 
@@ -2603,9 +3193,16 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam)
         }
         break;
     case WM_DESTROY:
-        s_mainWindowHwnd = nullptr;
         KillTimer(hWnd, TIMER_ID_XINPUT_POLL);
-        PostQuitMessage(0);
+        if (s_t16DestroyIsRecreate)
+        {
+            s_t16DestroyIsRecreate = false;
+        }
+        else
+        {
+            s_mainWindowHwnd = nullptr;
+            PostQuitMessage(0);
+        }
         break;
     default:
         return DefWindowProc(hWnd, message, wParam, lParam);
