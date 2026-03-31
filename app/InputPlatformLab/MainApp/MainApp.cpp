@@ -8,6 +8,7 @@
 #include <windowsx.h>
 
 #include <cstdint>
+#include <cstring>
 #include <climits>
 #include <cmath>
 #include <cstdlib>
@@ -83,6 +84,7 @@ enum class GameControllerKind : std::uint8_t
     Xbox,
     PlayStation4,
     PlayStation5,
+    Nintendo,
     XInputCompatible,
 };
 
@@ -444,6 +446,12 @@ struct GameControllerHidSummary
     bool device_info_valid;
 };
 
+static bool Win32_HidTraitsLookLikeGamepad(const GameControllerHidSummary& t)
+{
+    return (t.usage_page == 0x01 && (t.usage == 0x04 || t.usage == 0x05)) ||
+        (t.vendor_id == 0x045E || t.vendor_id == 0x054C || t.vendor_id == 0x057E);
+}
+
 // グローバル変数:
 HINSTANCE hInst;                                // 現在のインターフェイス
 WCHAR szTitle[MAX_LOADSTRING];                  // タイトル バーのテキスト
@@ -551,7 +559,21 @@ static wchar_t s_t17F5UnrelatedHint[192] = L"";
 // Enter の短いタップはタイマー 1 周期内で make/break となり edge が取りこぼすため、WM_INPUT の make でラッチしタイマーで 1 回だけ消費する。
 static bool s_t17PendingApplyRequest = false;
 
-// メイン画面デバッグ表示の縦スクロール（T13〜T17 全体）
+// T18: コントローラー識別（1 台・Raw Input 先頭 HID + XInput 先頭スロット）
+struct T18ControllerIdentifySnapshot
+{
+    int xinput_slot; // -1: 未接続
+    bool hid_found;
+    GameControllerHidSummary hid;
+    wchar_t device_path[512];
+    wchar_t product_name[256];
+    GameControllerKind inferred_kind;
+};
+static T18ControllerIdentifySnapshot s_t18{};
+static T18ControllerIdentifySnapshot s_t18LogPrev{};
+static bool s_t18HasLogPrev = false;
+
+// メイン画面デバッグ表示の縦スクロール（T13〜T18 全体）
 static int s_paintScrollY = 0;
 static int s_paintScrollLinePx = 16; // WM_PAINT で TEXTMETRIC から更新
 static int s_paintDbgContentHeight = 0;
@@ -660,6 +682,11 @@ static GameControllerKind Win32_ClassifyGameControllerKind(
 static const wchar_t* Win32_GameControllerKindLabel(GameControllerKind kind);
 static bool Win32_TryGetRawInputDeviceString(HANDLE hDevice, UINT infoType, wchar_t* buffer, size_t bufferCount);
 static void Win32_LogRawInputHidGameControllersClassified();
+
+static bool Win32_HidTraitsLookLikeGamepad(const GameControllerHidSummary& t);
+static const wchar_t* Win32_GameControllerKindFamilyLabel(GameControllerKind kind);
+static void Win32_T18_RefreshControllerIdentifySnapshot();
+static void Win32_T18_AppendPaintSection(wchar_t* buf, size_t bufCount);
 
 // [2] Gamepad button label tables
 static const wchar_t* GamepadButton_GetIdName(GamepadButtonId id);
@@ -2417,6 +2444,85 @@ static void Win32_T16_AppendPaintSection(
     wcscat_s(buf, bufCount, block);
 }
 
+static void Win32_T18_TruncateWideForPaint(const wchar_t* src, wchar_t* dst, size_t dstCount, size_t maxLen)
+{
+    if (!src || src[0] == L'\0')
+    {
+        wcscpy_s(dst, dstCount, L"(none)");
+        return;
+    }
+    const size_t n = wcslen(src);
+    if (n <= maxLen)
+    {
+        wcscpy_s(dst, dstCount, src);
+        return;
+    }
+    wcsncpy_s(dst, dstCount, src, maxLen);
+    wcscat_s(dst, dstCount, L"...");
+}
+
+// RIDI_PRODUCTNAME がインスタンスパス風のときは product 表示に使わない（path と分離）
+static bool Win32_T18_RawInputProductLooksLikeDevicePath(const wchar_t* s)
+{
+    if (!s || s[0] == L'\0')
+    {
+        return false;
+    }
+    if (s[0] == L'\\')
+    {
+        return true;
+    }
+    if (wcsstr(s, L"HID#") != nullptr)
+    {
+        return true;
+    }
+    if (wcsstr(s, L"VID_") != nullptr && wcsstr(s, L"PID_") != nullptr)
+    {
+        return true;
+    }
+    return false;
+}
+
+static void Win32_T18_AppendPaintSection(wchar_t* buf, size_t bufCount)
+{
+    wchar_t pathDisp[384] = {};
+    wchar_t prodDisp[384] = {};
+    Win32_T18_TruncateWideForPaint(s_t18.device_path, pathDisp, _countof(pathDisp), 120);
+    Win32_T18_TruncateWideForPaint(
+        (s_t18.product_name[0] != L'\0') ? s_t18.product_name : L"",
+        prodDisp,
+        _countof(prodDisp),
+        64);
+
+    wchar_t slotStr[16] = L"(none)";
+    if (s_t18.xinput_slot >= 0)
+    {
+        swprintf_s(slotStr, _countof(slotStr), L"%d", s_t18.xinput_slot);
+    }
+
+    const unsigned vid = s_t18.hid_found ? static_cast<unsigned>(s_t18.hid.vendor_id) : 0u;
+    const unsigned pid = s_t18.hid_found ? static_cast<unsigned>(s_t18.hid.product_id) : 0u;
+
+    wchar_t block[2048] = {};
+    swprintf_s(
+        block,
+        _countof(block),
+        L"\r\n--- T18 controller identify ---\r\n"
+        L"slot: %s\r\n"
+        L"vid: 0x%04X  pid: 0x%04X\r\n"
+        L"inferred family: %s\r\n"
+        L"product name: %s\r\n"
+        L"device path: %s\r\n"
+        L"(1 device: first HID gamepad in Raw Input order; XInput first connected slot)\r\n",
+        slotStr,
+        vid,
+        pid,
+        Win32_GameControllerKindFamilyLabel(s_t18.inferred_kind),
+        prodDisp,
+        pathDisp);
+    wcscat_s(buf, bufCount, block);
+}
+
 static void Win32_T17_AppendPaintSection(wchar_t* buf, size_t bufCount)
 {
     wchar_t t17[2560] = {};
@@ -2580,15 +2686,19 @@ BOOL InitInstance(HINSTANCE hInstance, int nCmdShow)
    return TRUE;
 }
 
-// === T25 [1] Win32: Raw Input キーボード登録（読み取り・ラベル整形はファイル後半の [1] 続き） ===
+// === T25 [1] Win32: Raw Input キーボード + HID GamePad 登録（PS4 等は WM_INPUT / RIM_TYPEHID） ===
 static BOOL Win32_RegisterKeyboardRawInput(HWND hwnd)
 {
-    RAWINPUTDEVICE rid = {};
-    rid.usUsagePage = 0x01;
-    rid.usUsage = 0x06;
-    rid.dwFlags = 0;
-    rid.hwndTarget = hwnd;
-    return RegisterRawInputDevices(&rid, 1, sizeof(rid));
+    RAWINPUTDEVICE rids[2] = {};
+    rids[0].usUsagePage = 0x01;
+    rids[0].usUsage = 0x06; // keyboard
+    rids[0].dwFlags = 0;
+    rids[0].hwndTarget = hwnd;
+    rids[1].usUsagePage = 0x01;
+    rids[1].usUsage = 0x05; // game pad
+    rids[1].dwFlags = 0;
+    rids[1].hwndTarget = hwnd;
+    return RegisterRawInputDevices(rids, 2, sizeof(RAWINPUTDEVICE));
 }
 
 // === T25 [8] Win32: XInput スロット列挙・接続確認（先頭接続スロット前提の土台） ===
@@ -2663,7 +2773,23 @@ static const wchar_t* Win32_GameControllerKindLabel(GameControllerKind kind)
     case GameControllerKind::Xbox: return L"Xbox";
     case GameControllerKind::PlayStation4: return L"PS4";
     case GameControllerKind::PlayStation5: return L"PS5";
+    case GameControllerKind::Nintendo: return L"Nintendo";
     case GameControllerKind::XInputCompatible: return L"XInputCompatible";
+    default: return L"Unknown";
+    }
+}
+
+// T18 / paint: 粗い family（PS4/PS5 は PlayStation にまとめる。XInput 互換は enum 名どおり）
+static const wchar_t* Win32_GameControllerKindFamilyLabel(GameControllerKind kind)
+{
+    switch (kind)
+    {
+    case GameControllerKind::Xbox: return L"Xbox";
+    case GameControllerKind::PlayStation4:
+    case GameControllerKind::PlayStation5: return L"PlayStation";
+    case GameControllerKind::Nintendo: return L"Nintendo";
+    case GameControllerKind::XInputCompatible: return L"XInputCompatible";
+    case GameControllerKind::Unknown:
     default: return L"Unknown";
     }
 }
@@ -2697,7 +2823,8 @@ static const wchar_t* GamepadButton_GetDisplayLabel(GamepadButtonId id, GameCont
     const bool xboxLike =
         (family == GameControllerKind::Xbox || family == GameControllerKind::XInputCompatible);
     const bool ps = (family == GameControllerKind::PlayStation4 || family == GameControllerKind::PlayStation5);
-    const bool unknownFamily = (family == GameControllerKind::Unknown);
+    const bool unknownFamily =
+        (family == GameControllerKind::Unknown || family == GameControllerKind::Nintendo);
 
     switch (id)
     {
@@ -2748,6 +2875,7 @@ static void GamepadButton_LogLabelTablesAtStartup()
         GameControllerKind::Xbox,
         GameControllerKind::PlayStation4,
         GameControllerKind::PlayStation5,
+        GameControllerKind::Nintendo,
         GameControllerKind::XInputCompatible,
         GameControllerKind::Unknown,
     };
@@ -2812,6 +2940,18 @@ static bool s_virtualInputConsumerHasPrev = false;
 static VirtualInputMenuSampleState s_virtualInputMenuSampleState{};
 static VirtualInputMenuSampleState s_virtualInputMenuSampleDumpPrev{};
 static bool s_virtualInputMenuSampleDumpHasPrev = false;
+
+// PS4 (Sony HID) 調査: Raw Input で届くレポートの差分ログ + VirtualInput 最小橋渡し（XInput 非経路）
+static BYTE s_ps4InvestPrevReport[128]{};
+static UINT s_ps4InvestPrevReportLen = 0;
+static bool s_ps4InvestHasPrev = false;
+static BYTE s_ps4PrevBytes0to7[8]{};
+static bool s_ps4HasPrevBytes0to7 = false;
+static BYTE s_ps4PrevBtn567[3]{}; // レポート差分はボタン領域（主に 5..7）のみ
+static bool s_ps4HasPrevBtn567 = false;
+static VirtualInputSnapshot s_ps4HidVirtualFromLastReport{};
+static bool s_ps4HidVirtualFromLastReportValid = false;
+static UINT s_ps4VirtualInputLogCounter = 0;
 
 // T13: サンプル画面用（prevMove は毎フレーム変わり得るため Invalidate 判定から除外）
 enum class MenuSampleUiLastEventKind : std::uint8_t
@@ -2909,6 +3049,74 @@ static void Win32_FillVirtualInputSnapshotFromXInputState(const XINPUT_STATE& st
     out.leftDir = Win32_ClassifyLeftStickDir(st.Gamepad.sThumbLX, st.Gamepad.sThumbLY, out.leftInDeadzone);
     out.rightInDeadzone = Win32_RightStickInDeadzone(st.Gamepad.sThumbRX, st.Gamepad.sThumbRY);
     out.rightDir = Win32_ClassifyLeftStickDir(st.Gamepad.sThumbRX, st.Gamepad.sThumbRY, out.rightInDeadzone);
+}
+
+// DS4 USB/BT 入力レポート（hid-playstation / 一般的な 64B ReportID=1）に合わせる。
+// ×=Cross=South -> confirm / ○=Circle=East -> cancel（VirtualInputPolicy: South=confirm, East=cancel, Start=menu）
+// byte5: hat0-3, Share 0x10, L3 0x20, R3 0x40, Options 0x80
+// byte6: Square 0x10, Cross 0x20, Circle 0x40, Triangle 0x80
+// byte7: L1/R1/L2/R2 デジタル下位ビット（アナログは 8,9 付近）
+static bool Win32_FillVirtualInputFromDs4StyleHidReport(const BYTE* buf, UINT len, VirtualInputSnapshot& out)
+{
+    if (buf == nullptr || len < 10)
+    {
+        return false;
+    }
+
+    out = {};
+    out.connected = true;
+    out.family = GameControllerKind::PlayStation4;
+
+    auto axisU8 = [](BYTE v) -> SHORT
+    {
+        const int c = static_cast<int>(v) - 128;
+        const int scaled = (std::max)(-32767, (std::min)(32767, c * 257));
+        return static_cast<SHORT>(scaled);
+    };
+
+    out.leftStickX = axisU8(buf[1]);
+    out.leftStickY = static_cast<SHORT>(-axisU8(buf[2]));
+    out.rightStickX = axisU8(buf[3]);
+    out.rightStickY = static_cast<SHORT>(-axisU8(buf[4]));
+
+    const unsigned hat = buf[5] & 0x0FU;
+    if (hat < 8)
+    {
+        out.dpadUp = (hat == 0 || hat == 1 || hat == 7);
+        out.dpadRight = (hat == 1 || hat == 2 || hat == 3);
+        out.dpadDown = (hat == 3 || hat == 4 || hat == 5);
+        out.dpadLeft = (hat == 5 || hat == 6 || hat == 7);
+    }
+
+    out.select = (buf[5] & 0x10) != 0;
+    out.l3 = (buf[5] & 0x20) != 0;
+    out.r3 = (buf[5] & 0x40) != 0;
+    out.start = (buf[5] & 0x80) != 0;
+
+    out.west = (buf[6] & 0x10) != 0;
+    out.south = (buf[6] & 0x20) != 0;
+    out.east = (buf[6] & 0x40) != 0;
+    out.north = (buf[6] & 0x80) != 0;
+
+    out.l1 = (buf[7] & 0x01) != 0;
+    out.r1 = (buf[7] & 0x02) != 0;
+
+    if (len > 8)
+    {
+        out.leftTriggerRaw = buf[8];
+        out.l2Pressed = (buf[8] >= XINPUT_GAMEPAD_TRIGGER_THRESHOLD);
+    }
+    if (len > 9)
+    {
+        out.rightTriggerRaw = buf[9];
+        out.r2Pressed = (buf[9] >= XINPUT_GAMEPAD_TRIGGER_THRESHOLD);
+    }
+
+    out.leftInDeadzone = Win32_LeftStickInDeadzone(out.leftStickX, out.leftStickY);
+    out.leftDir = Win32_ClassifyLeftStickDir(out.leftStickX, out.leftStickY, out.leftInDeadzone);
+    out.rightInDeadzone = Win32_RightStickInDeadzone(out.rightStickX, out.rightStickY);
+    out.rightDir = Win32_ClassifyLeftStickDir(out.rightStickX, out.rightStickY, out.rightInDeadzone);
+    return true;
 }
 
 // === T25 [7] Win32: VirtualInput 系デバッグログ（snapshot / helper / policy / consumer / menu） ===
@@ -3199,6 +3407,8 @@ static void Win32_FillMenuSamplePaintBuffers(
     wchar_t* t14Buf,
     size_t t14BufCount)
 {
+    Win32_T18_RefreshControllerIdentifySnapshot();
+
     const VirtualInputMenuSampleState& s = s_virtualInputMenuSampleState;
     const wchar_t* evLabel = Win32_MenuSampleUiLastEventLabel(s_menuSampleUiLastEvent);
 
@@ -3334,6 +3544,7 @@ static void Win32_FillMenuSamplePaintBuffers(
     }
 
     Win32_T16_AppendPaintSection(t14Buf, t14BufCount, hwnd, rcClient);
+    Win32_T18_AppendPaintSection(t14Buf, t14BufCount);
     Win32_T17_AppendPaintSection(t14Buf, t14BufCount);
 }
 
@@ -3998,6 +4209,21 @@ static void Win32_XInputPollDigitalEdgesOnTimer(HWND hwnd)
     const DWORD slot = Win32_GetFirstConnectedXInputSlotOrMax();
     if (slot >= XUSER_MAX_COUNT)
     {
+        // PS4 等: XInput なしでも Raw HID で届いていれば VirtualInput を更新（調査ログ [PS4HID] 参照）
+        if (s_ps4HidVirtualFromLastReportValid)
+        {
+            constexpr DWORD kPs4PseudoSlot = 99;
+            s_virtualInputPrev = s_virtualInputCurr;
+            s_virtualInputCurr = s_ps4HidVirtualFromLastReport;
+            if ((++s_ps4VirtualInputLogCounter % 60) == 0)
+            {
+                Win32_LogVirtualInputSnapshotSummary(s_virtualInputCurr, kPs4PseudoSlot);
+            }
+            Win32_LogVirtualInputPolicyIfChanged(s_virtualInputPrev, s_virtualInputCurr);
+            Win32_LogVirtualInputConsumerIfChanged(s_virtualInputPrev, s_virtualInputCurr);
+            return;
+        }
+
         s_xinputPollPrevSlot = XUSER_MAX_COUNT;
         s_xinputPollPrevWButtons = 0;
         s_xinputPrevL2Pressed = false;
@@ -4007,6 +4233,7 @@ static void Win32_XInputPollDigitalEdgesOnTimer(HWND hwnd)
         s_xinputPrevRightInDeadzone = true;
         s_xinputPrevRightDir = GamepadLeftStickDir::None;
         s_virtualInputSnapshotLogCounter = 0;
+        s_ps4VirtualInputLogCounter = 0;
         VirtualInput_ResetDisconnected(s_virtualInputPrev);
         VirtualInput_ResetDisconnected(s_virtualInputCurr);
         s_virtualInputConsumerHasPrev = false;
@@ -4029,6 +4256,7 @@ static void Win32_XInputPollDigitalEdgesOnTimer(HWND hwnd)
         s_xinputPrevRightInDeadzone = true;
         s_xinputPrevRightDir = GamepadLeftStickDir::None;
         s_virtualInputSnapshotLogCounter = 0;
+        s_ps4VirtualInputLogCounter = 0;
         VirtualInput_ResetDisconnected(s_virtualInputPrev);
         VirtualInput_ResetDisconnected(s_virtualInputCurr);
         s_virtualInputConsumerHasPrev = false;
@@ -4038,6 +4266,9 @@ static void Win32_XInputPollDigitalEdgesOnTimer(HWND hwnd)
         Win32_MenuSample_ResetPaintTracking(s_mainWindowHwnd);
         return;
     }
+
+    s_ps4HidVirtualFromLastReportValid = false;
+    s_ps4VirtualInputLogCounter = 0;
 
     const WORD w = state.Gamepad.wButtons;
     const BYTE lt = state.Gamepad.bLeftTrigger;
@@ -4290,6 +4521,12 @@ static GameControllerKind Win32_ClassifyGameControllerKind(
         }
     }
 
+    // Nintendo (HID)
+    if (t.vendor_id == 0x057E)
+    {
+        return GameControllerKind::Nintendo;
+    }
+
     // 3: Microsoft VID または Xbox 名称
     if (t.vendor_id == 0x045E || nameHasXbox)
     {
@@ -4389,11 +4626,7 @@ static void Win32_LogRawInputHidGameControllersClassified()
         traits.usage_page = info.hid.usUsagePage;
         traits.usage = info.hid.usUsage;
 
-        const bool looksLikeGamepad =
-            (traits.usage_page == 0x01 && (traits.usage == 0x04 || traits.usage == 0x05)) ||
-            (traits.vendor_id == 0x045E || traits.vendor_id == 0x054C);
-
-        if (!looksLikeGamepad)
+        if (!Win32_HidTraitsLookLikeGamepad(traits))
         {
             continue;
         }
@@ -4421,6 +4654,133 @@ static void Win32_LogRawInputHidGameControllersClassified()
             pathPtr ? pathPtr : L"");
         OutputDebugStringW(line);
     }
+}
+
+// === T18: XInput 先頭スロット + Raw Input 先頭 HID ゲームパッド（1 台・WM_PAINT で更新） ===
+static void Win32_T18_LogIfChanged()
+{
+    const bool same =
+        s_t18HasLogPrev &&
+        (s_t18.xinput_slot == s_t18LogPrev.xinput_slot) &&
+        (s_t18.hid_found == s_t18LogPrev.hid_found) &&
+        (s_t18.hid.vendor_id == s_t18LogPrev.hid.vendor_id) &&
+        (s_t18.hid.product_id == s_t18LogPrev.hid.product_id) &&
+        (s_t18.inferred_kind == s_t18LogPrev.inferred_kind) &&
+        (wcscmp(s_t18.product_name, s_t18LogPrev.product_name) == 0) &&
+        (wcscmp(s_t18.device_path, s_t18LogPrev.device_path) == 0);
+    if (same)
+    {
+        return;
+    }
+    s_t18LogPrev = s_t18;
+    s_t18HasLogPrev = true;
+
+    const unsigned vid = s_t18.hid_found ? static_cast<unsigned>(s_t18.hid.vendor_id) : 0u;
+    const unsigned pid = s_t18.hid_found ? static_cast<unsigned>(s_t18.hid.product_id) : 0u;
+    wchar_t line[2048] = {};
+    swprintf_s(
+        line,
+        _countof(line),
+        L"[T18] slot=%d vid=0x%04X pid=0x%04X family=%s product=\"%s\" path=\"%s\"\r\n",
+        s_t18.xinput_slot,
+        vid,
+        pid,
+        Win32_GameControllerKindFamilyLabel(s_t18.inferred_kind),
+        (s_t18.product_name[0] != L'\0') ? s_t18.product_name : L"",
+        (s_t18.device_path[0] != L'\0') ? s_t18.device_path : L"");
+    OutputDebugStringW(line);
+}
+
+static void Win32_T18_RefreshControllerIdentifySnapshot()
+{
+    T18ControllerIdentifySnapshot snap{};
+    snap.xinput_slot = -1;
+    snap.hid_found = false;
+    snap.hid.device_info_valid = false;
+    snap.inferred_kind = GameControllerKind::Unknown;
+
+    const DWORD slotDw = Win32_GetFirstConnectedXInputSlotOrMax();
+    if (slotDw < XUSER_MAX_COUNT)
+    {
+        snap.xinput_slot = static_cast<int>(slotDw);
+    }
+
+    const bool anyXInput = Win32_QueryAnyXInputConnected();
+
+    UINT numDevices = 0;
+    if (GetRawInputDeviceList(nullptr, &numDevices, sizeof(RAWINPUTDEVICELIST)) != static_cast<UINT>(-1) &&
+        numDevices > 0)
+    {
+        std::vector<RAWINPUTDEVICELIST> devices(numDevices);
+        UINT copyCount = numDevices;
+        if (GetRawInputDeviceList(devices.data(), &copyCount, sizeof(RAWINPUTDEVICELIST)) !=
+            static_cast<UINT>(-1))
+        {
+            for (UINT i = 0; i < copyCount && !snap.hid_found; ++i)
+            {
+                if (devices[i].dwType != RIM_TYPEHID)
+                {
+                    continue;
+                }
+
+                const HANDLE hDevice = devices[i].hDevice;
+
+                RID_DEVICE_INFO info = {};
+                info.cbSize = sizeof(info);
+                UINT cbInfo = sizeof(info);
+                if (GetRawInputDeviceInfo(hDevice, RIDI_DEVICEINFO, &info, &cbInfo) == static_cast<UINT>(-1))
+                {
+                    continue;
+                }
+                if (info.dwType != RIM_TYPEHID)
+                {
+                    continue;
+                }
+
+                GameControllerHidSummary traits = {};
+                traits.device_info_valid = true;
+                traits.vendor_id = static_cast<std::uint16_t>(info.hid.dwVendorId);
+                traits.product_id = static_cast<std::uint16_t>(info.hid.dwProductId);
+                traits.usage_page = info.hid.usUsagePage;
+                traits.usage = info.hid.usUsage;
+
+                if (!Win32_HidTraitsLookLikeGamepad(traits))
+                {
+                    continue;
+                }
+
+                wchar_t pathBuf[512] = {};
+                wchar_t productBuf[256] = {};
+                Win32_TryGetRawInputDeviceString(hDevice, RIDI_DEVICENAME, pathBuf, _countof(pathBuf));
+                Win32_TryGetRawInputDeviceString(hDevice, RIDI_PRODUCTNAME, productBuf, _countof(productBuf));
+
+                const bool productUsable =
+                    (productBuf[0] != L'\0') && !Win32_T18_RawInputProductLooksLikeDevicePath(productBuf);
+                const wchar_t* productPtr = productUsable ? productBuf : nullptr;
+                const wchar_t* pathPtr = (pathBuf[0] != L'\0') ? pathBuf : nullptr;
+
+                snap.hid = traits;
+                snap.hid_found = true;
+                wcscpy_s(snap.device_path, pathBuf);
+                if (productUsable)
+                {
+                    wcscpy_s(snap.product_name, productBuf);
+                }
+
+                snap.inferred_kind =
+                    Win32_ClassifyGameControllerKind(traits, productPtr, pathPtr, anyXInput);
+                break;
+            }
+        }
+    }
+
+    if (!snap.hid_found)
+    {
+        snap.inferred_kind = anyXInput ? GameControllerKind::XInputCompatible : GameControllerKind::Unknown;
+    }
+
+    s_t18 = snap;
+    Win32_T18_LogIfChanged();
 }
 
 // T12: 矢印 / Enter / Backspace / Tab の make-break を追跡（表示ラベルとは独立）
@@ -4451,6 +4811,15 @@ static void Win32_UpdateKeyboardActionStateFromPhysicalKey(const PhysicalKeyEven
 }
 
 // === T25 [1] 続き: PhysicalKeyEvent の Raw Input 取得・表示ラベル・デバッグ行 ===
+static void Win32_FillPhysicalKeyFromRawKeyboard(const RAWKEYBOARD& kb, PhysicalKeyEvent& out)
+{
+    out.native_key_code = static_cast<std::uint16_t>(kb.VKey);
+    out.scan_code = kb.MakeCode;
+    out.is_extended_0 = (kb.Flags & RI_KEY_E0) != 0;
+    out.is_extended_1 = (kb.Flags & RI_KEY_E1) != 0;
+    out.is_key_up = (kb.Flags & RI_KEY_BREAK) != 0;
+}
+
 static bool Win32_TryFillPhysicalKeyFromRawInput(HRAWINPUT hRaw, PhysicalKeyEvent& out)
 {
     RAWINPUT raw = {};
@@ -4464,13 +4833,157 @@ static bool Win32_TryFillPhysicalKeyFromRawInput(HRAWINPUT hRaw, PhysicalKeyEven
         return false;
     }
 
-    const RAWKEYBOARD& kb = raw.data.keyboard;
-    out.native_key_code = static_cast<std::uint16_t>(kb.VKey);
-    out.scan_code = kb.MakeCode;
-    out.is_extended_0 = (kb.Flags & RI_KEY_E0) != 0;
-    out.is_extended_1 = (kb.Flags & RI_KEY_E1) != 0;
-    out.is_key_up = (kb.Flags & RI_KEY_BREAK) != 0;
+    Win32_FillPhysicalKeyFromRawKeyboard(raw.data.keyboard, out);
     return true;
+}
+
+// Sony DS4 (USB 0x05C4 / BT 0x09CC 等): WM_INPUT の RIM_TYPEHID を調査ログし VirtualInput に反映
+static void Win32_TryLogRawInputHidPs4AndBridge(const RAWINPUT* raw)
+{
+    if (raw == nullptr || raw->header.dwType != RIM_TYPEHID)
+    {
+        return;
+    }
+
+    const HANDLE hDev = raw->header.hDevice;
+    RID_DEVICE_INFO info = {};
+    info.cbSize = sizeof(info);
+    UINT cb = sizeof(info);
+    if (GetRawInputDeviceInfo(hDev, RIDI_DEVICEINFO, &info, &cb) == static_cast<UINT>(-1))
+    {
+        return;
+    }
+    if (info.dwType != RIM_TYPEHID)
+    {
+        return;
+    }
+
+    const UINT vid = info.hid.dwVendorId;
+    const UINT pid = info.hid.dwProductId;
+    const USHORT up = info.hid.usUsagePage;
+    const USHORT u = info.hid.usUsage;
+
+    const RAWHID& hid = raw->data.hid;
+    const UINT nBytes = hid.dwSizeHid * hid.dwCount;
+    if (nBytes == 0)
+    {
+        return;
+    }
+    const BYTE* p = hid.bRawData;
+
+    const bool isSonyDs4Like = (vid == 0x054C) && (pid == 0x05C4 || pid == 0x09CC);
+    if (!isSonyDs4Like)
+    {
+        return;
+    }
+
+    VirtualInputSnapshot snap{};
+    const bool parseOk = Win32_FillVirtualInputFromDs4StyleHidReport(p, nBytes, snap);
+    if (parseOk)
+    {
+        s_ps4HidVirtualFromLastReport = snap;
+        s_ps4HidVirtualFromLastReportValid = true;
+    }
+
+    bool btnBytesChanged = false;
+    if (nBytes >= 8)
+    {
+        btnBytesChanged =
+            !s_ps4HasPrevBtn567 || (memcmp(s_ps4PrevBtn567, p + 5, 3) != 0);
+    }
+
+    wchar_t xorHex[32] = L"-";
+    if (nBytes >= 8 && s_ps4HasPrevBytes0to7)
+    {
+        xorHex[0] = L'\0';
+        for (int i = 0; i < 8; ++i)
+        {
+            swprintf_s(
+                xorHex + i * 3,
+                _countof(xorHex) - static_cast<size_t>(i * 3),
+                L"%02X ",
+                static_cast<unsigned int>(static_cast<BYTE>(p[i] ^ s_ps4PrevBytes0to7[i])));
+        }
+    }
+
+    const unsigned hat = (nBytes > 5) ? (p[5] & 0x0FU) : 0u;
+    const unsigned b5HighNibble = (nBytes > 5) ? ((p[5] >> 4) & 0x0FU) : 0u;
+    const unsigned faceBits = (nBytes > 6) ? p[6] : 0u;
+
+    wchar_t ps4btn[1024] = {};
+    swprintf_s(
+        ps4btn,
+        _countof(ps4btn),
+        L"[PS4BTN] policy=confirm(South=byte6&0x20) cancel(East=byte6&0x40) menu(Start=byte5&0x80) "
+        L"b0=%02X b1=%02X b2=%02X b3=%02X b4=%02X b5=%02X b6=%02X b7=%02X "
+        L"buttonsNibble=%u b5_hiNibble=%u faceBits=0x%02X dpad=%u "
+        L"parsedSouth=%d parsedEast=%d parsedMenu=%d parsedSel=%d "
+        L"btnBytesChanged=%d xor0_7=[%s]\r\n",
+        (nBytes > 0) ? p[0] : 0u,
+        (nBytes > 1) ? p[1] : 0u,
+        (nBytes > 2) ? p[2] : 0u,
+        (nBytes > 3) ? p[3] : 0u,
+        (nBytes > 4) ? p[4] : 0u,
+        (nBytes > 5) ? p[5] : 0u,
+        (nBytes > 6) ? p[6] : 0u,
+        (nBytes > 7) ? p[7] : 0u,
+        hat,
+        b5HighNibble,
+        faceBits,
+        hat,
+        parseOk && snap.south ? 1 : 0,
+        parseOk && snap.east ? 1 : 0,
+        parseOk && snap.start ? 1 : 0,
+        parseOk && snap.select ? 1 : 0,
+        btnBytesChanged ? 1 : 0,
+        xorHex);
+
+    OutputDebugStringW(ps4btn);
+
+    if (parseOk)
+    {
+        const bool noDpad =
+            !snap.dpadUp && !snap.dpadDown && !snap.dpadLeft && !snap.dpadRight;
+        const bool noMisc =
+            !snap.start && !snap.select && !snap.l3 && !snap.r3 && !snap.l1 && !snap.r1;
+        if (snap.south && !snap.east && !snap.west && !snap.north && noMisc && noDpad)
+        {
+            OutputDebugStringW(L"[PS4BTN] isolate singleFace=South(Cross)_only\r\n");
+        }
+        if (snap.east && !snap.south && !snap.west && !snap.north && noMisc && noDpad)
+        {
+            OutputDebugStringW(L"[PS4BTN] isolate singleFace=East(Circle)_only\r\n");
+        }
+    }
+
+    wchar_t hidline[512] = {};
+    swprintf_s(
+        hidline,
+        _countof(hidline),
+        L"[PS4HID] usagePage=0x%04X usage=0x%04X sizeHid=%u count=%u payload=%u btnBytesChanged=%d\r\n",
+        static_cast<unsigned int>(up),
+        static_cast<unsigned int>(u),
+        static_cast<unsigned int>(hid.dwSizeHid),
+        static_cast<unsigned int>(hid.dwCount),
+        static_cast<unsigned int>(nBytes),
+        btnBytesChanged ? 1 : 0);
+
+    OutputDebugStringW(hidline);
+
+    if (nBytes >= 8)
+    {
+        memcpy(s_ps4PrevBtn567, p + 5, 3);
+        s_ps4HasPrevBtn567 = true;
+        memcpy(s_ps4PrevBytes0to7, p, 8);
+        s_ps4HasPrevBytes0to7 = true;
+    }
+
+    if (nBytes <= sizeof(s_ps4InvestPrevReport))
+    {
+        memcpy(s_ps4InvestPrevReport, p, nBytes);
+        s_ps4InvestPrevReportLen = nBytes;
+        s_ps4InvestHasPrev = true;
+    }
 }
 
 // ToUnicodeEx 用 keyState: 修飾キー自身の make では従来どおり空配列（GetKeyNameTextW フォールバック）を優先する。
@@ -4650,9 +5163,40 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam)
         break;
     case WM_INPUT:
         {
-            PhysicalKeyEvent ev{};
-            if (Win32_TryFillPhysicalKeyFromRawInput(reinterpret_cast<HRAWINPUT>(lParam), ev))
+            UINT dwSize = 0;
+            if (GetRawInputData(
+                    reinterpret_cast<HRAWINPUT>(lParam),
+                    RID_INPUT,
+                    nullptr,
+                    &dwSize,
+                    sizeof(RAWINPUTHEADER)) == static_cast<UINT>(-1))
             {
+                return 0;
+            }
+            if (dwSize == 0)
+            {
+                return 0;
+            }
+            std::vector<BYTE> inputBuf(dwSize);
+            if (GetRawInputData(
+                    reinterpret_cast<HRAWINPUT>(lParam),
+                    RID_INPUT,
+                    inputBuf.data(),
+                    &dwSize,
+                    sizeof(RAWINPUTHEADER)) == static_cast<UINT>(-1))
+            {
+                return 0;
+            }
+            const RAWINPUT* raw = reinterpret_cast<const RAWINPUT*>(inputBuf.data());
+
+            if (raw->header.dwType == RIM_TYPEHID)
+            {
+                Win32_TryLogRawInputHidPs4AndBridge(raw);
+            }
+            else if (raw->header.dwType == RIM_TYPEKEYBOARD)
+            {
+                PhysicalKeyEvent ev{};
+                Win32_FillPhysicalKeyFromRawKeyboard(raw->data.keyboard, ev);
                 Win32_UpdateKeyboardActionStateFromPhysicalKey(ev);
                 if (static_cast<UINT>(ev.native_key_code) == VK_RETURN && !ev.is_key_up &&
                     !s_virtualInputMenuSampleState.menuOpen)
