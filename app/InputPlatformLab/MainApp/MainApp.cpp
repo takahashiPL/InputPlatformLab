@@ -560,6 +560,15 @@ static int s_paintDbgExtraBottomPadding = 0; // Borderless/Fullscreen 時の仮�
 static int s_paintDbgClientHeight = 0;
 static int s_paintDbgT17DocY = 0; // ドキュメント座標で「--- T17 presentation ---」行の先頭
 
+// T14 auto-follow: WM_PAINT のレイアウト計測と同一の値（タイマー側は再計測しない）
+static bool s_paintDbgT14LayoutValid = false;
+static int s_paintDbgT14VisibleModesDocStartY = 0;
+static int s_paintDbgLineHeight = 16;
+static int s_paintDbgActualOverlayHeight = 0;
+static int s_paintDbgClientW = 0;
+static int s_paintDbgClientH = 0;
+static int s_paintDbgMaxScroll = 0;
+
 #ifndef WIN32_MAIN_DEBUG_SCROLL_LINE
 #define WIN32_MAIN_DEBUG_SCROLL_LINE 16
 #endif
@@ -573,6 +582,10 @@ static int s_paintDbgT17DocY = 0; // ドキュメント座標で「--- T17 prese
 #endif
 #ifndef WIN32_MAIN_SCROLL_PAGEUP_DEN
 #define WIN32_MAIN_SCROLL_PAGEUP_DEN 2
+#endif
+// T14 auto-follow: 選択行上端をクライアント上端から (topMargin + N×lineHeight) に揃える（N=2 → 上余白の下から 3 行目付近）
+#ifndef WIN32_T14_AUTOFOLLOW_ANCHOR_ROWS
+#define WIN32_T14_AUTOFOLLOW_ANCHOR_ROWS 2
 #endif
 
 static void Win32_T17_ApplyCurrentPresentationMode(HWND hwnd);
@@ -914,6 +927,8 @@ static void Win32_T14_ClampIndicesAfterEnumerate()
     }
 }
 
+static void Win32_T14_TryAutoScrollSelectionIntoView(HWND hwnd);
+
 // menuOpen でないときのみ Up/Down エッジで呼ぶ。変化時のみ InvalidateRect。
 static void Win32_T14_TryScrollFromKeyboardEdges(bool upEdge, bool downEdge, HWND hwnd)
 {
@@ -958,6 +973,7 @@ static void Win32_T14_TryScrollFromKeyboardEdges(bool upEdge, bool downEdge, HWN
         s_t14FirstVisibleModeIndex = s_t14SelectedModeIndex - (kT14VisibleModeCount - 1);
     }
 
+    Win32_T14_TryAutoScrollSelectionIntoView(hwnd);
     InvalidateRect(hwnd, nullptr, FALSE);
 }
 
@@ -3509,6 +3525,179 @@ static void Win32_MainView_SetScrollPos(HWND hwnd, int newY, const wchar_t* logW
     InvalidateRect(hwnd, nullptr, FALSE);
 }
 
+static void Win32_MainView_FormatScrollDebugOverlay(
+    wchar_t* buf,
+    size_t bufCount,
+    const wchar_t* modeLabel,
+    int contentHBase,
+    int extraBottomPadding,
+    int contentHeight,
+    int maxScroll,
+    int t17DocY,
+    int scrollY,
+    int clientH,
+    int jumpF7,
+    int jumpF8)
+{
+    swprintf_s(
+        buf,
+        bufCount,
+        L"[scroll] mode(actual)=%s\r\n"
+        L"contentH(base)=%d  extraBottomPadding=%d  contentH(with padding)=%d  maxScroll=%d  T17DocY=%d\r\n"
+        L"scrollY=%d  clientH=%d  jumpTargetF7=%d  jumpTargetF8=%d  (F7 margin=%d)\r\n"
+        L"(PgUp/Dn=1/2 page; POPUP=pad clientH; Windowed=min pad to reach T17)",
+        modeLabel,
+        contentHBase,
+        extraBottomPadding,
+        contentHeight,
+        maxScroll,
+        t17DocY,
+        scrollY,
+        clientH,
+        jumpF7,
+        jumpF8,
+        WIN32_MAIN_T17_JUMP_TOP_MARGIN);
+}
+
+static int Win32_MainView_MeasureScrollOverlayTextHeight(HDC hdc, int clientW, const wchar_t* text)
+{
+    RECT rc = {};
+    rc.left = 0;
+    rc.top = 0;
+    rc.right = clientW;
+    rc.bottom = 1000000;
+    DrawTextW(hdc, text, -1, &rc, DT_LEFT | DT_TOP | DT_NOPREFIX | DT_WORDBREAK | DT_CALCRECT);
+    return static_cast<int>(rc.bottom - rc.top);
+}
+
+static void Win32_T14_TryAutoScrollSelectionIntoView(HWND hwnd)
+{
+    if (!hwnd || !IsWindow(hwnd))
+    {
+        return;
+    }
+    if (s_virtualInputMenuSampleState.menuOpen)
+    {
+        return;
+    }
+    if (s_displayMonitorsCache.empty() ||
+        kT14SelectedMonitorIndex >= s_displayMonitorsCache.size())
+    {
+        return;
+    }
+
+    RECT rcClient{};
+    GetClientRect(hwnd, &rcClient);
+    const int clientW = static_cast<int>(rcClient.right - rcClient.left);
+    const int clientH = static_cast<int>(rcClient.bottom - rcClient.top);
+
+    if (!s_paintDbgT14LayoutValid || clientW != s_paintDbgClientW || clientH != s_paintDbgClientH)
+    {
+        OutputDebugStringW(
+            L"[T14VIEW] source=paint-cache (skip; not ready or client size mismatch)\r\n");
+        return;
+    }
+
+    SCROLLINFO si = {};
+    si.cbSize = sizeof(si);
+    si.fMask = SIF_ALL;
+    if (!GetScrollInfo(hwnd, SB_VERT, &si))
+    {
+        return;
+    }
+    const int maxScroll = (std::max)(0, static_cast<int>(si.nMax) - static_cast<int>(si.nPage) + 1);
+    const int scrollY = static_cast<int>(si.nPos);
+
+    const ptrdiff_t rowSpan =
+        static_cast<ptrdiff_t>(s_t14SelectedModeIndex) - static_cast<ptrdiff_t>(s_t14FirstVisibleModeIndex);
+    if (rowSpan < 0 || rowSpan >= static_cast<ptrdiff_t>(kT14VisibleModeCount))
+    {
+        return;
+    }
+
+    const int lineHeight = s_paintDbgLineHeight;
+    const int selectedRowTop =
+        s_paintDbgT14VisibleModesDocStartY + static_cast<int>(rowSpan) * lineHeight;
+    const int selectedRowBottom = selectedRowTop + lineHeight;
+
+    static const int kT14ViewTopMargin = 12;
+    static const int kT14ViewBottomMargin = 8;
+    const int actualOverlayHeight = s_paintDbgActualOverlayHeight;
+    const int anchorClientY =
+        kT14ViewTopMargin + WIN32_T14_AUTOFOLLOW_ANCHOR_ROWS * lineHeight;
+
+    wchar_t logLine[384] = {};
+    OutputDebugStringW(L"[T14VIEW] source=paint-cache\r\n");
+    OutputDebugStringW(L"[T14VIEW] mode=anchor-upper\r\n");
+    swprintf_s(
+        logLine,
+        _countof(logLine),
+        L"[T14VIEW] anchorRows=%d anchorClientY=%d\r\n",
+        WIN32_T14_AUTOFOLLOW_ANCHOR_ROWS,
+        anchorClientY);
+    OutputDebugStringW(logLine);
+    swprintf_s(
+        logLine,
+        _countof(logLine),
+        L"[T14VIEW] visibleModesDocStartY=%d\r\n",
+        s_paintDbgT14VisibleModesDocStartY);
+    OutputDebugStringW(logLine);
+    swprintf_s(logLine, _countof(logLine), L"[T14VIEW] selectedRowTop=%d\r\n", selectedRowTop);
+    OutputDebugStringW(logLine);
+    swprintf_s(logLine, _countof(logLine), L"[T14VIEW] selectedRowBottom=%d\r\n", selectedRowBottom);
+    OutputDebugStringW(logLine);
+    swprintf_s(logLine, _countof(logLine), L"[T14VIEW] actualOverlayHeight=%d\r\n", actualOverlayHeight);
+    OutputDebugStringW(logLine);
+
+    const int contentSafeHeight =
+        clientH - actualOverlayHeight - kT14ViewBottomMargin - kT14ViewTopMargin;
+    if (contentSafeHeight < lineHeight)
+    {
+        swprintf_s(
+            logLine,
+            _countof(logLine),
+            L"[T14VIEW] autoFollow scrollY: before=%d after=%d (skip; viewport too small)\r\n",
+            scrollY,
+            scrollY);
+        OutputDebugStringW(logLine);
+        return;
+    }
+
+    int candidate = selectedRowTop - anchorClientY;
+    candidate = (std::clamp)(candidate, 0, maxScroll);
+
+    const int safeBottomAfterAnchor =
+        candidate + clientH - actualOverlayHeight - kT14ViewBottomMargin;
+    if (selectedRowBottom > safeBottomAfterAnchor)
+    {
+        candidate += (selectedRowBottom - safeBottomAfterAnchor);
+    }
+
+    const int clamped = (std::clamp)(candidate, 0, maxScroll);
+
+    const int safeTopFinal = clamped + kT14ViewTopMargin;
+    const int safeBottomFinal = clamped + clientH - actualOverlayHeight - kT14ViewBottomMargin;
+    swprintf_s(
+        logLine,
+        _countof(logLine),
+        L"[T14VIEW] safeTop=%d safeBottom=%d\r\n",
+        safeTopFinal,
+        safeBottomFinal);
+    OutputDebugStringW(logLine);
+    swprintf_s(
+        logLine,
+        _countof(logLine),
+        L"[T14VIEW] autoFollow scrollY: before=%d after=%d\r\n",
+        scrollY,
+        clamped);
+    OutputDebugStringW(logLine);
+
+    if (clamped != scrollY)
+    {
+        Win32_MainView_SetScrollPos(hwnd, clamped, nullptr);
+    }
+}
+
 static void Win32_PaintMenuSampleScreen(HWND hwnd, HDC hdc)
 {
     RECT rcClient{};
@@ -3524,6 +3713,31 @@ static void Win32_PaintMenuSampleScreen(HWND hwnd, HDC hdc)
     RECT rcT14Doc{};
     Win32_MenuSampleMeasurePaintLayout(hdc, clientW, menuBuf, t14Buf, rcMenuDoc, rcT14Doc);
     const int baseContentH = static_cast<int>(rcT14Doc.bottom);
+
+    s_paintDbgT14LayoutValid = false;
+    const wchar_t* visMarkerT14 = wcsstr(t14Buf, L"visible modes:\r\n");
+    if (visMarkerT14 != nullptr)
+    {
+        const wchar_t* firstVmLine = visMarkerT14 + wcslen(L"visible modes:\r\n");
+        const int prefixLenVm = static_cast<int>(firstVmLine - t14Buf);
+        if (prefixLenVm > 0)
+        {
+            const int t14BaseY = static_cast<int>(rcMenuDoc.bottom) + 8;
+            RECT rcVm{};
+            rcVm.left = 0;
+            rcVm.top = t14BaseY;
+            rcVm.right = clientW;
+            rcVm.bottom = t14BaseY + 1000000;
+            DrawTextW(
+                hdc,
+                t14Buf,
+                prefixLenVm,
+                &rcVm,
+                DT_LEFT | DT_TOP | DT_NOPREFIX | DT_WORDBREAK | DT_CALCRECT);
+            s_paintDbgT14VisibleModesDocStartY = static_cast<int>(rcVm.bottom);
+            s_paintDbgT14LayoutValid = true;
+        }
+    }
 
     int t17DocY = 0;
     const wchar_t* t17Mark = wcsstr(t14Buf, L"--- T17 presentation ---");
@@ -3568,13 +3782,17 @@ static void Win32_PaintMenuSampleScreen(HWND hwnd, HDC hdc)
     {
         s_paintScrollLinePx = (std::max)(static_cast<int>(tm.tmHeight), 16);
     }
+    s_paintDbgLineHeight = s_paintScrollLinePx;
 
     s_paintDbgContentHeight = contentHeight;
     s_paintDbgContentHeightBase = baseContentH;
     s_paintDbgExtraBottomPadding = extraBottomPadding;
     s_paintDbgClientHeight = clientH;
+    s_paintDbgClientW = clientW;
+    s_paintDbgClientH = clientH;
 
     const int maxScroll = (std::max)(0, contentHeight - clientH);
+    s_paintDbgMaxScroll = maxScroll;
     const int scrollYBeforePaint = s_paintScrollY;
     s_paintScrollY = (std::clamp)(s_paintScrollY, 0, maxScroll);
 
@@ -3618,13 +3836,9 @@ static void Win32_PaintMenuSampleScreen(HWND hwnd, HDC hdc)
         const int jumpF7 = Win32_MainView_ScrollTargetT17WithTopMargin();
         const int jumpF8 = Win32_MainView_ScrollTargetT17Centered(hwnd);
         wchar_t overlay[1024] = {};
-        swprintf_s(
+        Win32_MainView_FormatScrollDebugOverlay(
             overlay,
             _countof(overlay),
-            L"[scroll] mode(actual)=%s\r\n"
-            L"contentH(base)=%d  extraBottomPadding=%d  contentH(with padding)=%d  maxScroll=%d  T17DocY=%d\r\n"
-            L"scrollY=%d  clientH=%d  jumpTargetF7=%d  jumpTargetF8=%d  (F7 margin=%d)\r\n"
-            L"(PgUp/Dn=1/2 page; POPUP=pad clientH; Windowed=min pad to reach T17)",
             Win32_T17_ModeLabel(s_t17LastAppliedPresentationMode),
             s_paintDbgContentHeightBase,
             s_paintDbgExtraBottomPadding,
@@ -3634,11 +3848,12 @@ static void Win32_PaintMenuSampleScreen(HWND hwnd, HDC hdc)
             s_paintScrollY,
             s_paintDbgClientHeight,
             jumpF7,
-            jumpF8,
-            WIN32_MAIN_T17_JUMP_TOP_MARGIN);
+            jumpF8);
+        const int actualOverlayHeight =
+            Win32_MainView_MeasureScrollOverlayTextHeight(hdc, clientW, overlay);
+        s_paintDbgActualOverlayHeight = actualOverlayHeight;
         RECT rcOv = rcClient;
-        const int lineH = s_paintScrollLinePx > 0 ? s_paintScrollLinePx : 16;
-        rcOv.top = (std::max)(rcClient.top, rcClient.bottom - lineH * 6 - 16);
+        rcOv.top = (std::max)(rcClient.top, rcClient.bottom - actualOverlayHeight);
         FillRect(hdc, &rcOv, (HBRUSH)GetStockObject(WHITE_BRUSH));
         DrawTextW(hdc, overlay, -1, &rcOv, DT_LEFT | DT_TOP | DT_NOPREFIX | DT_WORDBREAK);
     }
