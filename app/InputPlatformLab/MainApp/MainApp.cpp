@@ -9,6 +9,8 @@
 #include <climits>
 #include <cmath>
 #include <stdio.h>
+#include <set>
+#include <string>
 #include <vector>
 
 #include <xinput.h>
@@ -429,6 +431,32 @@ WCHAR szTitle[MAX_LOADSTRING];                  // タイトル バーのテキ�
 WCHAR szWindowClass[MAX_LOADSTRING];            // メイン ウィンドウ クラス名
 static HWND s_mainWindowHwnd = nullptr;         // T13: サンプル画面 InvalidateRect 用
 
+// T14: モニター / 解像度列挙（起動時 1 回キャッシュ。neutral ヘッダは触らない）
+struct DisplayModeInfo
+{
+    int width;
+    int height;
+    int bits_per_pixel;
+    int refresh_hz;
+};
+
+struct DisplayMonitorInfo
+{
+    std::wstring device_name;
+    RECT monitor_rect;
+    RECT work_rect;
+    bool is_primary;
+    std::vector<DisplayModeInfo> modes;
+};
+
+static std::vector<DisplayMonitorInfo> s_displayMonitorsCache;
+
+// T14 UI: 表示は visibleModeCount 行のみ。menuOpen 中は矢印はメニュー用のため T14 スクロールしない。
+static constexpr size_t kT14VisibleModeCount = 8;
+static constexpr size_t kT14SelectedMonitorIndex = 0;
+static size_t s_t14SelectedModeIndex = 0;
+static size_t s_t14FirstVisibleModeIndex = 0;
+
 // --- T25: 前方宣言（責務は上記 [1]〜[8] に対応。実装はファイル後半） ---
 // このコード モジュールに含まれる関数の宣言を転送します:
 ATOM                MyRegisterClass(HINSTANCE hInstance);
@@ -557,6 +585,194 @@ ATOM MyRegisterClass(HINSTANCE hInstance)
     return RegisterClassExW(&wcex);
 }
 
+static BOOL CALLBACK Win32_DisplayMonitorEnumProc(
+    HMONITOR hMonitor,
+    HDC hdcMonitor,
+    LPRECT lprcMonitor,
+    LPARAM dwData)
+{
+    UNREFERENCED_PARAMETER(hdcMonitor);
+    UNREFERENCED_PARAMETER(lprcMonitor);
+    UNREFERENCED_PARAMETER(dwData);
+
+    MONITORINFOEXW mi{};
+    mi.cbSize = sizeof(MONITORINFOEXW);
+    if (!GetMonitorInfoW(hMonitor, reinterpret_cast<LPMONITORINFO>(&mi)))
+    {
+        return TRUE;
+    }
+
+    DisplayMonitorInfo mon{};
+    mon.device_name = mi.szDevice;
+    mon.monitor_rect = mi.rcMonitor;
+    mon.work_rect = mi.rcWork;
+    mon.is_primary = (mi.dwFlags & MONITORINFOF_PRIMARY) != 0;
+
+    for (DWORD modeIndex = 0;; ++modeIndex)
+    {
+        DEVMODEW dm{};
+        dm.dmSize = sizeof(dm);
+        if (!EnumDisplaySettingsW(mi.szDevice, modeIndex, &dm))
+        {
+            break;
+        }
+        const int w = static_cast<int>(dm.dmPelsWidth);
+        const int h = static_cast<int>(dm.dmPelsHeight);
+        if (w <= 0 || h <= 0)
+        {
+            continue;
+        }
+        DisplayModeInfo m{};
+        m.width = w;
+        m.height = h;
+        m.bits_per_pixel = static_cast<int>(dm.dmBitsPerPel);
+        m.refresh_hz = static_cast<int>(dm.dmDisplayFrequency);
+        mon.modes.push_back(m);
+    }
+
+    std::vector<DisplayModeInfo> deduped;
+    std::set<std::pair<int, int>> seenWh;
+    for (const DisplayModeInfo& m : mon.modes)
+    {
+        const auto key = std::make_pair(m.width, m.height);
+        if (seenWh.insert(key).second)
+        {
+            deduped.push_back(m);
+        }
+    }
+    mon.modes = std::move(deduped);
+
+    s_displayMonitorsCache.push_back(std::move(mon));
+    return TRUE;
+}
+
+static void Win32_DisplayEnumerateAndCache()
+{
+    s_displayMonitorsCache.clear();
+    EnumDisplayMonitors(nullptr, nullptr, Win32_DisplayMonitorEnumProc, 0);
+}
+
+static void Win32_LogDisplayMonitors()
+{
+    OutputDebugStringW(L"--- T14 display monitors (EnumDisplayMonitors / EnumDisplaySettingsW) ---\r\n");
+    for (size_t i = 0; i < s_displayMonitorsCache.size(); ++i)
+    {
+        const DisplayMonitorInfo& mon = s_displayMonitorsCache[i];
+        wchar_t line[512] = {};
+        swprintf_s(line, _countof(line),
+            L"[T14] monitor[%zu] device=\"%s\" primary=%d "
+            L"monitor=(%d,%d)-(%d,%d) work=(%d,%d)-(%d,%d)\r\n",
+            i,
+            mon.device_name.c_str(),
+            mon.is_primary ? 1 : 0,
+            static_cast<int>(mon.monitor_rect.left),
+            static_cast<int>(mon.monitor_rect.top),
+            static_cast<int>(mon.monitor_rect.right),
+            static_cast<int>(mon.monitor_rect.bottom),
+            static_cast<int>(mon.work_rect.left),
+            static_cast<int>(mon.work_rect.top),
+            static_cast<int>(mon.work_rect.right),
+            static_cast<int>(mon.work_rect.bottom));
+        OutputDebugStringW(line);
+        for (size_t j = 0; j < mon.modes.size(); ++j)
+        {
+            const DisplayModeInfo& mode = mon.modes[j];
+            swprintf_s(line, _countof(line),
+                L"[T14]   mode[%zu] %dx%d bpp=%d hz=%d\r\n",
+                j,
+                mode.width,
+                mode.height,
+                mode.bits_per_pixel,
+                mode.refresh_hz);
+            OutputDebugStringW(line);
+        }
+    }
+    OutputDebugStringW(L"--- T14 end ---\r\n");
+}
+
+static void Win32_T14_ClampIndicesAfterEnumerate()
+{
+    if (s_displayMonitorsCache.empty() ||
+        kT14SelectedMonitorIndex >= s_displayMonitorsCache.size())
+    {
+        s_t14SelectedModeIndex = 0;
+        s_t14FirstVisibleModeIndex = 0;
+        return;
+    }
+    const size_t n = s_displayMonitorsCache[kT14SelectedMonitorIndex].modes.size();
+    if (n == 0)
+    {
+        s_t14SelectedModeIndex = 0;
+        s_t14FirstVisibleModeIndex = 0;
+        return;
+    }
+    if (s_t14SelectedModeIndex >= n)
+    {
+        s_t14SelectedModeIndex = n - 1;
+    }
+    const size_t maxFirst =
+        (n > kT14VisibleModeCount) ? (n - kT14VisibleModeCount) : 0;
+    if (s_t14FirstVisibleModeIndex > maxFirst)
+    {
+        s_t14FirstVisibleModeIndex = maxFirst;
+    }
+    if (s_t14SelectedModeIndex < s_t14FirstVisibleModeIndex)
+    {
+        s_t14FirstVisibleModeIndex = s_t14SelectedModeIndex;
+    }
+    if (s_t14SelectedModeIndex >= s_t14FirstVisibleModeIndex + kT14VisibleModeCount)
+    {
+        s_t14FirstVisibleModeIndex = s_t14SelectedModeIndex - (kT14VisibleModeCount - 1);
+    }
+}
+
+// menuOpen でないときのみ Up/Down エッジで呼ぶ。変化時のみ InvalidateRect。
+static void Win32_T14_TryScrollFromKeyboardEdges(bool upEdge, bool downEdge, HWND hwnd)
+{
+    if (!hwnd)
+    {
+        return;
+    }
+    if (s_displayMonitorsCache.empty() ||
+        kT14SelectedMonitorIndex >= s_displayMonitorsCache.size())
+    {
+        return;
+    }
+    const size_t n = s_displayMonitorsCache[kT14SelectedMonitorIndex].modes.size();
+    if (n == 0)
+    {
+        return;
+    }
+
+    const size_t oldSel = s_t14SelectedModeIndex;
+    size_t newSel = oldSel;
+    if (upEdge && newSel > 0)
+    {
+        --newSel;
+    }
+    else if (downEdge && newSel + 1 < n)
+    {
+        ++newSel;
+    }
+    if (newSel == oldSel)
+    {
+        return;
+    }
+
+    s_t14SelectedModeIndex = newSel;
+
+    if (s_t14SelectedModeIndex < s_t14FirstVisibleModeIndex)
+    {
+        s_t14FirstVisibleModeIndex = s_t14SelectedModeIndex;
+    }
+    if (s_t14SelectedModeIndex >= s_t14FirstVisibleModeIndex + kT14VisibleModeCount)
+    {
+        s_t14FirstVisibleModeIndex = s_t14SelectedModeIndex - (kT14VisibleModeCount - 1);
+    }
+
+    InvalidateRect(hwnd, nullptr, FALSE);
+}
+
 //
 //   関数: InitInstance(HINSTANCE, int)
 //
@@ -585,6 +801,10 @@ BOOL InitInstance(HINSTANCE hInstance, int nCmdShow)
    {
       OutputDebugStringW(L"RegisterRawInputDevices failed\r\n");
    }
+
+   Win32_DisplayEnumerateAndCache();
+   Win32_T14_ClampIndicesAfterEnumerate();
+   Win32_LogDisplayMonitors();
 
    Win32_LogXInputSlotsAtStartup();
    Win32_LogRawInputHidGameControllersClassified();
@@ -1211,9 +1431,9 @@ static void Win32_MenuSample_ResetPaintTracking(HWND hwnd)
 
 static void Win32_PaintMenuSampleScreen(HWND hwnd, HDC hdc)
 {
-    RECT rc{};
-    GetClientRect(hwnd, &rc);
-    FillRect(hdc, &rc, (HBRUSH)GetStockObject(WHITE_BRUSH));
+    RECT rcClient{};
+    GetClientRect(hwnd, &rcClient);
+    FillRect(hdc, &rcClient, (HBRUSH)GetStockObject(WHITE_BRUSH));
     SetBkMode(hdc, TRANSPARENT);
 
     const VirtualInputMenuSampleState& s = s_virtualInputMenuSampleState;
@@ -1240,8 +1460,8 @@ static void Win32_PaintMenuSampleScreen(HWND hwnd, HDC hdc)
         wcscpy_s(c11, _countof(c11), L"@");
     }
 
-    wchar_t buf[768] = {};
-    swprintf_s(buf, _countof(buf),
+    wchar_t menuBuf[3072] = {};
+    swprintf_s(menuBuf, _countof(menuBuf),
         L"InputPlatformLab Sample\r\n\r\n"
         L"menuOpen: %d\r\n"
         L"selection: (%d,%d)\r\n"
@@ -1254,7 +1474,61 @@ static void Win32_PaintMenuSampleScreen(HWND hwnd, HDC hdc)
         static_cast<int>(s.selectionY),
         evLabel,
         c00, c10, c01, c11);
-    DrawTextW(hdc, buf, -1, &rc, DT_LEFT | DT_TOP | DT_NOPREFIX);
+
+    RECT rcMenu = rcClient;
+    DrawTextW(hdc, menuBuf, -1, &rcMenu, DT_LEFT | DT_TOP | DT_NOPREFIX | DT_CALCRECT);
+    DrawTextW(hdc, menuBuf, -1, &rcMenu, DT_LEFT | DT_TOP | DT_NOPREFIX);
+
+    wchar_t t14Buf[4096] = {};
+    if (!s_displayMonitorsCache.empty() && kT14SelectedMonitorIndex < s_displayMonitorsCache.size())
+    {
+        const DisplayMonitorInfo& mon = s_displayMonitorsCache[kT14SelectedMonitorIndex];
+        swprintf_s(t14Buf, _countof(t14Buf),
+            L"--- T14 Displays ---\r\n"
+            L"monitor count: %zu\r\n"
+            L"selected monitor index: %zu (fixed)\r\n"
+            L"modes (deduped W*H): %zu\r\n"
+            L"visibleModeCount: %zu\r\n"
+            L"selectedModeIndex: %zu\r\n"
+            L"firstVisibleModeIndex: %zu\r\n"
+            L"(Up/Down: scroll when menu closed)\r\n"
+            L"visible modes:\r\n",
+            s_displayMonitorsCache.size(),
+            kT14SelectedMonitorIndex,
+            mon.modes.size(),
+            kT14VisibleModeCount,
+            s_t14SelectedModeIndex,
+            s_t14FirstVisibleModeIndex);
+
+        for (size_t row = 0; row < kT14VisibleModeCount; ++row)
+        {
+            const size_t mi = s_t14FirstVisibleModeIndex + row;
+            if (mi >= mon.modes.size())
+            {
+                break;
+            }
+            const DisplayModeInfo& mode = mon.modes[mi];
+            const wchar_t* mark = (mi == s_t14SelectedModeIndex) ? L">" : L" ";
+            wchar_t line[192] = {};
+            swprintf_s(line, _countof(line),
+                L"  %s [%zu] %dx%d bpp=%d hz=%d\r\n",
+                mark,
+                mi,
+                mode.width,
+                mode.height,
+                mode.bits_per_pixel,
+                mode.refresh_hz);
+            wcscat_s(t14Buf, _countof(t14Buf), line);
+        }
+    }
+    else
+    {
+        swprintf_s(t14Buf, _countof(t14Buf), L"--- T14 Displays ---\r\n(no monitors)\r\n");
+    }
+
+    RECT rcT14 = rcClient;
+    rcT14.top = rcMenu.bottom + 8;
+    DrawTextW(hdc, t14Buf, -1, &rcT14, DT_LEFT | DT_TOP | DT_NOPREFIX);
 }
 
 static void Win32_LogVirtualInputMenuSampleIfChanged(
@@ -1271,6 +1545,16 @@ static void Win32_LogVirtualInputMenuSampleIfChanged(
 
 static void Win32_UnifiedInputConsumerMenuTick(HWND hwndForPaint)
 {
+    if (hwndForPaint && !s_virtualInputMenuSampleState.menuOpen)
+    {
+        const bool upEdge = !s_keyboardActionStateAtLastTimer.up && s_keyboardActionState.up;
+        const bool downEdge = !s_keyboardActionStateAtLastTimer.down && s_keyboardActionState.down;
+        if (upEdge || downEdge)
+        {
+            Win32_T14_TryScrollFromKeyboardEdges(upEdge, downEdge, hwndForPaint);
+        }
+    }
+
     const VirtualInputConsumerFrame kbFrame =
         VirtualInputConsumer_BuildFrameFromKeyboardState(
             s_keyboardActionStateAtLastTimer,
