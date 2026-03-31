@@ -8,6 +8,7 @@
 #include <cstdint>
 #include <climits>
 #include <cmath>
+#include <cstdlib>
 #include <stdio.h>
 #include <set>
 #include <string>
@@ -457,6 +458,40 @@ static constexpr size_t kT14SelectedMonitorIndex = 0;
 static size_t s_t14SelectedModeIndex = 0;
 static size_t s_t14FirstVisibleModeIndex = 0;
 
+// T15: 希望解像度 → 最近似 mode（列挙キャッシュのみ。適用はしない）
+struct DisplayModeMatchResult
+{
+    size_t nearestModeIndex; // 無効時は (size_t)-1
+    bool exactMatch;
+    int deltaW;
+    int deltaH;
+};
+
+struct DisplayResolutionPreset
+{
+    int width;
+    int height;
+};
+
+static constexpr DisplayResolutionPreset kT15DesiredPresets[] = {
+    {1280, 720},
+    {1366, 768},
+    {1600, 900},
+    {1920, 1080},
+    {2560, 1440},
+    {3440, 1440},
+    {3840, 2160},
+    {4096, 2160},
+};
+
+static constexpr size_t kT15DesiredPresetCount =
+    sizeof(kT15DesiredPresets) / sizeof(kT15DesiredPresets[0]);
+
+static size_t s_t15DesiredPresetIndex = 0;
+static int s_t15DesiredWidth = 0;
+static int s_t15DesiredHeight = 0;
+static DisplayModeMatchResult s_t15MatchResult{};
+
 // --- T25: 前方宣言（責務は上記 [1]〜[8] に対応。実装はファイル後半） ---
 // このコード モジュールに含まれる関数の宣言を転送します:
 ATOM                MyRegisterClass(HINSTANCE hInstance);
@@ -773,6 +808,237 @@ static void Win32_T14_TryScrollFromKeyboardEdges(bool upEdge, bool downEdge, HWN
     InvalidateRect(hwnd, nullptr, FALSE);
 }
 
+static bool Win32_T15_IsBetterMatch(
+    bool exactNew,
+    double arDiffNew,
+    long long distSqNew,
+    long long areaDiffNew,
+    int hzNew,
+    bool exactBest,
+    double arDiffBest,
+    long long distSqBest,
+    long long areaDiffBest,
+    int hzBest)
+{
+    if (exactNew != exactBest)
+    {
+        return exactNew;
+    }
+    if (exactNew && exactBest)
+    {
+        return hzNew > hzBest;
+    }
+    if (arDiffNew < arDiffBest)
+    {
+        return true;
+    }
+    if (arDiffNew > arDiffBest)
+    {
+        return false;
+    }
+    if (distSqNew < distSqBest)
+    {
+        return true;
+    }
+    if (distSqNew > distSqBest)
+    {
+        return false;
+    }
+    if (areaDiffNew < areaDiffBest)
+    {
+        return true;
+    }
+    if (areaDiffNew > areaDiffBest)
+    {
+        return false;
+    }
+    return hzNew > hzBest;
+}
+
+static DisplayModeMatchResult Win32_FindNearestDisplayMode(
+    const std::vector<DisplayModeInfo>& modes,
+    int desiredW,
+    int desiredH)
+{
+    DisplayModeMatchResult r{};
+    r.nearestModeIndex = static_cast<size_t>(-1);
+    r.exactMatch = false;
+    r.deltaW = 0;
+    r.deltaH = 0;
+    if (modes.empty() || desiredW <= 0 || desiredH <= 0)
+    {
+        return r;
+    }
+
+    const double desireAR = static_cast<double>(desiredW) / static_cast<double>(desiredH);
+
+    const DisplayModeInfo& b0 = modes[0];
+    size_t bestIdx = 0;
+    bool bestExact = (b0.width == desiredW && b0.height == desiredH);
+    const double ar0 =
+        static_cast<double>(b0.width) / static_cast<double>(b0.height);
+    double bestArDiff = std::fabs(ar0 - desireAR);
+    const long long dw0 = static_cast<long long>(b0.width) - desiredW;
+    const long long dh0 = static_cast<long long>(b0.height) - desiredH;
+    long long bestDistSq = dw0 * dw0 + dh0 * dh0;
+    long long bestAreaDiff =
+        std::llabs(static_cast<long long>(b0.width) * b0.height -
+                   static_cast<long long>(desiredW) * desiredH);
+    int bestHz = b0.refresh_hz;
+
+    for (size_t i = 1; i < modes.size(); ++i)
+    {
+        const DisplayModeInfo& m = modes[i];
+        const bool exact = (m.width == desiredW && m.height == desiredH);
+        const double arM =
+            static_cast<double>(m.width) / static_cast<double>(m.height);
+        const double arDiff = std::fabs(arM - desireAR);
+        const long long dw = static_cast<long long>(m.width) - desiredW;
+        const long long dh = static_cast<long long>(m.height) - desiredH;
+        const long long distSq = dw * dw + dh * dh;
+        const long long areaDiff =
+            std::llabs(static_cast<long long>(m.width) * m.height -
+                       static_cast<long long>(desiredW) * desiredH);
+
+        if (Win32_T15_IsBetterMatch(
+                exact,
+                arDiff,
+                distSq,
+                areaDiff,
+                m.refresh_hz,
+                bestExact,
+                bestArDiff,
+                bestDistSq,
+                bestAreaDiff,
+                bestHz))
+        {
+            bestIdx = i;
+            bestExact = exact;
+            bestArDiff = arDiff;
+            bestDistSq = distSq;
+            bestAreaDiff = areaDiff;
+            bestHz = m.refresh_hz;
+        }
+    }
+
+    const DisplayModeInfo& bm = modes[bestIdx];
+    r.nearestModeIndex = bestIdx;
+    r.exactMatch = bestExact;
+    r.deltaW = bm.width - desiredW;
+    r.deltaH = bm.height - desiredH;
+    return r;
+}
+
+static void Win32_T15_ApplyDesiredPresetAndRecompute()
+{
+    if (kT15DesiredPresetCount == 0)
+    {
+        s_t15DesiredWidth = 0;
+        s_t15DesiredHeight = 0;
+        s_t15MatchResult = {};
+        s_t15MatchResult.nearestModeIndex = static_cast<size_t>(-1);
+        return;
+    }
+    if (s_t15DesiredPresetIndex >= kT15DesiredPresetCount)
+    {
+        s_t15DesiredPresetIndex = 0;
+    }
+    s_t15DesiredWidth = kT15DesiredPresets[s_t15DesiredPresetIndex].width;
+    s_t15DesiredHeight = kT15DesiredPresets[s_t15DesiredPresetIndex].height;
+
+    if (s_displayMonitorsCache.empty() ||
+        kT14SelectedMonitorIndex >= s_displayMonitorsCache.size())
+    {
+        s_t15MatchResult = {};
+        s_t15MatchResult.nearestModeIndex = static_cast<size_t>(-1);
+        return;
+    }
+    const std::vector<DisplayModeInfo>& modes =
+        s_displayMonitorsCache[kT14SelectedMonitorIndex].modes;
+    s_t15MatchResult =
+        Win32_FindNearestDisplayMode(modes, s_t15DesiredWidth, s_t15DesiredHeight);
+}
+
+static void Win32_T15_LogDesiredNearestLine()
+{
+    wchar_t line[384] = {};
+    if (s_t15MatchResult.nearestModeIndex == static_cast<size_t>(-1) ||
+        s_displayMonitorsCache.empty() ||
+        kT14SelectedMonitorIndex >= s_displayMonitorsCache.size())
+    {
+        swprintf_s(
+            line,
+            _countof(line),
+            L"[T15] desired %dx%d preset[%zu] -> nearest (none)\r\n",
+            s_t15DesiredWidth,
+            s_t15DesiredHeight,
+            s_t15DesiredPresetIndex);
+        OutputDebugStringW(line);
+        return;
+    }
+    const std::vector<DisplayModeInfo>& modes =
+        s_displayMonitorsCache[kT14SelectedMonitorIndex].modes;
+    const size_t ni = s_t15MatchResult.nearestModeIndex;
+    if (ni >= modes.size())
+    {
+        swprintf_s(
+            line,
+            _countof(line),
+            L"[T15] desired %dx%d preset[%zu] -> nearest (invalid idx)\r\n",
+            s_t15DesiredWidth,
+            s_t15DesiredHeight,
+            s_t15DesiredPresetIndex);
+        OutputDebugStringW(line);
+        return;
+    }
+    const DisplayModeInfo& nm = modes[ni];
+    swprintf_s(
+        line,
+        _countof(line),
+        L"[T15] desired %dx%d -> nearest[%zu] %dx%d bpp=%d hz=%d exact=%d dW=%d dH=%d\r\n",
+        s_t15DesiredWidth,
+        s_t15DesiredHeight,
+        ni,
+        nm.width,
+        nm.height,
+        nm.bits_per_pixel,
+        nm.refresh_hz,
+        s_t15MatchResult.exactMatch ? 1 : 0,
+        s_t15MatchResult.deltaW,
+        s_t15MatchResult.deltaH);
+    OutputDebugStringW(line);
+}
+
+static void Win32_T15_TryChangePresetFromKeyboardEdges(bool leftEdge, bool rightEdge, HWND hwnd)
+{
+    if (!hwnd || kT15DesiredPresetCount == 0)
+    {
+        return;
+    }
+    const size_t oldPreset = s_t15DesiredPresetIndex;
+    if (leftEdge && !rightEdge)
+    {
+        s_t15DesiredPresetIndex =
+            (s_t15DesiredPresetIndex == 0) ? (kT15DesiredPresetCount - 1)
+                                           : (s_t15DesiredPresetIndex - 1);
+    }
+    else if (rightEdge && !leftEdge)
+    {
+        s_t15DesiredPresetIndex = (s_t15DesiredPresetIndex + 1) % kT15DesiredPresetCount;
+    }
+    else
+    {
+        return;
+    }
+    if (s_t15DesiredPresetIndex == oldPreset)
+    {
+        return;
+    }
+    Win32_T15_ApplyDesiredPresetAndRecompute();
+    Win32_T15_LogDesiredNearestLine();
+    InvalidateRect(hwnd, nullptr, FALSE);
+}
+
 //
 //   関数: InitInstance(HINSTANCE, int)
 //
@@ -804,6 +1070,8 @@ BOOL InitInstance(HINSTANCE hInstance, int nCmdShow)
 
    Win32_DisplayEnumerateAndCache();
    Win32_T14_ClampIndicesAfterEnumerate();
+   Win32_T15_ApplyDesiredPresetAndRecompute();
+   Win32_T15_LogDesiredNearestLine();
    Win32_LogDisplayMonitors();
 
    Win32_LogXInputSlotsAtStartup();
@@ -1492,6 +1760,7 @@ static void Win32_PaintMenuSampleScreen(HWND hwnd, HDC hdc)
             L"selectedModeIndex: %zu\r\n"
             L"firstVisibleModeIndex: %zu\r\n"
             L"(Up/Down: scroll when menu closed)\r\n"
+            L"(Left/Right: T15 desired preset when menu closed)\r\n"
             L"visible modes:\r\n",
             s_displayMonitorsCache.size(),
             kT14SelectedMonitorIndex,
@@ -1509,16 +1778,65 @@ static void Win32_PaintMenuSampleScreen(HWND hwnd, HDC hdc)
             }
             const DisplayModeInfo& mode = mon.modes[mi];
             const wchar_t* mark = (mi == s_t14SelectedModeIndex) ? L">" : L" ";
+            const bool nearestStar =
+                (s_t15MatchResult.nearestModeIndex != static_cast<size_t>(-1)) &&
+                (mi == s_t15MatchResult.nearestModeIndex);
             wchar_t line[192] = {};
             swprintf_s(line, _countof(line),
-                L"  %s [%zu] %dx%d bpp=%d hz=%d\r\n",
+                L"  %s%s [%zu] %dx%d bpp=%d hz=%d\r\n",
                 mark,
+                nearestStar ? L"*" : L" ",
                 mi,
                 mode.width,
                 mode.height,
                 mode.bits_per_pixel,
                 mode.refresh_hz);
             wcscat_s(t14Buf, _countof(t14Buf), line);
+        }
+
+        {
+            wchar_t t15Block[768] = {};
+            if (s_t15MatchResult.nearestModeIndex != static_cast<size_t>(-1) &&
+                s_t15MatchResult.nearestModeIndex < mon.modes.size())
+            {
+                const DisplayModeInfo& nm = mon.modes[s_t15MatchResult.nearestModeIndex];
+                swprintf_s(
+                    t15Block,
+                    _countof(t15Block),
+                    L"\r\n--- T15 nearest resolution ---\r\n"
+                    L"desired: %dx%d  preset[%zu/%zu]\r\n"
+                    L"nearest: [%zu] %dx%d bpp=%d hz=%d\r\n"
+                    L"delta: %d / %d\r\n"
+                    L"exact match: %d\r\n",
+                    s_t15DesiredWidth,
+                    s_t15DesiredHeight,
+                    s_t15DesiredPresetIndex,
+                    kT15DesiredPresetCount,
+                    s_t15MatchResult.nearestModeIndex,
+                    nm.width,
+                    nm.height,
+                    nm.bits_per_pixel,
+                    nm.refresh_hz,
+                    s_t15MatchResult.deltaW,
+                    s_t15MatchResult.deltaH,
+                    s_t15MatchResult.exactMatch ? 1 : 0);
+            }
+            else
+            {
+                swprintf_s(
+                    t15Block,
+                    _countof(t15Block),
+                    L"\r\n--- T15 nearest resolution ---\r\n"
+                    L"desired: %dx%d  preset[%zu/%zu]\r\n"
+                    L"nearest: (none)\r\n"
+                    L"delta: - / -\r\n"
+                    L"exact match: 0\r\n",
+                    s_t15DesiredWidth,
+                    s_t15DesiredHeight,
+                    s_t15DesiredPresetIndex,
+                    kT15DesiredPresetCount);
+            }
+            wcscat_s(t14Buf, _countof(t14Buf), t15Block);
         }
     }
     else
@@ -1549,9 +1867,15 @@ static void Win32_UnifiedInputConsumerMenuTick(HWND hwndForPaint)
     {
         const bool upEdge = !s_keyboardActionStateAtLastTimer.up && s_keyboardActionState.up;
         const bool downEdge = !s_keyboardActionStateAtLastTimer.down && s_keyboardActionState.down;
+        const bool leftEdge = !s_keyboardActionStateAtLastTimer.left && s_keyboardActionState.left;
+        const bool rightEdge = !s_keyboardActionStateAtLastTimer.right && s_keyboardActionState.right;
         if (upEdge || downEdge)
         {
             Win32_T14_TryScrollFromKeyboardEdges(upEdge, downEdge, hwndForPaint);
+        }
+        if (leftEdge || rightEdge)
+        {
+            Win32_T15_TryChangePresetFromKeyboardEdges(leftEdge, rightEdge, hwndForPaint);
         }
     }
 
