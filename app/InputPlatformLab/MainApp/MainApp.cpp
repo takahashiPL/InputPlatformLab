@@ -5,6 +5,8 @@
 #include "MainApp.h"
 #include "VirtualInputMenuSample.h"
 
+#include <windowsx.h>
+
 #include <cstdint>
 #include <climits>
 #include <cmath>
@@ -374,6 +376,14 @@ struct KeyboardActionState
     bool enter;
     bool backspace;
     bool tab;
+    bool f6;
+    bool f5;
+    bool pageUp;
+    bool pageDown;
+    bool home;
+    bool end;
+    bool f7;
+    bool f8;
 };
 
 static VirtualInputConsumerFrame VirtualInputConsumer_BuildFrameFromKeyboardState(
@@ -451,6 +461,7 @@ struct DisplayModeInfo
 
 struct DisplayMonitorInfo
 {
+    HMONITOR hMonitor = nullptr;
     std::wstring device_name;
     RECT monitor_rect;
     RECT work_rect;
@@ -500,7 +511,7 @@ static int s_t15DesiredWidth = 0;
 static int s_t15DesiredHeight = 0;
 static DisplayModeMatchResult s_t15MatchResult{};
 
-// T16: ウィンドウ再生成の土台（windowed のみ。display 変更・FS はしない）
+// T16/T17: ウィンドウ再生成パラメータ
 struct MainWindowConfig
 {
     int clientWidth;  // windowed: logical client（DPI 変換後・work クランプ後）
@@ -510,7 +521,71 @@ struct MainWindowConfig
     BOOL useAdjustWindowRect; // TRUE のとき AdjustWindowRectExForDpi で外枠を算出
     UINT dpiX;
     UINT dpiY;
+    BOOL fillMonitorPhysical; // TRUE: CreateWindow は monitor 矩形を物理ピクセルでそのまま使う
+    int createPhysicalX;
+    int createPhysicalY;
+    int createPhysicalW;
+    int createPhysicalH;
 };
+
+// T17: Windowed / Borderless / Fullscreen（monitor 0 固定）
+enum class T17PresentationMode : std::uint8_t
+{
+    Windowed = 0,
+    Borderless = 1,
+    Fullscreen = 2,
+};
+
+static T17PresentationMode s_t17CurrentPresentationMode = T17PresentationMode::Windowed;
+static T17PresentationMode s_t17LastAppliedPresentationMode = T17PresentationMode::Windowed;
+static LONG s_t17LastFullscreenChangeResult = DISP_CHANGE_SUCCESSFUL;
+static bool s_t17LastWindowApplySuccess = false;
+static bool s_t17FullscreenDisplayAppliedNow = false;
+
+static unsigned s_t17ApplySeq = 0;
+static unsigned s_t17CycleSeq = 0;
+static wchar_t s_t17LastActionLine[512] = L"(none yet)";
+static wchar_t s_t17LastKeyAffectingT17[160] = L"(none)";
+static wchar_t s_t17LastEnterCandidateToApplied[256] = L"(no Enter apply yet)";
+static wchar_t s_t17F5UnrelatedHint[192] = L"";
+// Enter の短いタップはタイマー 1 周期内で make/break となり edge が取りこぼすため、WM_INPUT の make でラッチしタイマーで 1 回だけ消費する。
+static bool s_t17PendingApplyRequest = false;
+
+// メイン画面デバッグ表示の縦スクロール（T13〜T17 全体）
+static int s_paintScrollY = 0;
+static int s_paintScrollLinePx = 16; // WM_PAINT で TEXTMETRIC から更新
+static int s_paintDbgContentHeight = 0;
+static int s_paintDbgContentHeightBase = 0; // DrawText 計測のみ（パディング前）
+static int s_paintDbgExtraBottomPadding = 0; // Borderless/Fullscreen 時の仮想下余白
+static int s_paintDbgClientHeight = 0;
+static int s_paintDbgT17DocY = 0; // ドキュメント座標で「--- T17 presentation ---」行の先頭
+
+#ifndef WIN32_MAIN_DEBUG_SCROLL_LINE
+#define WIN32_MAIN_DEBUG_SCROLL_LINE 16
+#endif
+// F7: T17 行を画面上端付近へ（ピッタリだと窮屈なので上余白）
+#ifndef WIN32_MAIN_T17_JUMP_TOP_MARGIN
+#define WIN32_MAIN_T17_JUMP_TOP_MARGIN 160
+#endif
+// PageUp/PageDown: 1 ページではなく nPage のこの分率だけ移動（キー・スクロールバー共通）
+#ifndef WIN32_MAIN_SCROLL_PAGEUP_NUM
+#define WIN32_MAIN_SCROLL_PAGEUP_NUM 1
+#endif
+#ifndef WIN32_MAIN_SCROLL_PAGEUP_DEN
+#define WIN32_MAIN_SCROLL_PAGEUP_DEN 2
+#endif
+
+static void Win32_T17_ApplyCurrentPresentationMode(HWND hwnd);
+static void Win32_ScrollLog(
+    const wchar_t* where,
+    HWND hwnd,
+    int scrollYBefore,
+    int scrollYAfter,
+    int contentHOverride,
+    int t17Override,
+    int contentHBase = -1,
+    int extraBottomPadding = -1);
+static void Win32_MainView_SetScrollPos(HWND hwnd, int newY, const wchar_t* logWhere);
 
 enum class T16RecreateStatus
 {
@@ -531,6 +606,17 @@ static int s_t16LastTargetLogicalH = 0;
 static UINT s_t16LastDpiX = USER_DEFAULT_SCREEN_DPI;
 static UINT s_t16LastDpiY = USER_DEFAULT_SCREEN_DPI;
 static bool s_t16DestroyIsRecreate = false;
+
+enum class T16WindowedTargetModeSource
+{
+    T14SelectedList,
+    T15NearestFallback,
+};
+
+static T16WindowedTargetModeSource s_t16WindowedTargetModeSource =
+    T16WindowedTargetModeSource::T15NearestFallback;
+static size_t s_t16WindowedTargetT14ListIndex = static_cast<size_t>(-1);
+static DisplayModeInfo s_t16WindowedTargetMode{};
 
 // --- T25: 前方宣言（責務は上記 [1]〜[8] に対応。実装はファイル後半） ---
 // このコード モジュールに含まれる関数の宣言を転送します:
@@ -704,6 +790,7 @@ static BOOL CALLBACK Win32_DisplayMonitorEnumProc(
     }
 
     DisplayMonitorInfo mon{};
+    mon.hMonitor = hMonitor;
     mon.device_name = mi.szDevice;
     mon.monitor_rect = mi.rcMonitor;
     mon.work_rect = mi.rcWork;
@@ -1109,6 +1196,24 @@ static void Win32_T15_TryChangePresetFromKeyboardEdges(bool leftEdge, bool right
     InvalidateRect(hwnd, nullptr, FALSE);
 }
 
+static bool Win32_T14_GetSelectedDisplayModeInfo(DisplayModeInfo& outMode, size_t& outListIndex)
+{
+    if (s_displayMonitorsCache.empty() ||
+        kT14SelectedMonitorIndex >= s_displayMonitorsCache.size())
+    {
+        return false;
+    }
+    const std::vector<DisplayModeInfo>& modes =
+        s_displayMonitorsCache[kT14SelectedMonitorIndex].modes;
+    if (modes.empty() || s_t14SelectedModeIndex >= modes.size())
+    {
+        return false;
+    }
+    outListIndex = s_t14SelectedModeIndex;
+    outMode = modes[s_t14SelectedModeIndex];
+    return true;
+}
+
 static bool Win32_T16_GetTargetClientSizeFromNearestMode(int& outW, int& outH)
 {
     if (s_t15MatchResult.nearestModeIndex == static_cast<size_t>(-1))
@@ -1132,6 +1237,91 @@ static bool Win32_T16_GetTargetClientSizeFromNearestMode(int& outW, int& outH)
     return true;
 }
 
+static const wchar_t* Win32_T16_WindowedModeSourceLabel(T16WindowedTargetModeSource src)
+{
+    switch (src)
+    {
+    case T16WindowedTargetModeSource::T14SelectedList:
+        return L"T14 selected";
+    case T16WindowedTargetModeSource::T15NearestFallback:
+        return L"T15 nearest fallback";
+    default:
+        return L"?";
+    }
+}
+
+static bool Win32_T16_ResolveWindowedTargetPhysicalSize(int& outW, int& outH, bool logToDebug)
+{
+    DisplayModeInfo sel{};
+    size_t listIdx = 0;
+    if (Win32_T14_GetSelectedDisplayModeInfo(sel, listIdx))
+    {
+        outW = sel.width;
+        outH = sel.height;
+        s_t16WindowedTargetModeSource = T16WindowedTargetModeSource::T14SelectedList;
+        s_t16WindowedTargetT14ListIndex = listIdx;
+        s_t16WindowedTargetMode = sel;
+        if (logToDebug)
+        {
+            wchar_t line[320] = {};
+            swprintf_s(
+                line,
+                _countof(line),
+                L"[T16] mode source=selected list index=%zu\r\n",
+                listIdx);
+            OutputDebugStringW(line);
+            swprintf_s(
+                line,
+                _countof(line),
+                L"[T16] target mode from T14 selected: %dx%d bpp=%d hz=%d\r\n",
+                sel.width,
+                sel.height,
+                sel.bits_per_pixel,
+                sel.refresh_hz);
+            OutputDebugStringW(line);
+        }
+        return true;
+    }
+    if (!Win32_T16_GetTargetClientSizeFromNearestMode(outW, outH))
+    {
+        return false;
+    }
+    s_t16WindowedTargetModeSource = T16WindowedTargetModeSource::T15NearestFallback;
+    s_t16WindowedTargetT14ListIndex = static_cast<size_t>(-1);
+    if (s_displayMonitorsCache.empty() ||
+        kT14SelectedMonitorIndex >= s_displayMonitorsCache.size())
+    {
+        return false;
+    }
+    const std::vector<DisplayModeInfo>& modes =
+        s_displayMonitorsCache[kT14SelectedMonitorIndex].modes;
+    if (s_t15MatchResult.nearestModeIndex >= modes.size())
+    {
+        return false;
+    }
+    s_t16WindowedTargetMode = modes[s_t15MatchResult.nearestModeIndex];
+    if (logToDebug)
+    {
+        wchar_t line[320] = {};
+        swprintf_s(
+            line,
+            _countof(line),
+            L"[T16] mode source=fallback nearest (T15 index=%zu)\r\n",
+            s_t15MatchResult.nearestModeIndex);
+        OutputDebugStringW(line);
+        swprintf_s(
+            line,
+            _countof(line),
+            L"[T16] target mode from T15 nearest: %dx%d bpp=%d hz=%d\r\n",
+            s_t16WindowedTargetMode.width,
+            s_t16WindowedTargetMode.height,
+            s_t16WindowedTargetMode.bits_per_pixel,
+            s_t16WindowedTargetMode.refresh_hz);
+        OutputDebugStringW(line);
+    }
+    return true;
+}
+
 static bool Win32_T16_GetDpiForWindowBest(HWND hwnd, UINT& outDpiX, UINT& outDpiY)
 {
     if (hwnd && IsWindow(hwnd))
@@ -1142,6 +1332,21 @@ static bool Win32_T16_GetDpiForWindowBest(HWND hwnd, UINT& outDpiX, UINT& outDpi
             outDpiX = dpi;
             outDpiY = dpi;
             return true;
+        }
+    }
+    if (!s_displayMonitorsCache.empty() && kT14SelectedMonitorIndex < s_displayMonitorsCache.size())
+    {
+        const HMONITOR hmSel = s_displayMonitorsCache[kT14SelectedMonitorIndex].hMonitor;
+        if (hmSel)
+        {
+            UINT dx = 0;
+            UINT dy = 0;
+            if (GetDpiForMonitor(hmSel, MDT_EFFECTIVE_DPI, &dx, &dy) == S_OK)
+            {
+                outDpiX = dx;
+                outDpiY = dy;
+                return true;
+            }
         }
     }
     HMONITOR hm = MonitorFromWindow(hwnd ? hwnd : nullptr, MONITOR_DEFAULTTOPRIMARY);
@@ -1163,6 +1368,23 @@ static bool Win32_T16_GetDpiForWindowBest(HWND hwnd, UINT& outDpiX, UINT& outDpi
     return true;
 }
 
+static HMONITOR Win32_T16_GetSizingMonitor(HWND hwnd)
+{
+    if (hwnd && IsWindow(hwnd))
+    {
+        return MonitorFromWindow(hwnd, MONITOR_DEFAULTTONEAREST);
+    }
+    if (!s_displayMonitorsCache.empty() && kT14SelectedMonitorIndex < s_displayMonitorsCache.size())
+    {
+        const HMONITOR hm = s_displayMonitorsCache[kT14SelectedMonitorIndex].hMonitor;
+        if (hm)
+        {
+            return hm;
+        }
+    }
+    return MonitorFromPoint(POINT{0, 0}, MONITOR_DEFAULTTOPRIMARY);
+}
+
 static void Win32_T16_ClampLogicalClientToWorkArea(
     HWND hwnd,
     UINT dpiX,
@@ -1170,7 +1392,7 @@ static void Win32_T16_ClampLogicalClientToWorkArea(
     int& inOutLogicalW,
     int& inOutLogicalH)
 {
-    HMONITOR hMon = MonitorFromWindow(hwnd, MONITOR_DEFAULTTONEAREST);
+    const HMONITOR hMon = Win32_T16_GetSizingMonitor(hwnd);
     MONITORINFO mi{};
     mi.cbSize = sizeof(mi);
     if (!GetMonitorInfo(hMon, &mi))
@@ -1185,7 +1407,12 @@ static void Win32_T16_ClampLogicalClientToWorkArea(
     tryRc.top = 0;
     tryRc.right = inOutLogicalW;
     tryRc.bottom = inOutLogicalH;
-    if (!AdjustWindowRectExForDpi(&tryRc, WS_OVERLAPPEDWINDOW, TRUE, 0, dpiX))
+    if (!AdjustWindowRectExForDpi(
+            &tryRc,
+            WS_OVERLAPPEDWINDOW | WS_VSCROLL,
+            TRUE,
+            0,
+            dpiX))
     {
         return;
     }
@@ -1223,7 +1450,7 @@ static bool Win32_BuildWindowConfigFromCurrentSelection(HWND hwnd, MainWindowCon
 {
     int physW = 0;
     int physH = 0;
-    if (!Win32_T16_GetTargetClientSizeFromNearestMode(physW, physH))
+    if (!Win32_T16_ResolveWindowedTargetPhysicalSize(physW, physH, true))
     {
         return false;
     }
@@ -1241,11 +1468,16 @@ static bool Win32_BuildWindowConfigFromCurrentSelection(HWND hwnd, MainWindowCon
 
     out.clientWidth = lw;
     out.clientHeight = lh;
-    out.windowStyle = WS_OVERLAPPEDWINDOW;
+    out.windowStyle = WS_OVERLAPPEDWINDOW | WS_VSCROLL;
     out.windowExStyle = 0;
     out.useAdjustWindowRect = TRUE;
     out.dpiX = dpiX;
     out.dpiY = dpiY;
+    out.fillMonitorPhysical = FALSE;
+    out.createPhysicalX = 0;
+    out.createPhysicalY = 0;
+    out.createPhysicalW = 0;
+    out.createPhysicalH = 0;
 
     s_t16LastTargetPhysicalW = physW;
     s_t16LastTargetPhysicalH = physH;
@@ -1257,9 +1489,12 @@ static bool Win32_BuildWindowConfigFromCurrentSelection(HWND hwnd, MainWindowCon
     return true;
 }
 
-static bool Win32_RecreateMainWindowFromConfig(HWND oldHwnd, const MainWindowConfig& cfg)
+static bool Win32_T16_ComputeWindowedOuterPhysicalPixels(
+    const MainWindowConfig& cfg,
+    int& outOuterPhysW,
+    int& outOuterPhysH)
 {
-    if (!oldHwnd || !IsWindow(oldHwnd))
+    if (cfg.fillMonitorPhysical)
     {
         return false;
     }
@@ -1267,50 +1502,196 @@ static bool Win32_RecreateMainWindowFromConfig(HWND oldHwnd, const MainWindowCon
     {
         return false;
     }
-
     RECT rc{};
     rc.left = 0;
     rc.top = 0;
     rc.right = cfg.clientWidth;
     rc.bottom = cfg.clientHeight;
-
-    int outerPhysW = cfg.clientWidth;
-    int outerPhysH = cfg.clientHeight;
+    outOuterPhysW = cfg.clientWidth;
+    outOuterPhysH = cfg.clientHeight;
     if (cfg.useAdjustWindowRect)
     {
-        if (!AdjustWindowRectExForDpi(&rc, cfg.windowStyle, TRUE, cfg.windowExStyle, cfg.dpiX))
+        if (!AdjustWindowRectExForDpi(
+                &rc, cfg.windowStyle, TRUE, cfg.windowExStyle, cfg.dpiX))
+        {
+            return false;
+        }
+        const int outerLogicalW = static_cast<int>(rc.right - rc.left);
+        const int outerLogicalH = static_cast<int>(rc.bottom - rc.top);
+        outOuterPhysW = MulDiv(outerLogicalW, cfg.dpiX, USER_DEFAULT_SCREEN_DPI);
+        outOuterPhysH = MulDiv(outerLogicalH, cfg.dpiY, USER_DEFAULT_SCREEN_DPI);
+    }
+    return true;
+}
+
+static void Win32_T16_SetWindowedOuterFrameAtPos(
+    HWND hwnd,
+    int posX,
+    int posY,
+    int outerPhysW,
+    int outerPhysH,
+    bool showNormal)
+{
+    if (!hwnd || outerPhysW <= 0 || outerPhysH <= 0)
+    {
+        return;
+    }
+    SetWindowPos(
+        hwnd,
+        nullptr,
+        posX,
+        posY,
+        outerPhysW,
+        outerPhysH,
+        SWP_NOZORDER | SWP_FRAMECHANGED);
+    if (showNormal)
+    {
+        ShowWindow(hwnd, SW_SHOWNORMAL);
+    }
+    if (IsZoomed(hwnd))
+    {
+        ShowWindow(hwnd, SW_RESTORE);
+        SetWindowPos(
+            hwnd,
+            nullptr,
+            posX,
+            posY,
+            outerPhysW,
+            outerPhysH,
+            SWP_NOZORDER | SWP_FRAMECHANGED);
+    }
+    UpdateWindow(hwnd);
+}
+
+static void Win32_T16_LogAndStoreActualMetricsAfterCreate(
+    HWND hwnd,
+    int requestedOuterPhysW,
+    int requestedOuterPhysH,
+    const wchar_t* afterLabel)
+{
+    if (!hwnd)
+    {
+        return;
+    }
+    s_t16LastRequestedOuterW = requestedOuterPhysW;
+    s_t16LastRequestedOuterH = requestedOuterPhysH;
+
+    RECT outerActual{};
+    GetWindowRect(hwnd, &outerActual);
+    s_t16LastActualOuterW = outerActual.right - outerActual.left;
+    s_t16LastActualOuterH = outerActual.bottom - outerActual.top;
+
+    RECT cr{};
+    GetClientRect(hwnd, &cr);
+    const int actualClientW = static_cast<int>(cr.right - cr.left);
+    const int actualClientH = static_cast<int>(cr.bottom - cr.top);
+
+    WINDOWPLACEMENT wp{};
+    wp.length = sizeof(wp);
+    UINT showCmd = 0;
+    if (GetWindowPlacement(hwnd, &wp))
+    {
+        showCmd = wp.showCmd;
+    }
+
+    wchar_t logAfter[512] = {};
+    swprintf_s(
+        logAfter,
+        _countof(logAfter),
+        L"[T16] %s AFTER: ok=1 client(phys)=%dx%d requested outer(phys)=%dx%d "
+        L"actual outer(phys)=%dx%d IsZoomed=%d showCmd=%u hwnd=%p\r\n",
+        afterLabel,
+        actualClientW,
+        actualClientH,
+        requestedOuterPhysW,
+        requestedOuterPhysH,
+        s_t16LastActualOuterW,
+        s_t16LastActualOuterH,
+        IsZoomed(hwnd) ? 1 : 0,
+        showCmd,
+        static_cast<void*>(hwnd));
+    OutputDebugStringW(logAfter);
+}
+
+static bool Win32_RecreateMainWindowFromConfig(HWND oldHwnd, const MainWindowConfig& cfg)
+{
+    if (!oldHwnd || !IsWindow(oldHwnd))
+    {
+        return false;
+    }
+    if (cfg.fillMonitorPhysical)
+    {
+        if (cfg.createPhysicalW <= 0 || cfg.createPhysicalH <= 0)
+        {
+            return false;
+        }
+    }
+    else if (cfg.clientWidth <= 0 || cfg.clientHeight <= 0)
+    {
+        return false;
+    }
+
+    int outerPhysW = 0;
+    int outerPhysH = 0;
+    int posX = 0;
+    int posY = 0;
+
+    if (cfg.fillMonitorPhysical)
+    {
+        outerPhysW = cfg.createPhysicalW;
+        outerPhysH = cfg.createPhysicalH;
+        posX = cfg.createPhysicalX;
+        posY = cfg.createPhysicalY;
+    }
+    else
+    {
+        if (!Win32_T16_ComputeWindowedOuterPhysicalPixels(cfg, outerPhysW, outerPhysH))
         {
             s_t16RecreateStatus = T16RecreateStatus::Fail;
             OutputDebugStringW(L"[T16] AdjustWindowRectExForDpi failed\r\n");
             return false;
         }
-        const int outerLogicalW = static_cast<int>(rc.right - rc.left);
-        const int outerLogicalH = static_cast<int>(rc.bottom - rc.top);
-        outerPhysW = MulDiv(outerLogicalW, cfg.dpiX, USER_DEFAULT_SCREEN_DPI);
-        outerPhysH = MulDiv(outerLogicalH, cfg.dpiY, USER_DEFAULT_SCREEN_DPI);
+        RECT wr{};
+        GetWindowRect(oldHwnd, &wr);
+        posX = static_cast<int>(wr.left);
+        posY = static_cast<int>(wr.top);
     }
 
-    RECT wr{};
-    GetWindowRect(oldHwnd, &wr);
-
     wchar_t logBefore[512] = {};
-    swprintf_s(
-        logBefore,
-        _countof(logBefore),
-        L"[T16] recreate BEFORE: mode physical=%dx%d logical client=%dx%d dpi=%u/%u "
-        L"outer physical=%dx%d style=0x%08X exStyle=0x%08X topleft=(%d,%d)\r\n",
-        s_t16LastTargetPhysicalW,
-        s_t16LastTargetPhysicalH,
-        cfg.clientWidth,
-        cfg.clientHeight,
-        cfg.dpiX,
-        cfg.dpiY,
-        outerPhysW,
-        outerPhysH,
-        cfg.windowStyle,
-        cfg.windowExStyle,
-        static_cast<int>(wr.left),
-        static_cast<int>(wr.top));
+    if (cfg.fillMonitorPhysical)
+    {
+        swprintf_s(
+            logBefore,
+            _countof(logBefore),
+            L"[T16] recreate BEFORE: fillMonitor physical outer=%dx%d pos=(%d,%d) "
+            L"style=0x%08X exStyle=0x%08X\r\n",
+            outerPhysW,
+            outerPhysH,
+            posX,
+            posY,
+            cfg.windowStyle,
+            cfg.windowExStyle);
+    }
+    else
+    {
+        swprintf_s(
+            logBefore,
+            _countof(logBefore),
+            L"[T16] recreate BEFORE: mode physical=%dx%d logical client=%dx%d dpi=%u/%u "
+            L"outer physical=%dx%d style=0x%08X exStyle=0x%08X topleft=(%d,%d)\r\n",
+            s_t16LastTargetPhysicalW,
+            s_t16LastTargetPhysicalH,
+            cfg.clientWidth,
+            cfg.clientHeight,
+            cfg.dpiX,
+            cfg.dpiY,
+            outerPhysW,
+            outerPhysH,
+            cfg.windowStyle,
+            cfg.windowExStyle,
+            posX,
+            posY);
+    }
     OutputDebugStringW(logBefore);
 
     HWND newHwnd = CreateWindowExW(
@@ -1318,8 +1699,8 @@ static bool Win32_RecreateMainWindowFromConfig(HWND oldHwnd, const MainWindowCon
         szWindowClass,
         szTitle,
         cfg.windowStyle,
-        static_cast<int>(wr.left),
-        static_cast<int>(wr.top),
+        posX,
+        posY,
         outerPhysW,
         outerPhysH,
         nullptr,
@@ -1347,71 +1728,19 @@ static bool Win32_RecreateMainWindowFromConfig(HWND oldHwnd, const MainWindowCon
     }
     SetTimer(newHwnd, TIMER_ID_XINPUT_POLL, XINPUT_POLL_INTERVAL_MS, nullptr);
 
+    if (cfg.fillMonitorPhysical)
+    {
+        SetMenu(newHwnd, nullptr);
+    }
+
     s_t16DestroyIsRecreate = true;
     DestroyWindow(oldHwnd);
 
-    s_t16LastRequestedOuterW = outerPhysW;
-    s_t16LastRequestedOuterH = outerPhysH;
-
     // CreateWindow 直後の枠・既定状態のずれや SW_SHOW 系の影響を避け、通常ウィンドウとして outer を明示固定する。
-    SetWindowPos(
-        newHwnd,
-        nullptr,
-        static_cast<int>(wr.left),
-        static_cast<int>(wr.top),
-        outerPhysW,
-        outerPhysH,
-        SWP_NOZORDER | SWP_FRAMECHANGED);
-    ShowWindow(newHwnd, SW_SHOWNORMAL);
-    if (IsZoomed(newHwnd))
-    {
-        ShowWindow(newHwnd, SW_RESTORE);
-        SetWindowPos(
-            newHwnd,
-            nullptr,
-            static_cast<int>(wr.left),
-            static_cast<int>(wr.top),
-            outerPhysW,
-            outerPhysH,
-            SWP_NOZORDER | SWP_FRAMECHANGED);
-    }
-    UpdateWindow(newHwnd);
+    Win32_T16_SetWindowedOuterFrameAtPos(newHwnd, posX, posY, outerPhysW, outerPhysH, true);
     SetForegroundWindow(newHwnd);
 
-    RECT outerActual{};
-    GetWindowRect(newHwnd, &outerActual);
-    s_t16LastActualOuterW = outerActual.right - outerActual.left;
-    s_t16LastActualOuterH = outerActual.bottom - outerActual.top;
-
-    RECT cr{};
-    GetClientRect(newHwnd, &cr);
-    const int actualClientW = static_cast<int>(cr.right - cr.left);
-    const int actualClientH = static_cast<int>(cr.bottom - cr.top);
-
-    WINDOWPLACEMENT wp{};
-    wp.length = sizeof(wp);
-    UINT showCmd = 0;
-    if (GetWindowPlacement(newHwnd, &wp))
-    {
-        showCmd = wp.showCmd;
-    }
-
-    wchar_t logAfter[512] = {};
-    swprintf_s(
-        logAfter,
-        _countof(logAfter),
-        L"[T16] recreate AFTER: ok=1 client(phys)=%dx%d requested outer(phys)=%dx%d "
-        L"actual outer(phys)=%dx%d IsZoomed=%d showCmd=%u hwnd=%p\r\n",
-        actualClientW,
-        actualClientH,
-        outerPhysW,
-        outerPhysH,
-        s_t16LastActualOuterW,
-        s_t16LastActualOuterH,
-        IsZoomed(newHwnd) ? 1 : 0,
-        showCmd,
-        static_cast<void*>(newHwnd));
-    OutputDebugStringW(logAfter);
+    Win32_T16_LogAndStoreActualMetricsAfterCreate(newHwnd, outerPhysW, outerPhysH, L"recreate");
 
     s_t16RecreateStatus = T16RecreateStatus::Ok;
     return true;
@@ -1419,14 +1748,418 @@ static bool Win32_RecreateMainWindowFromConfig(HWND oldHwnd, const MainWindowCon
 
 static void Win32_T16_RecreateMainWindowFromCurrentSelection(HWND oldHwnd)
 {
-    MainWindowConfig cfg{};
-    if (!Win32_BuildWindowConfigFromCurrentSelection(oldHwnd, cfg))
+    Win32_T17_ApplyCurrentPresentationMode(oldHwnd);
+}
+
+static const wchar_t* Win32_T17_ModeLabel(T17PresentationMode m)
+{
+    switch (m)
     {
-        s_t16RecreateStatus = T16RecreateStatus::Fail;
-        OutputDebugStringW(L"[T16] recreate skipped: no valid nearest mode for client size\r\n");
+    case T17PresentationMode::Windowed:
+        return L"Windowed";
+    case T17PresentationMode::Borderless:
+        return L"Borderless";
+    case T17PresentationMode::Fullscreen:
+        return L"Fullscreen";
+    default:
+        return L"?";
+    }
+}
+
+// デスクトップ解像度を戻す。スキップ時は DISP_CHANGE_SUCCESSFUL を返す。
+static LONG Win32_T17_ResetMonitor0DisplaySettings()
+{
+    if (!s_t17FullscreenDisplayAppliedNow || s_displayMonitorsCache.empty())
+    {
+        return DISP_CHANGE_SUCCESSFUL;
+    }
+    const std::wstring& dev = s_displayMonitorsCache[0].device_name;
+    const LONG r =
+        ChangeDisplaySettingsExW(dev.c_str(), nullptr, nullptr, CDS_RESET, nullptr);
+    wchar_t line[256] = {};
+    swprintf_s(
+        line,
+        _countof(line),
+        L"[T17] ChangeDisplaySettingsEx reset (CDS_RESET) result=%ld\r\n",
+        static_cast<long>(r));
+    OutputDebugStringW(line);
+    s_t17FullscreenDisplayAppliedNow = false;
+    return r;
+}
+
+static LONG Win32_T17_TryFullscreenDisplayNearestMode()
+{
+    if (s_displayMonitorsCache.empty() || kT14SelectedMonitorIndex >= s_displayMonitorsCache.size())
+    {
+        return DISP_CHANGE_BADPARAM;
+    }
+    if (s_t15MatchResult.nearestModeIndex == static_cast<size_t>(-1))
+    {
+        return DISP_CHANGE_BADPARAM;
+    }
+    const std::vector<DisplayModeInfo>& modes =
+        s_displayMonitorsCache[kT14SelectedMonitorIndex].modes;
+    if (s_t15MatchResult.nearestModeIndex >= modes.size())
+    {
+        return DISP_CHANGE_BADPARAM;
+    }
+    const DisplayModeInfo& m = modes[s_t15MatchResult.nearestModeIndex];
+    const std::wstring& dev = s_displayMonitorsCache[0].device_name;
+
+    DEVMODEW dm = {};
+    dm.dmSize = sizeof(dm);
+    dm.dmFields = DM_PELSWIDTH | DM_PELSHEIGHT | DM_BITSPERPEL;
+    if (m.refresh_hz > 0)
+    {
+        dm.dmFields |= DM_DISPLAYFREQUENCY;
+    }
+    dm.dmPelsWidth = m.width;
+    dm.dmPelsHeight = m.height;
+    dm.dmBitsPerPel = m.bits_per_pixel;
+    if (m.refresh_hz > 0)
+    {
+        dm.dmDisplayFrequency = m.refresh_hz;
+    }
+
+    const LONG r =
+        ChangeDisplaySettingsExW(dev.c_str(), &dm, nullptr, CDS_FULLSCREEN, nullptr);
+    return r;
+}
+
+static bool Win32_T17_BuildFillMonitorConfig(HWND hwnd, MainWindowConfig& out)
+{
+    if (s_displayMonitorsCache.empty() || kT14SelectedMonitorIndex >= s_displayMonitorsCache.size())
+    {
+        return false;
+    }
+    int physW = 0;
+    int physH = 0;
+    if (!Win32_T16_GetTargetClientSizeFromNearestMode(physW, physH))
+    {
+        return false;
+    }
+    UINT dpiX = USER_DEFAULT_SCREEN_DPI;
+    UINT dpiY = USER_DEFAULT_SCREEN_DPI;
+    Win32_T16_GetDpiForWindowBest(hwnd, dpiX, dpiY);
+    const int lw = MulDiv(physW, USER_DEFAULT_SCREEN_DPI, dpiX);
+    const int lh = MulDiv(physH, USER_DEFAULT_SCREEN_DPI, dpiY);
+    s_t16LastTargetPhysicalW = physW;
+    s_t16LastTargetPhysicalH = physH;
+    s_t16LastTargetLogicalW = lw;
+    s_t16LastTargetLogicalH = lh;
+    s_t16LastDpiX = dpiX;
+    s_t16LastDpiY = dpiY;
+
+    const RECT& mr = s_displayMonitorsCache[kT14SelectedMonitorIndex].monitor_rect;
+    out.clientWidth = static_cast<int>(mr.right - mr.left);
+    out.clientHeight = static_cast<int>(mr.bottom - mr.top);
+    out.windowStyle = WS_POPUP | WS_VSCROLL;
+    out.windowExStyle = WS_EX_APPWINDOW;
+    out.useAdjustWindowRect = FALSE;
+    out.dpiX = dpiX;
+    out.dpiY = dpiY;
+    out.fillMonitorPhysical = TRUE;
+    out.createPhysicalX = static_cast<int>(mr.left);
+    out.createPhysicalY = static_cast<int>(mr.top);
+    out.createPhysicalW = out.clientWidth;
+    out.createPhysicalH = out.clientHeight;
+    return true;
+}
+
+static void Win32_T17_LogStateVisibleMode(HWND hwnd, T17PresentationMode visibleMode, int cdsApplied01)
+{
+    if (!hwnd || !IsWindow(hwnd))
+    {
         return;
     }
-    Win32_RecreateMainWindowFromConfig(oldHwnd, cfg);
+    const LONG style = static_cast<LONG>(GetWindowLongW(hwnd, GWL_STYLE));
+    const LONG exStyle = static_cast<LONG>(GetWindowLongW(hwnd, GWL_EXSTYLE));
+    RECT wr{};
+    GetWindowRect(hwnd, &wr);
+    const int ow = static_cast<int>(wr.right - wr.left);
+    const int oh = static_cast<int>(wr.bottom - wr.top);
+    wchar_t line[384] = {};
+    swprintf_s(
+        line,
+        _countof(line),
+        L"[T17] STATE visibleMode=%s windowStyle=0x%08lX exStyle=0x%08lX cdsApplied=%d outer=%dx%d\r\n",
+        Win32_T17_ModeLabel(visibleMode),
+        static_cast<unsigned long>(style),
+        static_cast<unsigned long>(exStyle),
+        cdsApplied01,
+        ow,
+        oh);
+    OutputDebugStringW(line);
+}
+
+static void Win32_T17_CyclePresentationMode(HWND hwnd)
+{
+    switch (s_t17CurrentPresentationMode)
+    {
+    case T17PresentationMode::Windowed:
+        s_t17CurrentPresentationMode = T17PresentationMode::Borderless;
+        break;
+    case T17PresentationMode::Borderless:
+        s_t17CurrentPresentationMode = T17PresentationMode::Fullscreen;
+        break;
+    case T17PresentationMode::Fullscreen:
+        s_t17CurrentPresentationMode = T17PresentationMode::Windowed;
+        break;
+    }
+    wchar_t line[192] = {};
+    swprintf_s(
+        line,
+        _countof(line),
+        L"[T17] mode cycle seq=%u key=F6 -> candidate=%s\r\n",
+        s_t17CycleSeq,
+        Win32_T17_ModeLabel(s_t17CurrentPresentationMode));
+    OutputDebugStringW(line);
+    if (hwnd)
+    {
+        InvalidateRect(hwnd, nullptr, FALSE);
+    }
+}
+
+static void Win32_T17_ApplyCurrentPresentationMode(HWND hwnd)
+{
+    if (!hwnd)
+    {
+        return;
+    }
+
+    ++s_t17ApplySeq;
+    const T17PresentationMode candidate = s_t17CurrentPresentationMode;
+    const T17PresentationMode lastAppliedBefore = s_t17LastAppliedPresentationMode;
+
+    wchar_t begin[320] = {};
+    swprintf_s(
+        begin,
+        _countof(begin),
+        L"[T17] APPLY BEGIN seq=%u candidate=%s lastApplied=%s\r\n",
+        s_t17ApplySeq,
+        Win32_T17_ModeLabel(candidate),
+        Win32_T17_ModeLabel(lastAppliedBefore));
+    OutputDebugStringW(begin);
+
+    bool desktopResetAttempted = false;
+    LONG desktopResetResult = DISP_CHANGE_SUCCESSFUL;
+    if (s_t17FullscreenDisplayAppliedNow &&
+        (candidate == T17PresentationMode::Windowed || candidate == T17PresentationMode::Borderless))
+    {
+        desktopResetAttempted = true;
+        desktopResetResult = Win32_T17_ResetMonitor0DisplaySettings();
+        wchar_t resetLog[192] = {};
+        swprintf_s(
+            resetLog,
+            _countof(resetLog),
+            L"[T17] APPLY desktop reset (CDS_RESET) result=%ld\r\n",
+            static_cast<long>(desktopResetResult));
+        OutputDebugStringW(resetLog);
+    }
+
+    T17PresentationMode appliedMode = candidate;
+    MainWindowConfig cfg{};
+    bool built = false;
+
+    if (candidate == T17PresentationMode::Windowed)
+    {
+        built = Win32_BuildWindowConfigFromCurrentSelection(hwnd, cfg);
+    }
+    else if (candidate == T17PresentationMode::Borderless)
+    {
+        built = Win32_T17_BuildFillMonitorConfig(hwnd, cfg);
+    }
+    else
+    {
+        const LONG r = Win32_T17_TryFullscreenDisplayNearestMode();
+        s_t17LastFullscreenChangeResult = r;
+        int bpp = 0;
+        int hz = 0;
+        int mw = 0;
+        int mh = 0;
+        if (!s_displayMonitorsCache.empty() && kT14SelectedMonitorIndex < s_displayMonitorsCache.size() &&
+            s_t15MatchResult.nearestModeIndex != static_cast<size_t>(-1))
+        {
+            const auto& modes = s_displayMonitorsCache[kT14SelectedMonitorIndex].modes;
+            if (s_t15MatchResult.nearestModeIndex < modes.size())
+            {
+                const DisplayModeInfo& m = modes[s_t15MatchResult.nearestModeIndex];
+                mw = m.width;
+                mh = m.height;
+                bpp = m.bits_per_pixel;
+                hz = m.refresh_hz;
+            }
+        }
+        wchar_t cdsLog[256] = {};
+        swprintf_s(
+            cdsLog,
+            _countof(cdsLog),
+            L"[T17] APPLY CDS result=%ld mode=%dx%d %dbpp %dHz\r\n",
+            static_cast<long>(r),
+            mw,
+            mh,
+            bpp,
+            hz);
+        OutputDebugStringW(cdsLog);
+
+        if (r == DISP_CHANGE_SUCCESSFUL)
+        {
+            s_t17FullscreenDisplayAppliedNow = true;
+            built = Win32_T17_BuildFillMonitorConfig(hwnd, cfg);
+        }
+        else
+        {
+            OutputDebugStringW(L"[T17] APPLY CDS failed; fallback Borderless (recreate fill monitor, no CDS)\r\n");
+            appliedMode = T17PresentationMode::Borderless;
+            built = Win32_T17_BuildFillMonitorConfig(hwnd, cfg);
+        }
+    }
+
+    if (!built)
+    {
+        s_t17LastWindowApplySuccess = false;
+        s_t16RecreateStatus = T16RecreateStatus::Fail;
+        wcscpy_s(s_t17LastActionLine, _countof(s_t17LastActionLine), L"Apply failed (build config)");
+        swprintf_s(
+            s_t17LastEnterCandidateToApplied,
+            _countof(s_t17LastEnterCandidateToApplied),
+            L">>> Enter: %s -> (build failed) <<<",
+            Win32_T17_ModeLabel(candidate));
+        wchar_t endFail[192] = {};
+        swprintf_s(
+            endFail,
+            _countof(endFail),
+            L"[T17] APPLY END seq=%u result=fail reason=build_config\r\n",
+            s_t17ApplySeq);
+        OutputDebugStringW(endFail);
+        return;
+    }
+
+    const bool ok = Win32_RecreateMainWindowFromConfig(hwnd, cfg);
+    s_t17LastWindowApplySuccess = ok;
+
+    HWND hwndAfter = s_mainWindowHwnd;
+    int clientW = 0;
+    int clientH = 0;
+    if (ok && hwndAfter && IsWindow(hwndAfter))
+    {
+        RECT cr{};
+        GetClientRect(hwndAfter, &cr);
+        clientW = static_cast<int>(cr.right - cr.left);
+        clientH = static_cast<int>(cr.bottom - cr.top);
+    }
+
+    if (ok)
+    {
+        wchar_t recLog[320] = {};
+        swprintf_s(
+            recLog,
+            _countof(recLog),
+            L"[T17] APPLY RECREATE result=ok client=%dx%d outer=%dx%d\r\n",
+            clientW,
+            clientH,
+            s_t16LastActualOuterW,
+            s_t16LastActualOuterH);
+        OutputDebugStringW(recLog);
+
+        s_t17LastAppliedPresentationMode = appliedMode;
+
+        const int cdsNow = s_t17FullscreenDisplayAppliedNow ? 1 : 0;
+        Win32_T17_LogStateVisibleMode(hwndAfter, appliedMode, cdsNow);
+
+        if (appliedMode == T17PresentationMode::Windowed)
+        {
+            if (desktopResetAttempted)
+            {
+                swprintf_s(
+                    s_t17LastActionLine,
+                    _countof(s_t17LastActionLine),
+                    L"Applied Windowed (desktop reset %s, recreate ok)",
+                    (desktopResetResult == DISP_CHANGE_SUCCESSFUL) ? L"ok" : L"fail");
+            }
+            else
+            {
+                wcscpy_s(s_t17LastActionLine, _countof(s_t17LastActionLine), L"Applied Windowed (recreate ok)");
+            }
+        }
+        else if (appliedMode == T17PresentationMode::Borderless)
+        {
+            if (candidate == T17PresentationMode::Fullscreen)
+            {
+                swprintf_s(
+                    s_t17LastActionLine,
+                    _countof(s_t17LastActionLine),
+                    L"Applied Borderless (CDS failed, recreate ok)");
+            }
+            else if (desktopResetAttempted)
+            {
+                swprintf_s(
+                    s_t17LastActionLine,
+                    _countof(s_t17LastActionLine),
+                    L"Applied Borderless (desktop reset %s, CDS no, recreate ok)",
+                    (desktopResetResult == DISP_CHANGE_SUCCESSFUL) ? L"ok" : L"fail");
+            }
+            else
+            {
+                swprintf_s(
+                    s_t17LastActionLine,
+                    _countof(s_t17LastActionLine),
+                    L"Applied Borderless (CDS no, recreate ok)");
+            }
+        }
+        else
+        {
+            swprintf_s(
+                s_t17LastActionLine,
+                _countof(s_t17LastActionLine),
+                L"Applied Fullscreen (CDS ok, recreate ok)");
+        }
+
+        wchar_t endOk[256] = {};
+        swprintf_s(
+            endOk,
+            _countof(endOk),
+            L"[T17] APPLY END seq=%u applied=%s fullscreenDisplayAppliedNow=%d\r\n",
+            s_t17ApplySeq,
+            Win32_T17_ModeLabel(appliedMode),
+            s_t17FullscreenDisplayAppliedNow ? 1 : 0);
+        swprintf_s(
+            s_t17LastEnterCandidateToApplied,
+            _countof(s_t17LastEnterCandidateToApplied),
+            L">>> Enter: %s -> %s <<<",
+            Win32_T17_ModeLabel(candidate),
+            Win32_T17_ModeLabel(appliedMode));
+        OutputDebugStringW(endOk);
+        Win32_ScrollLog(
+            L"T17 apply (post-recreate; contentH/T17DocY stale until next WM_PAINT)",
+            hwndAfter,
+            s_paintScrollY,
+            s_paintScrollY,
+            -1,
+            -1);
+    }
+    else
+    {
+        wcscpy_s(s_t17LastActionLine, _countof(s_t17LastActionLine), L"Apply failed (recreate)");
+        swprintf_s(
+            s_t17LastEnterCandidateToApplied,
+            _countof(s_t17LastEnterCandidateToApplied),
+            L">>> Enter: %s -> (recreate failed) <<<",
+            Win32_T17_ModeLabel(candidate));
+        wchar_t recFail[192] = {};
+        swprintf_s(
+            recFail,
+            _countof(recFail),
+            L"[T17] APPLY RECREATE result=fail\r\n");
+        OutputDebugStringW(recFail);
+        wchar_t endFail[192] = {};
+        swprintf_s(
+            endFail,
+            _countof(endFail),
+            L"[T17] APPLY END seq=%u result=fail reason=recreate\r\n",
+            s_t17ApplySeq);
+        OutputDebugStringW(endFail);
+    }
 }
 
 static const wchar_t* Win32_T16_ShowCmdLabel(UINT sc)
@@ -1470,7 +2203,39 @@ static void Win32_T16_AppendPaintSection(
     const int ch = static_cast<int>(rcClient.bottom - rcClient.top);
     int physW = 0;
     int physH = 0;
-    const bool hasTarget = Win32_T16_GetTargetClientSizeFromNearestMode(physW, physH);
+    const bool hasTarget = Win32_T16_ResolveWindowedTargetPhysicalSize(physW, physH, false);
+    const wchar_t* modeSrcLabel = L"-";
+    wchar_t t14IdxStr[40] = L"-";
+    wchar_t selectedModeLine[96] = L"-";
+    int tgtBpp = 0;
+    int tgtHz = 0;
+    if (hasTarget)
+    {
+        modeSrcLabel = Win32_T16_WindowedModeSourceLabel(s_t16WindowedTargetModeSource);
+        if (s_t16WindowedTargetModeSource == T16WindowedTargetModeSource::T14SelectedList)
+        {
+            swprintf_s(t14IdxStr, _countof(t14IdxStr), L"%zu", s_t16WindowedTargetT14ListIndex);
+            swprintf_s(
+                selectedModeLine,
+                _countof(selectedModeLine),
+                L"%dx%d bpp=%d hz=%d",
+                s_t16WindowedTargetMode.width,
+                s_t16WindowedTargetMode.height,
+                s_t16WindowedTargetMode.bits_per_pixel,
+                s_t16WindowedTargetMode.refresh_hz);
+        }
+        else
+        {
+            wcscpy_s(t14IdxStr, L"-");
+            swprintf_s(
+                selectedModeLine,
+                _countof(selectedModeLine),
+                L"(N/A — T15 nearest idx=%zu)",
+                s_t15MatchResult.nearestModeIndex);
+        }
+        tgtBpp = s_t16WindowedTargetMode.bits_per_pixel;
+        tgtHz = s_t16WindowedTargetMode.refresh_hz;
+    }
     UINT dpiX = USER_DEFAULT_SCREEN_DPI;
     UINT dpiY = USER_DEFAULT_SCREEN_DPI;
     if (hwnd)
@@ -1543,26 +2308,36 @@ static void Win32_T16_AppendPaintSection(
         }
     }
 
-    wchar_t block[2048] = {};
+    wchar_t block[2560] = {};
     if (hasTarget)
     {
         swprintf_s(
             block,
             _countof(block),
             L"\r\n--- T16 window (windowed) ---\r\n"
+            L"mode source: %s\r\n"
+            L"T14 list index: %s\r\n"
+            L"selected mode (T14 list): %s\r\n"
+            L"target mode (resolved): %dx%d bpp=%d hz=%d\r\n"
             L"current client (raw GetClientRect): %dx%d\r\n"
             L"current client (physical, PMv2 == raw): %dx%d\r\n"
             L"current client (logical, MulDiv(phys,96,dpi)): %dx%d\r\n"
             L"current outer (GetWindowRect, physical): %dx%d\r\n"
             L"IsZoomed: %d  WINDOWPLACEMENT.showCmd: %u (%s)\r\n"
-            L"target mode (physical): %dx%d\r\n"
             L"target client (logical, from DPI): %dx%d\r\n"
             L"target client (logical, clamped to work): %dx%d\r\n"
             L"effective DPI: %u x %u\r\n"
             L"last recreate: requested outer (physical): %s\r\n"
             L"last recreate: actual outer (physical, after SetWindowPos): %s\r\n"
             L"last recreate result: %s\r\n"
-            L"(menu closed: Enter = recreate to nearest mode size)\r\n",
+            L"(menu closed: Enter = recreate; T14 list preferred)\r\n",
+            modeSrcLabel,
+            t14IdxStr,
+            selectedModeLine,
+            physW,
+            physH,
+            tgtBpp,
+            tgtHz,
             cw,
             ch,
             cw,
@@ -1574,8 +2349,6 @@ static void Win32_T16_AppendPaintSection(
             nowZoomed ? 1 : 0,
             nowShowCmd,
             nowShowCmdLabel,
-            physW,
-            physH,
             logicalFromMode,
             logicalFromModeH,
             logicalClampedW,
@@ -1592,19 +2365,22 @@ static void Win32_T16_AppendPaintSection(
             block,
             _countof(block),
             L"\r\n--- T16 window (windowed) ---\r\n"
+            L"mode source: (none)\r\n"
+            L"T14 list index: -\r\n"
+            L"selected mode (T14 list): -\r\n"
+            L"target mode (resolved): (none)\r\n"
             L"current client (raw GetClientRect): %dx%d\r\n"
             L"current client (physical, PMv2 == raw): %dx%d\r\n"
             L"current client (logical, MulDiv(phys,96,dpi)): %dx%d\r\n"
             L"current outer (GetWindowRect, physical): %dx%d\r\n"
             L"IsZoomed: %d  WINDOWPLACEMENT.showCmd: %u (%s)\r\n"
-            L"target mode (physical): (none)\r\n"
             L"target client (logical, from DPI): -\r\n"
             L"target client (logical, clamped to work): -\r\n"
             L"effective DPI: %u x %u\r\n"
             L"last recreate: requested outer (physical): %s\r\n"
             L"last recreate: actual outer (physical, after SetWindowPos): %s\r\n"
             L"last recreate result: %s\r\n"
-            L"(menu closed: Enter = recreate to nearest mode size)\r\n",
+            L"(menu closed: Enter = recreate; T14 list preferred)\r\n",
             cw,
             ch,
             cw,
@@ -1625,6 +2401,47 @@ static void Win32_T16_AppendPaintSection(
     wcscat_s(buf, bufCount, block);
 }
 
+static void Win32_T17_AppendPaintSection(wchar_t* buf, size_t bufCount)
+{
+    wchar_t t17[2560] = {};
+    const wchar_t* f5Line =
+        (s_t17F5UnrelatedHint[0] != L'\0')
+            ? s_t17F5UnrelatedHint
+            : L"F5 is not used by T17 (only F6 cycles, Enter applies). Press F5 for a one-line reminder.";
+    swprintf_s(
+        t17,
+        _countof(t17),
+        L"\r\n--- T17 presentation ---\r\n"
+        L"mode cycle key: F6\r\n"
+        L"apply key: Enter\r\n"
+        L"last key affecting T17: %s\r\n"
+        L"cycle seq (F6 only): %u\r\n"
+        L"apply seq (Enter only): %u\r\n"
+        L"last Enter apply (candidate -> applied): %s\r\n"
+        L"last action: %s\r\n"
+        L"mode (candidate, F6): %s\r\n"
+        L"applied mode (actual): %s\r\n"
+        L"last apply success: %d\r\n"
+        L"CDS applied (desktop mode): %s\r\n"
+        L"fullscreen display applied now: %d\r\n"
+        L"last ChangeDisplaySettings result (fullscreen try): %ld\r\n"
+        L"F5 / T17: %s\r\n"
+        L"(menu closed: F6=cycle candidate, Enter=apply)\r\n",
+        s_t17LastKeyAffectingT17,
+        s_t17CycleSeq,
+        s_t17ApplySeq,
+        s_t17LastEnterCandidateToApplied,
+        s_t17LastActionLine,
+        Win32_T17_ModeLabel(s_t17CurrentPresentationMode),
+        Win32_T17_ModeLabel(s_t17LastAppliedPresentationMode),
+        s_t17LastWindowApplySuccess ? 1 : 0,
+        s_t17FullscreenDisplayAppliedNow ? L"yes" : L"no",
+        s_t17FullscreenDisplayAppliedNow ? 1 : 0,
+        static_cast<long>(s_t17LastFullscreenChangeResult),
+        f5Line);
+    wcscat_s(buf, bufCount, t17);
+}
+
 //
 //   関数: InitInstance(HINSTANCE, int)
 //
@@ -1639,8 +2456,71 @@ BOOL InitInstance(HINSTANCE hInstance, int nCmdShow)
 {
    hInst = hInstance; // グローバル変数にインスタンス ハンドルを格納する
 
-   HWND hWnd = CreateWindowW(szWindowClass, szTitle, WS_OVERLAPPEDWINDOW,
-      CW_USEDEFAULT, 0, CW_USEDEFAULT, 0, nullptr, nullptr, hInstance, nullptr);
+   Win32_DisplayEnumerateAndCache();
+   Win32_T14_ClampIndicesAfterEnumerate();
+   Win32_T15_ApplyDesiredPresetAndRecompute();
+   Win32_T15_LogDesiredNearestLine();
+
+   int createW = CW_USEDEFAULT;
+   int createH = 0;
+   MainWindowConfig initCfg{};
+   bool useNearestForCreate = false;
+   int outerPhysWInit = 0;
+   int outerPhysHInit = 0;
+
+   if (Win32_BuildWindowConfigFromCurrentSelection(nullptr, initCfg))
+   {
+      if (Win32_T16_ComputeWindowedOuterPhysicalPixels(initCfg, outerPhysWInit, outerPhysHInit))
+      {
+         useNearestForCreate = true;
+         createW = outerPhysWInit;
+         createH = outerPhysHInit;
+         wchar_t logBefore[512] = {};
+         const size_t ni = s_t15MatchResult.nearestModeIndex;
+         swprintf_s(
+             logBefore,
+             _countof(logBefore),
+             L"[T16] initial CreateWindow BEFORE: nearestMode idx=%zu target mode phys=%dx%d "
+             L"logical client=%dx%d dpi=%u/%u outer physical=%dx%d style=0x%08lX exStyle=0x%08lX\r\n",
+             ni,
+             s_t16LastTargetPhysicalW,
+             s_t16LastTargetPhysicalH,
+             initCfg.clientWidth,
+             initCfg.clientHeight,
+             initCfg.dpiX,
+             initCfg.dpiY,
+             outerPhysWInit,
+             outerPhysHInit,
+             static_cast<unsigned long>(initCfg.windowStyle),
+             static_cast<unsigned long>(initCfg.windowExStyle));
+         OutputDebugStringW(logBefore);
+      }
+      else
+      {
+         OutputDebugStringW(
+             L"[T16] initial CreateWindow: outer physical compute failed; using system default "
+             L"(CW_USEDEFAULT)\r\n");
+      }
+   }
+   else
+   {
+      OutputDebugStringW(
+          L"[T16] initial CreateWindow: nearest-mode size unavailable; using system default "
+          L"(CW_USEDEFAULT)\r\n");
+   }
+
+   HWND hWnd = CreateWindowW(
+       szWindowClass,
+       szTitle,
+       WS_OVERLAPPEDWINDOW | WS_VSCROLL,
+       CW_USEDEFAULT,
+       0,
+       createW,
+       createH,
+       nullptr,
+       nullptr,
+       hInstance,
+       nullptr);
 
    if (!hWnd)
    {
@@ -1649,15 +2529,27 @@ BOOL InitInstance(HINSTANCE hInstance, int nCmdShow)
 
    s_mainWindowHwnd = hWnd;
 
+   if (useNearestForCreate)
+   {
+      RECT wr{};
+      GetWindowRect(hWnd, &wr);
+      Win32_T16_SetWindowedOuterFrameAtPos(
+          hWnd,
+          static_cast<int>(wr.left),
+          static_cast<int>(wr.top),
+          outerPhysWInit,
+          outerPhysHInit,
+          false);
+      Win32_T16_LogAndStoreActualMetricsAfterCreate(
+          hWnd, outerPhysWInit, outerPhysHInit, L"initial CreateWindow");
+      s_t16RecreateStatus = T16RecreateStatus::Ok;
+   }
+
    if (!Win32_RegisterKeyboardRawInput(hWnd))
    {
       OutputDebugStringW(L"RegisterRawInputDevices failed\r\n");
    }
 
-   Win32_DisplayEnumerateAndCache();
-   Win32_T14_ClampIndicesAfterEnumerate();
-   Win32_T15_ApplyDesiredPresetAndRecompute();
-   Win32_T15_LogDesiredNearestLine();
    Win32_LogDisplayMonitors();
 
    Win32_LogXInputSlotsAtStartup();
@@ -2283,13 +3175,14 @@ static void Win32_MenuSample_ResetPaintTracking(HWND hwnd)
     }
 }
 
-static void Win32_PaintMenuSampleScreen(HWND hwnd, HDC hdc)
+static void Win32_FillMenuSamplePaintBuffers(
+    HWND hwnd,
+    const RECT& rcClient,
+    wchar_t* menuBuf,
+    size_t menuBufCount,
+    wchar_t* t14Buf,
+    size_t t14BufCount)
 {
-    RECT rcClient{};
-    GetClientRect(hwnd, &rcClient);
-    FillRect(hdc, &rcClient, (HBRUSH)GetStockObject(WHITE_BRUSH));
-    SetBkMode(hdc, TRANSPARENT);
-
     const VirtualInputMenuSampleState& s = s_virtualInputMenuSampleState;
     const wchar_t* evLabel = Win32_MenuSampleUiLastEventLabel(s_menuSampleUiLastEvent);
 
@@ -2314,8 +3207,7 @@ static void Win32_PaintMenuSampleScreen(HWND hwnd, HDC hdc)
         wcscpy_s(c11, _countof(c11), L"@");
     }
 
-    wchar_t menuBuf[3072] = {};
-    swprintf_s(menuBuf, _countof(menuBuf),
+    swprintf_s(menuBuf, menuBufCount,
         L"InputPlatformLab Sample\r\n\r\n"
         L"menuOpen: %d\r\n"
         L"selection: (%d,%d)\r\n"
@@ -2329,15 +3221,10 @@ static void Win32_PaintMenuSampleScreen(HWND hwnd, HDC hdc)
         evLabel,
         c00, c10, c01, c11);
 
-    RECT rcMenu = rcClient;
-    DrawTextW(hdc, menuBuf, -1, &rcMenu, DT_LEFT | DT_TOP | DT_NOPREFIX | DT_CALCRECT);
-    DrawTextW(hdc, menuBuf, -1, &rcMenu, DT_LEFT | DT_TOP | DT_NOPREFIX);
-
-    wchar_t t14Buf[8192] = {};
     if (!s_displayMonitorsCache.empty() && kT14SelectedMonitorIndex < s_displayMonitorsCache.size())
     {
         const DisplayMonitorInfo& mon = s_displayMonitorsCache[kT14SelectedMonitorIndex];
-        swprintf_s(t14Buf, _countof(t14Buf),
+        swprintf_s(t14Buf, t14BufCount,
             L"--- T14 Displays ---\r\n"
             L"monitor count: %zu\r\n"
             L"selected monitor index: %zu (fixed)\r\n"
@@ -2377,7 +3264,7 @@ static void Win32_PaintMenuSampleScreen(HWND hwnd, HDC hdc)
                 mode.height,
                 mode.bits_per_pixel,
                 mode.refresh_hz);
-            wcscat_s(t14Buf, _countof(t14Buf), line);
+            wcscat_s(t14Buf, t14BufCount, line);
         }
 
         {
@@ -2422,19 +3309,339 @@ static void Win32_PaintMenuSampleScreen(HWND hwnd, HDC hdc)
                     s_t15DesiredPresetIndex,
                     kT15DesiredPresetCount);
             }
-            wcscat_s(t14Buf, _countof(t14Buf), t15Block);
+            wcscat_s(t14Buf, t14BufCount, t15Block);
         }
     }
     else
     {
-        swprintf_s(t14Buf, _countof(t14Buf), L"--- T14 Displays ---\r\n(no monitors)\r\n");
+        swprintf_s(t14Buf, t14BufCount, L"--- T14 Displays ---\r\n(no monitors)\r\n");
     }
 
-    Win32_T16_AppendPaintSection(t14Buf, _countof(t14Buf), hwnd, rcClient);
+    Win32_T16_AppendPaintSection(t14Buf, t14BufCount, hwnd, rcClient);
+    Win32_T17_AppendPaintSection(t14Buf, t14BufCount);
+}
 
-    RECT rcT14 = rcClient;
-    rcT14.top = rcMenu.bottom + 8;
-    DrawTextW(hdc, t14Buf, -1, &rcT14, DT_LEFT | DT_TOP | DT_NOPREFIX);
+static void Win32_MenuSampleMeasurePaintLayout(
+    HDC hdc,
+    int clientW,
+    const wchar_t* menuBuf,
+    const wchar_t* t14Buf,
+    RECT& outMenuDoc,
+    RECT& outT14Doc)
+{
+    outMenuDoc.left = 0;
+    outMenuDoc.top = 0;
+    outMenuDoc.right = clientW;
+    outMenuDoc.bottom = 0;
+    DrawTextW(hdc, menuBuf, -1, &outMenuDoc, DT_LEFT | DT_TOP | DT_NOPREFIX | DT_CALCRECT);
+
+    outT14Doc.left = 0;
+    outT14Doc.top = outMenuDoc.bottom + 8;
+    outT14Doc.right = clientW;
+    outT14Doc.bottom = outT14Doc.top + 1000000;
+    DrawTextW(
+        hdc,
+        t14Buf,
+        -1,
+        &outT14Doc,
+        DT_LEFT | DT_TOP | DT_NOPREFIX | DT_WORDBREAK | DT_CALCRECT);
+}
+
+// Borderless / Fullscreen は WS_POPUP + モニタ全面。クライアントが高いと maxScroll が小さく T17 まで届かないため、仮想下パディングでスクロール域を延ばす。
+static bool Win32_IsMainWindowFillMonitorPresentation(HWND hwnd)
+{
+    if (!hwnd || !IsWindow(hwnd))
+    {
+        return false;
+    }
+    const LONG_PTR st = GetWindowLongPtr(hwnd, GWL_STYLE);
+    return (st & static_cast<LONG_PTR>(WS_POPUP)) != 0;
+}
+
+static int Win32_MainView_ScrollTargetT17WithTopMargin()
+{
+    return (std::max)(0, s_paintDbgT17DocY - WIN32_MAIN_T17_JUMP_TOP_MARGIN);
+}
+
+static int Win32_MainView_ScrollTargetT17Centered(HWND hwnd)
+{
+    if (!hwnd || !IsWindow(hwnd))
+    {
+        return 0;
+    }
+    RECT rc{};
+    GetClientRect(hwnd, &rc);
+    const int ch = static_cast<int>(rc.bottom - rc.top);
+    const int maxScr = (std::max)(0, s_paintDbgContentHeight - ch);
+    const int y = s_paintDbgT17DocY - ch / 2;
+    return (std::clamp)(y, 0, maxScr);
+}
+
+static void Win32_ScrollLog(
+    const wchar_t* where,
+    HWND hwnd,
+    int scrollYBefore,
+    int scrollYAfter,
+    int contentHOverride,
+    int t17Override,
+    int contentHBase,
+    int extraBottomPadding)
+{
+    int clientH = s_paintDbgClientHeight;
+    if (hwnd && IsWindow(hwnd))
+    {
+        RECT rc{};
+        GetClientRect(hwnd, &rc);
+        clientH = static_cast<int>(rc.bottom - rc.top);
+    }
+    const int contentH = (contentHOverride >= 0) ? contentHOverride : s_paintDbgContentHeight;
+    const int t17Y = (t17Override >= 0) ? t17Override : s_paintDbgT17DocY;
+    const int maxScroll = (std::max)(0, contentH - clientH);
+
+    wchar_t line[384] = {};
+    swprintf_s(line, _countof(line), L"[SCROLL] where=%s\r\n", where ? where : L"?");
+    OutputDebugStringW(line);
+    swprintf_s(line, _countof(line), L"[SCROLL] clientH=%d\r\n", clientH);
+    OutputDebugStringW(line);
+    if (contentHBase >= 0)
+    {
+        swprintf_s(line, _countof(line), L"[SCROLL] contentH(base)=%d\r\n", contentHBase);
+        OutputDebugStringW(line);
+    }
+    if (extraBottomPadding >= 0)
+    {
+        swprintf_s(line, _countof(line), L"[SCROLL] extraBottomPadding=%d\r\n", extraBottomPadding);
+        OutputDebugStringW(line);
+    }
+    if (contentHBase >= 0 && extraBottomPadding >= 0)
+    {
+        swprintf_s(line, _countof(line), L"[SCROLL] contentH(with padding)=%d\r\n", contentH);
+        OutputDebugStringW(line);
+    }
+    else
+    {
+        swprintf_s(line, _countof(line), L"[SCROLL] contentH=%d\r\n", contentH);
+        OutputDebugStringW(line);
+    }
+    swprintf_s(line, _countof(line), L"[SCROLL] maxScroll=%d\r\n", maxScroll);
+    OutputDebugStringW(line);
+    swprintf_s(
+        line,
+        _countof(line),
+        L"[SCROLL] scrollY(before)=%d scrollY(after)=%d\r\n",
+        scrollYBefore,
+        scrollYAfter);
+    OutputDebugStringW(line);
+    swprintf_s(line, _countof(line), L"[SCROLL] T17DocY=%d\r\n", t17Y);
+    OutputDebugStringW(line);
+
+    if (t17Y > maxScroll && maxScroll >= 0)
+    {
+        OutputDebugStringW(L"[SCROLL] note: T17DocY > maxScroll (cannot scroll T17 line to top)\r\n");
+    }
+    if (where &&
+        (wcsstr(where, L"F7") != nullptr || wcsstr(where, L"F8") != nullptr) &&
+        scrollYAfter >= maxScroll &&
+        maxScroll > 0)
+    {
+        swprintf_s(
+            line,
+            _countof(line),
+            L"[SCROLL] note: F7/F8 scrollY(after)==maxScroll=%d (target may be clamped)\r\n",
+            maxScroll);
+        OutputDebugStringW(line);
+    }
+
+    if (hwnd && IsWindow(hwnd))
+    {
+        SCROLLINFO si = {};
+        si.cbSize = sizeof(si);
+        si.fMask = SIF_ALL;
+        if (GetScrollInfo(hwnd, SB_VERT, &si))
+        {
+            const int maxSi = (std::max)(0, static_cast<int>(si.nMax) - static_cast<int>(si.nPage) + 1);
+            swprintf_s(
+                line,
+                _countof(line),
+                L"[SCROLL] scrollbar nMax=%d nPage=%d pos=%d maxScroll_si=%d\r\n",
+                static_cast<int>(si.nMax),
+                static_cast<int>(si.nPage),
+                static_cast<int>(si.nPos),
+                maxSi);
+            OutputDebugStringW(line);
+        }
+    }
+    OutputDebugStringW(L"[SCROLL] ----\r\n");
+}
+
+static void Win32_MainView_SetScrollPos(HWND hwnd, int newY, const wchar_t* logWhere)
+{
+    if (!hwnd)
+    {
+        return;
+    }
+    SCROLLINFO si = {};
+    si.cbSize = sizeof(si);
+    si.fMask = SIF_ALL;
+    if (!GetScrollInfo(hwnd, SB_VERT, &si))
+    {
+        return;
+    }
+    const int posBefore = static_cast<int>(si.nPos);
+    const int maxScroll = (std::max)(0, static_cast<int>(si.nMax) - static_cast<int>(si.nPage) + 1);
+    const int clamped = (std::clamp)(newY, 0, maxScroll);
+    if (clamped == posBefore)
+    {
+        if (logWhere)
+        {
+            Win32_ScrollLog(logWhere, hwnd, posBefore, clamped, -1, -1);
+        }
+        return;
+    }
+    si.fMask = SIF_POS;
+    si.nPos = clamped;
+    SetScrollInfo(hwnd, SB_VERT, &si, TRUE);
+    s_paintScrollY = clamped;
+    if (logWhere)
+    {
+        Win32_ScrollLog(logWhere, hwnd, posBefore, clamped, -1, -1);
+    }
+    InvalidateRect(hwnd, nullptr, FALSE);
+}
+
+static void Win32_PaintMenuSampleScreen(HWND hwnd, HDC hdc)
+{
+    RECT rcClient{};
+    GetClientRect(hwnd, &rcClient);
+    const int clientW = static_cast<int>(rcClient.right - rcClient.left);
+    const int clientH = static_cast<int>(rcClient.bottom - rcClient.top);
+
+    wchar_t menuBuf[3072] = {};
+    wchar_t t14Buf[8192] = {};
+    Win32_FillMenuSamplePaintBuffers(hwnd, rcClient, menuBuf, _countof(menuBuf), t14Buf, _countof(t14Buf));
+
+    RECT rcMenuDoc{};
+    RECT rcT14Doc{};
+    Win32_MenuSampleMeasurePaintLayout(hdc, clientW, menuBuf, t14Buf, rcMenuDoc, rcT14Doc);
+    const int baseContentH = static_cast<int>(rcT14Doc.bottom);
+
+    int t17DocY = 0;
+    const wchar_t* t17Mark = wcsstr(t14Buf, L"--- T17 presentation ---");
+    if (t17Mark != nullptr)
+    {
+        const size_t prefixChars = static_cast<size_t>(t17Mark - t14Buf);
+        wchar_t prefixBuf[8192] = {};
+        if (prefixChars < _countof(prefixBuf))
+        {
+            wmemcpy_s(prefixBuf, _countof(prefixBuf), t14Buf, prefixChars);
+            prefixBuf[prefixChars] = L'\0';
+            RECT rcPre{};
+            rcPre.left = 0;
+            rcPre.top = rcMenuDoc.bottom + 8;
+            rcPre.right = clientW;
+            rcPre.bottom = rcPre.top + 1000000;
+            DrawTextW(
+                hdc,
+                prefixBuf,
+                -1,
+                &rcPre,
+                DT_LEFT | DT_TOP | DT_NOPREFIX | DT_WORDBREAK | DT_CALCRECT);
+            t17DocY = static_cast<int>(rcPre.bottom);
+        }
+    }
+    s_paintDbgT17DocY = t17DocY;
+
+    const int maxScrollBeforePadding = (std::max)(0, baseContentH - clientH);
+    int extraBottomPadding = 0;
+    if (Win32_IsMainWindowFillMonitorPresentation(hwnd))
+    {
+        extraBottomPadding = clientH;
+    }
+    else
+    {
+        extraBottomPadding = (std::max)(0, t17DocY - maxScrollBeforePadding);
+    }
+    const int contentHeight = baseContentH + extraBottomPadding;
+
+    TEXTMETRICW tm{};
+    if (GetTextMetricsW(hdc, &tm))
+    {
+        s_paintScrollLinePx = (std::max)(static_cast<int>(tm.tmHeight), 16);
+    }
+
+    s_paintDbgContentHeight = contentHeight;
+    s_paintDbgContentHeightBase = baseContentH;
+    s_paintDbgExtraBottomPadding = extraBottomPadding;
+    s_paintDbgClientHeight = clientH;
+
+    const int maxScroll = (std::max)(0, contentHeight - clientH);
+    const int scrollYBeforePaint = s_paintScrollY;
+    s_paintScrollY = (std::clamp)(s_paintScrollY, 0, maxScroll);
+
+    SCROLLINFO si = {};
+    si.cbSize = sizeof(si);
+    si.fMask = SIF_RANGE | SIF_PAGE | SIF_POS;
+    si.nMin = 0;
+    si.nMax = (std::max)(0, contentHeight - 1);
+    si.nPage = static_cast<UINT>((std::max)(1, clientH));
+    si.nPos = s_paintScrollY;
+    SetScrollInfo(hwnd, SB_VERT, &si, TRUE);
+
+    Win32_ScrollLog(
+        L"WM_PAINT after SetScrollInfo",
+        hwnd,
+        scrollYBeforePaint,
+        s_paintScrollY,
+        contentHeight,
+        s_paintDbgT17DocY,
+        baseContentH,
+        extraBottomPadding);
+
+    FillRect(hdc, &rcClient, (HBRUSH)GetStockObject(WHITE_BRUSH));
+    SetBkMode(hdc, TRANSPARENT);
+
+    const int saved = SaveDC(hdc);
+    IntersectClipRect(hdc, rcClient.left, rcClient.top, rcClient.right, rcClient.bottom);
+    OffsetViewportOrgEx(hdc, 0, -s_paintScrollY, nullptr);
+
+    DrawTextW(hdc, menuBuf, -1, &rcMenuDoc, DT_LEFT | DT_TOP | DT_NOPREFIX);
+    DrawTextW(
+        hdc,
+        t14Buf,
+        -1,
+        &rcT14Doc,
+        DT_LEFT | DT_TOP | DT_NOPREFIX | DT_WORDBREAK);
+
+    RestoreDC(hdc, saved);
+
+    {
+        const int jumpF7 = Win32_MainView_ScrollTargetT17WithTopMargin();
+        const int jumpF8 = Win32_MainView_ScrollTargetT17Centered(hwnd);
+        wchar_t overlay[1024] = {};
+        swprintf_s(
+            overlay,
+            _countof(overlay),
+            L"[scroll] mode(actual)=%s\r\n"
+            L"contentH(base)=%d  extraBottomPadding=%d  contentH(with padding)=%d  maxScroll=%d  T17DocY=%d\r\n"
+            L"scrollY=%d  clientH=%d  jumpTargetF7=%d  jumpTargetF8=%d  (F7 margin=%d)\r\n"
+            L"(PgUp/Dn=1/2 page; POPUP=pad clientH; Windowed=min pad to reach T17)",
+            Win32_T17_ModeLabel(s_t17LastAppliedPresentationMode),
+            s_paintDbgContentHeightBase,
+            s_paintDbgExtraBottomPadding,
+            s_paintDbgContentHeight,
+            maxScroll,
+            s_paintDbgT17DocY,
+            s_paintScrollY,
+            s_paintDbgClientHeight,
+            jumpF7,
+            jumpF8,
+            WIN32_MAIN_T17_JUMP_TOP_MARGIN);
+        RECT rcOv = rcClient;
+        const int lineH = s_paintScrollLinePx > 0 ? s_paintScrollLinePx : 16;
+        rcOv.top = (std::max)(rcClient.top, rcClient.bottom - lineH * 6 - 16);
+        FillRect(hdc, &rcOv, (HBRUSH)GetStockObject(WHITE_BRUSH));
+        DrawTextW(hdc, overlay, -1, &rcOv, DT_LEFT | DT_TOP | DT_NOPREFIX | DT_WORDBREAK);
+    }
 }
 
 static void Win32_LogVirtualInputMenuSampleIfChanged(
@@ -2451,14 +3658,31 @@ static void Win32_LogVirtualInputMenuSampleIfChanged(
 
 static void Win32_UnifiedInputConsumerMenuTick(HWND hwndForPaint)
 {
-    bool t16EnterEdge = false;
+    if (s_virtualInputMenuSampleState.menuOpen)
+    {
+        s_t17PendingApplyRequest = false;
+    }
+
+    bool t17F6Edge = false;
+    bool t17F5Edge = false;
     if (hwndForPaint && !s_virtualInputMenuSampleState.menuOpen)
     {
         const bool upEdge = !s_keyboardActionStateAtLastTimer.up && s_keyboardActionState.up;
         const bool downEdge = !s_keyboardActionStateAtLastTimer.down && s_keyboardActionState.down;
         const bool leftEdge = !s_keyboardActionStateAtLastTimer.left && s_keyboardActionState.left;
         const bool rightEdge = !s_keyboardActionStateAtLastTimer.right && s_keyboardActionState.right;
-        t16EnterEdge = !s_keyboardActionStateAtLastTimer.enter && s_keyboardActionState.enter;
+        t17F6Edge = !s_keyboardActionStateAtLastTimer.f6 && s_keyboardActionState.f6;
+        t17F5Edge = !s_keyboardActionStateAtLastTimer.f5 && s_keyboardActionState.f5;
+        if (t17F5Edge)
+        {
+            wcscpy_s(s_t17LastKeyAffectingT17, _countof(s_t17LastKeyAffectingT17), L"F5 (no T17 action)");
+            wcscpy_s(
+                s_t17F5UnrelatedHint,
+                _countof(s_t17F5UnrelatedHint),
+                L"Reminder: F5 does not cycle or apply T17 — use F6 (cycle) and Enter (apply).");
+            OutputDebugStringW(L"[T17] F5 edge: no T17 action (F6=cycle, Enter=apply)\r\n");
+            InvalidateRect(hwndForPaint, nullptr, FALSE);
+        }
         if (upEdge || downEdge)
         {
             Win32_T14_TryScrollFromKeyboardEdges(upEdge, downEdge, hwndForPaint);
@@ -2466,6 +3690,61 @@ static void Win32_UnifiedInputConsumerMenuTick(HWND hwndForPaint)
         if (leftEdge || rightEdge)
         {
             Win32_T15_TryChangePresetFromKeyboardEdges(leftEdge, rightEdge, hwndForPaint);
+        }
+        if (t17F6Edge)
+        {
+            ++s_t17CycleSeq;
+            wcscpy_s(s_t17LastKeyAffectingT17, _countof(s_t17LastKeyAffectingT17), L"F6 (mode cycle)");
+            s_t17F5UnrelatedHint[0] = L'\0';
+            Win32_T17_CyclePresentationMode(hwndForPaint);
+        }
+        {
+            const bool pageUpEdge =
+                !s_keyboardActionStateAtLastTimer.pageUp && s_keyboardActionState.pageUp;
+            const bool pageDownEdge =
+                !s_keyboardActionStateAtLastTimer.pageDown && s_keyboardActionState.pageDown;
+            const bool homeEdge = !s_keyboardActionStateAtLastTimer.home && s_keyboardActionState.home;
+            const bool endEdge = !s_keyboardActionStateAtLastTimer.end && s_keyboardActionState.end;
+            const bool f7Edge = !s_keyboardActionStateAtLastTimer.f7 && s_keyboardActionState.f7;
+            const bool f8Edge = !s_keyboardActionStateAtLastTimer.f8 && s_keyboardActionState.f8;
+            if (pageUpEdge)
+            {
+                SendMessageW(hwndForPaint, WM_VSCROLL, SB_PAGEUP, 0);
+            }
+            if (pageDownEdge)
+            {
+                SendMessageW(hwndForPaint, WM_VSCROLL, SB_PAGEDOWN, 0);
+            }
+            if (homeEdge)
+            {
+                SendMessageW(hwndForPaint, WM_VSCROLL, SB_TOP, 0);
+            }
+            if (endEdge)
+            {
+                SendMessageW(hwndForPaint, WM_VSCROLL, SB_BOTTOM, 0);
+            }
+            if (f7Edge)
+            {
+                Win32_MainView_SetScrollPos(
+                    hwndForPaint,
+                    Win32_MainView_ScrollTargetT17WithTopMargin(),
+                    L"F7 jump to T17 (top margin)");
+            }
+            if (f8Edge)
+            {
+                Win32_MainView_SetScrollPos(
+                    hwndForPaint,
+                    Win32_MainView_ScrollTargetT17Centered(hwndForPaint),
+                    L"F8 center T17 in view");
+            }
+        }
+        if (s_t17PendingApplyRequest)
+        {
+            s_t17PendingApplyRequest = false;
+            OutputDebugStringW(L"[T17] APPLY CONSUME pending request\r\n");
+            wcscpy_s(s_t17LastKeyAffectingT17, _countof(s_t17LastKeyAffectingT17), L"Enter (apply)");
+            s_t17F5UnrelatedHint[0] = L'\0';
+            Win32_T17_ApplyCurrentPresentationMode(hwndForPaint);
         }
     }
 
@@ -2478,10 +3757,6 @@ static void Win32_UnifiedInputConsumerMenuTick(HWND hwndForPaint)
     const VirtualInputConsumerFrame unified =
         VirtualInputConsumer_MergeKeyboardController(kbFrame, ctrlFrame);
     Win32_LogVirtualInputMenuSampleIfChanged(unified, hwndForPaint);
-    if (hwndForPaint && !s_virtualInputMenuSampleState.menuOpen && t16EnterEdge)
-    {
-        Win32_T16_RecreateMainWindowFromCurrentSelection(hwndForPaint);
-    }
     s_keyboardActionStateAtLastTimer = s_keyboardActionState;
 }
 
@@ -2947,6 +4222,14 @@ static void Win32_UpdateKeyboardActionStateFromPhysicalKey(const PhysicalKeyEven
     case VK_RETURN: target = &s_keyboardActionState.enter; break;
     case VK_BACK: target = &s_keyboardActionState.backspace; break;
     case VK_TAB: target = &s_keyboardActionState.tab; break;
+    case VK_F6: target = &s_keyboardActionState.f6; break;
+    case VK_F5: target = &s_keyboardActionState.f5; break;
+    case VK_PRIOR: target = &s_keyboardActionState.pageUp; break;
+    case VK_NEXT: target = &s_keyboardActionState.pageDown; break;
+    case VK_HOME: target = &s_keyboardActionState.home; break;
+    case VK_END: target = &s_keyboardActionState.end; break;
+    case VK_F7: target = &s_keyboardActionState.f7; break;
+    case VK_F8: target = &s_keyboardActionState.f8; break;
     default: return;
     }
     *target = !ev.is_key_up;
@@ -3156,6 +4439,12 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam)
             if (Win32_TryFillPhysicalKeyFromRawInput(reinterpret_cast<HRAWINPUT>(lParam), ev))
             {
                 Win32_UpdateKeyboardActionStateFromPhysicalKey(ev);
+                if (static_cast<UINT>(ev.native_key_code) == VK_RETURN && !ev.is_key_up &&
+                    !s_virtualInputMenuSampleState.menuOpen)
+                {
+                    s_t17PendingApplyRequest = true;
+                    OutputDebugStringW(L"[T17] ENTER MAKE latched apply request\r\n");
+                }
                 const wchar_t* labelPtr = L"-";
                 wchar_t labelBuf[64] = {};
                 if (!ev.is_key_up)
@@ -3184,6 +4473,130 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam)
             Win32_UnifiedInputConsumerMenuTick(hWnd);
         }
         break;
+    case WM_SIZE:
+        Win32_ScrollLog(L"WM_SIZE", hWnd, s_paintScrollY, s_paintScrollY, -1, -1);
+        InvalidateRect(hWnd, nullptr, FALSE);
+        break;
+    case WM_VSCROLL:
+        {
+            SCROLLINFO si = {};
+            si.cbSize = sizeof(si);
+            si.fMask = SIF_ALL;
+            if (!GetScrollInfo(hWnd, SB_VERT, &si))
+            {
+                break;
+            }
+            const int y = static_cast<int>(si.nPos);
+            const int nMin = static_cast<int>(si.nMin);
+            const int nMax = static_cast<int>(si.nMax);
+            const UINT nPage = si.nPage;
+            const int maxScroll = (std::max)(0, nMax - static_cast<int>(nPage) + 1);
+            int newY = y;
+            switch (LOWORD(wParam))
+            {
+            case SB_LINEUP:
+                newY -= (s_paintScrollLinePx > 0) ? s_paintScrollLinePx : WIN32_MAIN_DEBUG_SCROLL_LINE;
+                break;
+            case SB_LINEDOWN:
+                newY += (s_paintScrollLinePx > 0) ? s_paintScrollLinePx : WIN32_MAIN_DEBUG_SCROLL_LINE;
+                break;
+            case SB_PAGEUP:
+                newY -= (static_cast<int>(nPage) * WIN32_MAIN_SCROLL_PAGEUP_NUM) / WIN32_MAIN_SCROLL_PAGEUP_DEN;
+                break;
+            case SB_PAGEDOWN:
+                newY += (static_cast<int>(nPage) * WIN32_MAIN_SCROLL_PAGEUP_NUM) / WIN32_MAIN_SCROLL_PAGEUP_DEN;
+                break;
+            case SB_TOP:
+                newY = nMin;
+                break;
+            case SB_BOTTOM:
+                newY = maxScroll;
+                break;
+            case SB_THUMBTRACK:
+                {
+                    SCROLLINFO st = {};
+                    st.cbSize = sizeof(st);
+                    st.fMask = SIF_TRACKPOS;
+                    if (GetScrollInfo(hWnd, SB_VERT, &st))
+                    {
+                        newY = static_cast<int>(st.nTrackPos);
+                    }
+                }
+                break;
+            case SB_THUMBPOSITION:
+                newY = static_cast<int>(static_cast<short>(HIWORD(wParam)));
+                break;
+            default:
+                return DefWindowProc(hWnd, message, wParam, lParam);
+            }
+            newY = (std::clamp)(newY, 0, maxScroll);
+            if (newY != y)
+            {
+                si.fMask = SIF_POS;
+                si.nPos = newY;
+                SetScrollInfo(hWnd, SB_VERT, &si, TRUE);
+                s_paintScrollY = newY;
+                {
+                    wchar_t wv[96] = {};
+                    swprintf_s(
+                        wv,
+                        _countof(wv),
+                        L"WM_VSCROLL SB=%d",
+                        static_cast<int>(LOWORD(wParam)));
+                    Win32_ScrollLog(wv, hWnd, y, newY, -1, -1);
+                }
+                InvalidateRect(hWnd, nullptr, FALSE);
+            }
+        }
+        break;
+    case WM_MOUSEWHEEL:
+        {
+            SCROLLINFO si = {};
+            si.cbSize = sizeof(si);
+            si.fMask = SIF_ALL;
+            if (!GetScrollInfo(hWnd, SB_VERT, &si))
+            {
+                break;
+            }
+            const int y = static_cast<int>(si.nPos);
+            UINT wheelLines = 3;
+            SystemParametersInfoW(SPI_GETWHEELSCROLLLINES, 0, &wheelLines, 0);
+            const int linePx = (s_paintScrollLinePx > 0) ? s_paintScrollLinePx : WIN32_MAIN_DEBUG_SCROLL_LINE;
+            const int pagePx = static_cast<int>(si.nPage);
+            const int quarterPage = (std::max)(pagePx / 4, linePx * 3);
+            int dy = 0;
+            if (wheelLines == WHEEL_PAGESCROLL)
+            {
+                dy = pagePx;
+            }
+            else
+            {
+                const int lineBased = static_cast<int>(wheelLines) * linePx;
+                dy = (std::max)(lineBased, quarterPage);
+            }
+            const int delta = GET_WHEEL_DELTA_WPARAM(wParam);
+            int newY = y;
+            if (delta > 0)
+            {
+                newY -= dy;
+            }
+            else if (delta < 0)
+            {
+                newY += dy;
+            }
+            const int maxScroll = (std::max)(0, static_cast<int>(si.nMax) - static_cast<int>(si.nPage) + 1);
+            newY = (std::clamp)(newY, 0, maxScroll);
+            if (newY != y)
+            {
+                si.fMask = SIF_POS;
+                si.nPos = newY;
+                SetScrollInfo(hWnd, SB_VERT, &si, TRUE);
+                s_paintScrollY = newY;
+                Win32_ScrollLog(L"WM_MOUSEWHEEL", hWnd, y, newY, -1, -1);
+                InvalidateRect(hWnd, nullptr, FALSE);
+            }
+        }
+        break;
     case WM_PAINT:
         {
             PAINTSTRUCT ps;
@@ -3200,6 +4613,10 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam)
         }
         else
         {
+            if (s_t17FullscreenDisplayAppliedNow)
+            {
+                Win32_T17_ResetMonitor0DisplaySettings();
+            }
             s_mainWindowHwnd = nullptr;
             PostQuitMessage(0);
         }
