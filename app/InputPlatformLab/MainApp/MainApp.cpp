@@ -45,6 +45,10 @@
 #define XINPUT_GAMEPAD_RIGHT_THUMB_DEADZONE 8689
 #endif
 
+#ifndef XINPUT_GAMEPAD_GUIDE
+#define XINPUT_GAMEPAD_GUIDE 0x0400u
+#endif
+
 // Windows 8.1+（targetver によっては未定義のため）
 #ifndef RIDI_PRODUCTNAME
 #define RIDI_PRODUCTNAME 0x20000007
@@ -148,6 +152,7 @@ struct VirtualInputSnapshot
     bool r3;
     bool start;
     bool select;
+    bool psHome;
     bool dpadUp;
     bool dpadDown;
     bool dpadLeft;
@@ -696,6 +701,13 @@ static void GamepadButton_LogLabelTablesAtStartup();
 // [8] bridge + [7] VirtualInput ログ群
 static void Win32_FillVirtualInputSnapshotFromXInputState(const XINPUT_STATE& st, VirtualInputSnapshot& out);
 static void Win32_LogVirtualInputSnapshotSummary(const VirtualInputSnapshot& snap, DWORD slot);
+static void Win32_LogVirtualInputPs4Slot99ShoulderGroupIfChanged(
+    const VirtualInputSnapshot& prev,
+    const VirtualInputSnapshot& curr,
+    DWORD slot);
+static void Win32_LogVirtualInputPs4Slot99IsolateEdges(
+    const VirtualInputSnapshot& prev,
+    const VirtualInputSnapshot& curr);
 static void Win32_LogVirtualInputHelperProbe(
     const VirtualInputSnapshot& prev,
     const VirtualInputSnapshot& curr,
@@ -2949,9 +2961,12 @@ static BYTE s_ps4PrevBytes0to7[8]{};
 static bool s_ps4HasPrevBytes0to7 = false;
 static BYTE s_ps4PrevBtn567[3]{}; // レポート差分はボタン領域（主に 5..7）のみ
 static bool s_ps4HasPrevBtn567 = false;
+static BYTE s_ps4PrevB5to8[4]{};
+static bool s_ps4HasPrevB5to8 = false;
 static VirtualInputSnapshot s_ps4HidVirtualFromLastReport{};
 static bool s_ps4HidVirtualFromLastReportValid = false;
-static UINT s_ps4VirtualInputLogCounter = 0;
+// WM_INPUT 経路の冗長ログ（PS4BTN/MAP/CIRCLE/HID/isolate）。既定 false。ビット調査時のみ true。
+static constexpr bool kPs4HidVerboseRawLog = false;
 
 // T13: サンプル画面用（prevMove は毎フレーム変わり得るため Invalidate 判定から除外）
 enum class MenuSampleUiLastEventKind : std::uint8_t
@@ -3030,6 +3045,7 @@ static void Win32_FillVirtualInputSnapshotFromXInputState(const XINPUT_STATE& st
     out.r3 = (wb & XINPUT_GAMEPAD_RIGHT_THUMB) != 0;
     out.start = (wb & XINPUT_GAMEPAD_START) != 0;
     out.select = (wb & XINPUT_GAMEPAD_BACK) != 0;
+    out.psHome = (wb & XINPUT_GAMEPAD_GUIDE) != 0;
     out.dpadUp = (wb & XINPUT_GAMEPAD_DPAD_UP) != 0;
     out.dpadDown = (wb & XINPUT_GAMEPAD_DPAD_DOWN) != 0;
     out.dpadLeft = (wb & XINPUT_GAMEPAD_DPAD_LEFT) != 0;
@@ -3051,11 +3067,12 @@ static void Win32_FillVirtualInputSnapshotFromXInputState(const XINPUT_STATE& st
     out.rightDir = Win32_ClassifyLeftStickDir(st.Gamepad.sThumbRX, st.Gamepad.sThumbRY, out.rightInDeadzone);
 }
 
-// DS4 USB/BT 入力レポート（hid-playstation / 一般的な 64B ReportID=1）に合わせる。
-// ×=Cross=South -> confirm / ○=Circle=East -> cancel（VirtualInputPolicy: South=confirm, East=cancel, Start=menu）
-// byte5: hat0-3, Share 0x10, L3 0x20, R3 0x40, Options 0x80
-// byte6: Square 0x10, Cross 0x20, Circle 0x40, Triangle 0x80
-// byte7: L1/R1/L2/R2 デジタル下位ビット（アナログは 8,9 付近）
+// DS4 USB (VID 054C / PID 05C4) 実機確認済みマップ（VirtualInput 橋渡し）
+// byte5: hat0-3, Share 0x10, Circle 0x20, Options 0x40, R3 0x80
+// byte6: L1 0x01, R1 0x02, L2 0x04, R2 0x08, Square 0x10, Cross 0x20, L3 0x40, Triangle 0x80
+// byte7: PS 0x01
+// byte8/9: L2/R2 アナログ
+// VirtualInputPolicy: South=confirm, East=cancel, Start=Options(0x40), Select=Share(0x10), psHome=PS
 static bool Win32_FillVirtualInputFromDs4StyleHidReport(const BYTE* buf, UINT len, VirtualInputSnapshot& out)
 {
     if (buf == nullptr || len < 10)
@@ -3089,28 +3106,24 @@ static bool Win32_FillVirtualInputFromDs4StyleHidReport(const BYTE* buf, UINT le
     }
 
     out.select = (buf[5] & 0x10) != 0;
-    out.l3 = (buf[5] & 0x20) != 0;
-    out.r3 = (buf[5] & 0x40) != 0;
-    out.start = (buf[5] & 0x80) != 0;
+    out.east = (buf[5] & 0x20) != 0;
+    out.start = (buf[5] & 0x40) != 0;
+    out.r3 = (buf[5] & 0x80) != 0;
 
     out.west = (buf[6] & 0x10) != 0;
     out.south = (buf[6] & 0x20) != 0;
-    out.east = (buf[6] & 0x40) != 0;
     out.north = (buf[6] & 0x80) != 0;
 
-    out.l1 = (buf[7] & 0x01) != 0;
-    out.r1 = (buf[7] & 0x02) != 0;
+    out.l1 = (buf[6] & 0x01) != 0;
+    out.r1 = (buf[6] & 0x02) != 0;
+    out.l3 = (buf[6] & 0x40) != 0;
 
-    if (len > 8)
-    {
-        out.leftTriggerRaw = buf[8];
-        out.l2Pressed = (buf[8] >= XINPUT_GAMEPAD_TRIGGER_THRESHOLD);
-    }
-    if (len > 9)
-    {
-        out.rightTriggerRaw = buf[9];
-        out.r2Pressed = (buf[9] >= XINPUT_GAMEPAD_TRIGGER_THRESHOLD);
-    }
+    out.leftTriggerRaw = buf[8];
+    out.rightTriggerRaw = buf[9];
+    out.l2Pressed = ((buf[6] & 0x04) != 0) || (buf[8] >= XINPUT_GAMEPAD_TRIGGER_THRESHOLD);
+    out.r2Pressed = ((buf[6] & 0x08) != 0) || (buf[9] >= XINPUT_GAMEPAD_TRIGGER_THRESHOLD);
+
+    out.psHome = (buf[7] & 0x01) != 0;
 
     out.leftInDeadzone = Win32_LeftStickInDeadzone(out.leftStickX, out.leftStickY);
     out.leftDir = Win32_ClassifyLeftStickDir(out.leftStickX, out.leftStickY, out.leftInDeadzone);
@@ -3125,7 +3138,7 @@ static void Win32_LogVirtualInputSnapshotSummary(const VirtualInputSnapshot& s, 
     wchar_t line[768] = {};
     swprintf_s(line, _countof(line),
         L"VirtualInput slot=%u fam=%s conn=%d "
-        L"faceABXY=%d%d%d%d L1R1=%d%d L2R2=%d/%d raw=%u/%u L3R3=%d%d StSel=%d%d "
+        L"faceABXY=%d%d%d%d L1R1=%d%d L2R2=%d/%d raw=%u/%u L3R3=%d%d StSel=%d%d PS=%d "
         L"Dpad=%d%d%d%d "
         L"L(%d,%d)z=%d Ldir=%s R(%d,%d)z=%d Rdir=%s\r\n",
         static_cast<unsigned int>(slot),
@@ -3145,6 +3158,7 @@ static void Win32_LogVirtualInputSnapshotSummary(const VirtualInputSnapshot& s, 
         s.r3 ? 1 : 0,
         s.start ? 1 : 0,
         s.select ? 1 : 0,
+        s.psHome ? 1 : 0,
         s.dpadUp ? 1 : 0,
         s.dpadDown ? 1 : 0,
         s.dpadLeft ? 1 : 0,
@@ -3158,6 +3172,168 @@ static void Win32_LogVirtualInputSnapshotSummary(const VirtualInputSnapshot& s, 
         s.rightInDeadzone ? 1 : 0,
         Win32_LeftStickDirLabel(s.rightDir));
     OutputDebugStringW(line);
+}
+
+static bool Win32_Ps4VirtualShoulderGroupChanged(
+    const VirtualInputSnapshot& prev,
+    const VirtualInputSnapshot& curr)
+{
+    return (prev.l1 != curr.l1) || (prev.r1 != curr.r1)
+        || (prev.l2Pressed != curr.l2Pressed) || (prev.r2Pressed != curr.r2Pressed)
+        || (prev.leftTriggerRaw != curr.leftTriggerRaw)
+        || (prev.rightTriggerRaw != curr.rightTriggerRaw)
+        || (prev.l3 != curr.l3) || (prev.r3 != curr.r3);
+}
+
+static bool Win32_Ps4VirtualSlot99LogWorthy(
+    const VirtualInputSnapshot& prev,
+    const VirtualInputSnapshot& curr)
+{
+    if (Win32_Ps4VirtualShoulderGroupChanged(prev, curr))
+    {
+        return true;
+    }
+    if (prev.start != curr.start || prev.select != curr.select)
+    {
+        return true;
+    }
+    if (prev.psHome != curr.psHome)
+    {
+        return true;
+    }
+    return false;
+}
+
+static bool Win32_Ps4VirtualIsolate_L1Only(const VirtualInputSnapshot& s)
+{
+    return s.l1 && !s.r1 && !s.l2Pressed && !s.r2Pressed && !s.l3 && !s.r3
+        && !s.south && !s.east && !s.west && !s.north && !s.start && !s.select && !s.psHome
+        && !s.dpadUp && !s.dpadDown && !s.dpadLeft && !s.dpadRight;
+}
+
+static bool Win32_Ps4VirtualIsolate_R3Only(const VirtualInputSnapshot& s)
+{
+    return !s.l1 && !s.r1 && !s.l2Pressed && !s.r2Pressed && !s.l3 && s.r3
+        && !s.south && !s.east && !s.west && !s.north && !s.start && !s.select && !s.psHome
+        && !s.dpadUp && !s.dpadDown && !s.dpadLeft && !s.dpadRight;
+}
+
+static bool Win32_Ps4VirtualIsolate_L3Only(const VirtualInputSnapshot& s)
+{
+    return !s.l1 && !s.r1 && !s.l2Pressed && !s.r2Pressed && s.l3 && !s.r3
+        && !s.south && !s.east && !s.west && !s.north && !s.start && !s.select && !s.psHome
+        && !s.dpadUp && !s.dpadDown && !s.dpadLeft && !s.dpadRight;
+}
+
+static bool Win32_Ps4VirtualIsolate_TriOnly(const VirtualInputSnapshot& s)
+{
+    return !s.l1 && !s.r1 && !s.l2Pressed && !s.r2Pressed && !s.l3 && !s.r3
+        && !s.south && !s.east && !s.west && s.north && !s.start && !s.select && !s.psHome
+        && !s.dpadUp && !s.dpadDown && !s.dpadLeft && !s.dpadRight;
+}
+
+static bool Win32_Ps4VirtualIsolate_PSOnly(const VirtualInputSnapshot& s)
+{
+    return s.psHome && !s.l1 && !s.r1 && !s.l2Pressed && !s.r2Pressed && !s.l3 && !s.r3
+        && !s.south && !s.east && !s.west && !s.north && !s.start && !s.select
+        && !s.dpadUp && !s.dpadDown && !s.dpadLeft && !s.dpadRight;
+}
+
+static void Win32_LogVirtualInputPs4Slot99ShoulderGroupIfChanged(
+    const VirtualInputSnapshot& prev,
+    const VirtualInputSnapshot& curr,
+    DWORD slot)
+{
+    if (!Win32_Ps4VirtualSlot99LogWorthy(prev, curr))
+    {
+        return;
+    }
+    wchar_t line[768] = {};
+    swprintf_s(line, _countof(line),
+        L"[PS4VIchg] VirtualInput slot=%u fam=%s conn=%d "
+        L"faceABXY=%d%d%d%d L1R1=%d%d L2R2=%d/%d raw=%u/%u L3R3=%d%d StSel=%d%d PS=%d "
+        L"Dpad=%d%d%d%d "
+        L"L(%d,%d)z=%d Ldir=%s R(%d,%d)z=%d Rdir=%s\r\n",
+        static_cast<unsigned int>(slot),
+        Win32_GameControllerKindLabel(curr.family),
+        curr.connected ? 1 : 0,
+        curr.south ? 1 : 0,
+        curr.east ? 1 : 0,
+        curr.west ? 1 : 0,
+        curr.north ? 1 : 0,
+        curr.l1 ? 1 : 0,
+        curr.r1 ? 1 : 0,
+        curr.l2Pressed ? 1 : 0,
+        curr.r2Pressed ? 1 : 0,
+        static_cast<unsigned int>(curr.leftTriggerRaw),
+        static_cast<unsigned int>(curr.rightTriggerRaw),
+        curr.l3 ? 1 : 0,
+        curr.r3 ? 1 : 0,
+        curr.start ? 1 : 0,
+        curr.select ? 1 : 0,
+        curr.psHome ? 1 : 0,
+        curr.dpadUp ? 1 : 0,
+        curr.dpadDown ? 1 : 0,
+        curr.dpadLeft ? 1 : 0,
+        curr.dpadRight ? 1 : 0,
+        static_cast<int>(curr.leftStickX),
+        static_cast<int>(curr.leftStickY),
+        curr.leftInDeadzone ? 1 : 0,
+        Win32_LeftStickDirLabel(curr.leftDir),
+        static_cast<int>(curr.rightStickX),
+        static_cast<int>(curr.rightStickY),
+        curr.rightInDeadzone ? 1 : 0,
+        Win32_LeftStickDirLabel(curr.rightDir));
+    OutputDebugStringW(line);
+}
+
+static void Win32_LogVirtualInputPs4Slot99IsolateEdges(
+    const VirtualInputSnapshot& prev,
+    const VirtualInputSnapshot& curr)
+{
+    struct Iso
+    {
+        const wchar_t* tag;
+        bool (*fn)(const VirtualInputSnapshot&);
+    };
+    static const Iso kIsos[] = {
+        { L"L1Only", Win32_Ps4VirtualIsolate_L1Only },
+        { L"R3Only", Win32_Ps4VirtualIsolate_R3Only },
+        { L"L3Only", Win32_Ps4VirtualIsolate_L3Only },
+        { L"TriOnly", Win32_Ps4VirtualIsolate_TriOnly },
+        { L"PSOnly", Win32_Ps4VirtualIsolate_PSOnly },
+    };
+    for (const Iso& iso : kIsos)
+    {
+        if (iso.fn(curr) && !iso.fn(prev))
+        {
+            wchar_t line[384] = {};
+            swprintf_s(line, _countof(line),
+                L"[PS4ISO] %s L1R1=%d%d L2R2=%d/%d raw=%u/%u L3R3=%d%d "
+                L"face=%d%d%d%d StSel=%d%d PS=%d Dpad=%d%d%d%d\r\n",
+                iso.tag,
+                curr.l1 ? 1 : 0,
+                curr.r1 ? 1 : 0,
+                curr.l2Pressed ? 1 : 0,
+                curr.r2Pressed ? 1 : 0,
+                static_cast<unsigned int>(curr.leftTriggerRaw),
+                static_cast<unsigned int>(curr.rightTriggerRaw),
+                curr.l3 ? 1 : 0,
+                curr.r3 ? 1 : 0,
+                curr.south ? 1 : 0,
+                curr.east ? 1 : 0,
+                curr.west ? 1 : 0,
+                curr.north ? 1 : 0,
+                curr.start ? 1 : 0,
+                curr.select ? 1 : 0,
+                curr.psHome ? 1 : 0,
+                curr.dpadUp ? 1 : 0,
+                curr.dpadDown ? 1 : 0,
+                curr.dpadLeft ? 1 : 0,
+                curr.dpadRight ? 1 : 0);
+            OutputDebugStringW(line);
+        }
+    }
 }
 
 static void Win32_LogVirtualInputHelperProbe(
@@ -4215,10 +4391,9 @@ static void Win32_XInputPollDigitalEdgesOnTimer(HWND hwnd)
             constexpr DWORD kPs4PseudoSlot = 99;
             s_virtualInputPrev = s_virtualInputCurr;
             s_virtualInputCurr = s_ps4HidVirtualFromLastReport;
-            if ((++s_ps4VirtualInputLogCounter % 60) == 0)
-            {
-                Win32_LogVirtualInputSnapshotSummary(s_virtualInputCurr, kPs4PseudoSlot);
-            }
+            Win32_LogVirtualInputPs4Slot99ShoulderGroupIfChanged(
+                s_virtualInputPrev, s_virtualInputCurr, kPs4PseudoSlot);
+            Win32_LogVirtualInputPs4Slot99IsolateEdges(s_virtualInputPrev, s_virtualInputCurr);
             Win32_LogVirtualInputPolicyIfChanged(s_virtualInputPrev, s_virtualInputCurr);
             Win32_LogVirtualInputConsumerIfChanged(s_virtualInputPrev, s_virtualInputCurr);
             return;
@@ -4233,7 +4408,6 @@ static void Win32_XInputPollDigitalEdgesOnTimer(HWND hwnd)
         s_xinputPrevRightInDeadzone = true;
         s_xinputPrevRightDir = GamepadLeftStickDir::None;
         s_virtualInputSnapshotLogCounter = 0;
-        s_ps4VirtualInputLogCounter = 0;
         VirtualInput_ResetDisconnected(s_virtualInputPrev);
         VirtualInput_ResetDisconnected(s_virtualInputCurr);
         s_virtualInputConsumerHasPrev = false;
@@ -4256,7 +4430,6 @@ static void Win32_XInputPollDigitalEdgesOnTimer(HWND hwnd)
         s_xinputPrevRightInDeadzone = true;
         s_xinputPrevRightDir = GamepadLeftStickDir::None;
         s_virtualInputSnapshotLogCounter = 0;
-        s_ps4VirtualInputLogCounter = 0;
         VirtualInput_ResetDisconnected(s_virtualInputPrev);
         VirtualInput_ResetDisconnected(s_virtualInputCurr);
         s_virtualInputConsumerHasPrev = false;
@@ -4268,7 +4441,6 @@ static void Win32_XInputPollDigitalEdgesOnTimer(HWND hwnd)
     }
 
     s_ps4HidVirtualFromLastReportValid = false;
-    s_ps4VirtualInputLogCounter = 0;
 
     const WORD w = state.Gamepad.wButtons;
     const BYTE lt = state.Gamepad.bLeftTrigger;
@@ -4885,90 +5057,242 @@ static void Win32_TryLogRawInputHidPs4AndBridge(const RAWINPUT* raw)
         s_ps4HidVirtualFromLastReportValid = true;
     }
 
-    bool btnBytesChanged = false;
-    if (nBytes >= 8)
+    if (kPs4HidVerboseRawLog)
     {
-        btnBytesChanged =
-            !s_ps4HasPrevBtn567 || (memcmp(s_ps4PrevBtn567, p + 5, 3) != 0);
-    }
-
-    wchar_t xorHex[32] = L"-";
-    if (nBytes >= 8 && s_ps4HasPrevBytes0to7)
-    {
-        xorHex[0] = L'\0';
-        for (int i = 0; i < 8; ++i)
+        bool btnBytesChanged = false;
+        if (nBytes >= 8)
         {
+            btnBytesChanged =
+                !s_ps4HasPrevBtn567 || (memcmp(s_ps4PrevBtn567, p + 5, 3) != 0);
+        }
+    
+        wchar_t xorHex[32] = L"-";
+        if (nBytes >= 8 && s_ps4HasPrevBytes0to7)
+        {
+            xorHex[0] = L'\0';
+            for (int i = 0; i < 8; ++i)
+            {
+                swprintf_s(
+                    xorHex + i * 3,
+                    _countof(xorHex) - static_cast<size_t>(i * 3),
+                    L"%02X ",
+                    static_cast<unsigned int>(static_cast<BYTE>(p[i] ^ s_ps4PrevBytes0to7[i])));
+            }
+        }
+    
+        const unsigned hat = (nBytes > 5) ? (p[5] & 0x0FU) : 0u;
+        const unsigned b5HighNibble = (nBytes > 5) ? ((p[5] >> 4) & 0x0FU) : 0u;
+        const unsigned faceBits = (nBytes > 6) ? p[6] : 0u;
+    
+        wchar_t ps4btn[1024] = {};
+        swprintf_s(
+            ps4btn,
+            _countof(ps4btn),
+            L"[PS4BTN] policy=South(b6&0x20) East(b5&0x20) Tri(b6&0x80) menu(b5&0x40) R3(b5&0x80) "
+            L"L1(b6&0x01) R1(b6&0x02) L2d(b6&0x04) R2d(b6&0x08) L3(b6&0x40) "
+            L"b0=%02X b1=%02X b2=%02X b3=%02X b4=%02X b5=%02X b6=%02X b7=%02X b8=%02X b9=%02X "
+            L"buttonsNibble=%u b5_hiNibble=%u faceBits=0x%02X dpad=%u "
+            L"parsedSouth=%d parsedEast=%d parsedMenu=%d parsedSel=%d "
+            L"btnBytesChanged=%d xor0_7=[%s]\r\n",
+            (nBytes > 0) ? p[0] : 0u,
+            (nBytes > 1) ? p[1] : 0u,
+            (nBytes > 2) ? p[2] : 0u,
+            (nBytes > 3) ? p[3] : 0u,
+            (nBytes > 4) ? p[4] : 0u,
+            (nBytes > 5) ? p[5] : 0u,
+            (nBytes > 6) ? p[6] : 0u,
+            (nBytes > 7) ? p[7] : 0u,
+            (nBytes > 8) ? p[8] : 0u,
+            (nBytes > 9) ? p[9] : 0u,
+            hat,
+            b5HighNibble,
+            faceBits,
+            hat,
+            parseOk && snap.south ? 1 : 0,
+            parseOk && snap.east ? 1 : 0,
+            parseOk && snap.start ? 1 : 0,
+            parseOk && snap.select ? 1 : 0,
+            btnBytesChanged ? 1 : 0,
+            xorHex);
+    
+        OutputDebugStringW(ps4btn);
+    
+        if (btnBytesChanged && nBytes >= 8)
+        {
+            const unsigned c6_40 = (p[6] >> 6) & 1u;
+            const unsigned c6_80 = (p[6] >> 7) & 1u;
+            wchar_t ps4map[512] = {};
             swprintf_s(
-                xorHex + i * 3,
-                _countof(xorHex) - static_cast<size_t>(i * 3),
-                L"%02X ",
-                static_cast<unsigned int>(static_cast<BYTE>(p[i] ^ s_ps4PrevBytes0to7[i])));
+                ps4map,
+                _countof(ps4map),
+                L"[PS4MAP] raw(b5,b6,b7)=%02X,%02X,%02X parsedSouth=%d parsedEast=%d parsedMenu=%d parsedSel=%d "
+                L"candL3_b6_40=%u candTri_b6_80=%u candMenu_b5_40=%u candR3_b5_80=%u\r\n",
+                p[5],
+                p[6],
+                p[7],
+                parseOk && snap.south ? 1 : 0,
+                parseOk && snap.east ? 1 : 0,
+                parseOk && snap.start ? 1 : 0,
+                parseOk && snap.select ? 1 : 0,
+                c6_40,
+                c6_80,
+                (p[5] & 0x40) != 0 ? 1u : 0u,
+                (p[5] & 0x80) != 0 ? 1u : 0u);
+            OutputDebugStringW(ps4map);
         }
-    }
-
-    const unsigned hat = (nBytes > 5) ? (p[5] & 0x0FU) : 0u;
-    const unsigned b5HighNibble = (nBytes > 5) ? ((p[5] >> 4) & 0x0FU) : 0u;
-    const unsigned faceBits = (nBytes > 6) ? p[6] : 0u;
-
-    wchar_t ps4btn[1024] = {};
-    swprintf_s(
-        ps4btn,
-        _countof(ps4btn),
-        L"[PS4BTN] policy=confirm(South=byte6&0x20) cancel(East=byte6&0x40) menu(Start=byte5&0x80) "
-        L"b0=%02X b1=%02X b2=%02X b3=%02X b4=%02X b5=%02X b6=%02X b7=%02X "
-        L"buttonsNibble=%u b5_hiNibble=%u faceBits=0x%02X dpad=%u "
-        L"parsedSouth=%d parsedEast=%d parsedMenu=%d parsedSel=%d "
-        L"btnBytesChanged=%d xor0_7=[%s]\r\n",
-        (nBytes > 0) ? p[0] : 0u,
-        (nBytes > 1) ? p[1] : 0u,
-        (nBytes > 2) ? p[2] : 0u,
-        (nBytes > 3) ? p[3] : 0u,
-        (nBytes > 4) ? p[4] : 0u,
-        (nBytes > 5) ? p[5] : 0u,
-        (nBytes > 6) ? p[6] : 0u,
-        (nBytes > 7) ? p[7] : 0u,
-        hat,
-        b5HighNibble,
-        faceBits,
-        hat,
-        parseOk && snap.south ? 1 : 0,
-        parseOk && snap.east ? 1 : 0,
-        parseOk && snap.start ? 1 : 0,
-        parseOk && snap.select ? 1 : 0,
-        btnBytesChanged ? 1 : 0,
-        xorHex);
-
-    OutputDebugStringW(ps4btn);
-
-    if (parseOk)
-    {
-        const bool noDpad =
-            !snap.dpadUp && !snap.dpadDown && !snap.dpadLeft && !snap.dpadRight;
-        const bool noMisc =
-            !snap.start && !snap.select && !snap.l3 && !snap.r3 && !snap.l1 && !snap.r1;
-        if (snap.south && !snap.east && !snap.west && !snap.north && noMisc && noDpad)
+    
+        // Circle(○) 切り分け: ○ 単押し想定。byte7 のみの差分（周期ノイズ）では発火しない。b2/b5/b6/b7 の候補のみ。
+        wchar_t ps4CircleDiffIdx[48] = L"-";
+        if (s_ps4HasPrevB5to8 && nBytes >= 9)
         {
-            OutputDebugStringW(L"[PS4BTN] isolate singleFace=South(Cross)_only\r\n");
+            ps4CircleDiffIdx[0] = L'\0';
+            int pos = 0;
+            for (int bi = 5; bi <= 8; ++bi)
+            {
+                if (p[bi] != s_ps4PrevB5to8[bi - 5])
+                {
+                    if (pos > 0)
+                    {
+                        ps4CircleDiffIdx[pos++] = L',';
+                    }
+                    pos += swprintf_s(
+                        ps4CircleDiffIdx + pos,
+                        _countof(ps4CircleDiffIdx) - static_cast<size_t>(pos),
+                        L"%d",
+                        bi);
+                }
+            }
+            if (pos == 0)
+            {
+                wcscpy_s(ps4CircleDiffIdx, L"none");
+            }
         }
-        if (snap.east && !snap.south && !snap.west && !snap.north && noMisc && noDpad)
+    
+        const bool ps4CircleSkipB7OnlyNoise =
+            s_ps4HasPrevB5to8 && (wcscmp(ps4CircleDiffIdx, L"7") == 0);
+    
+        // diffIdx が "7" のみ = byte7 だけが前回から変化（周期アナログ等）→ PS4CIRCLE は出さない
+        if (btnBytesChanged && nBytes >= 9 && parseOk && s_ps4HasPrevB5to8 && !ps4CircleSkipB7OnlyNoise)
         {
-            OutputDebugStringW(L"[PS4BTN] isolate singleFace=East(Circle)_only\r\n");
+            const bool circleProbe =
+                !snap.south && !snap.start && !snap.select && !snap.psHome &&
+                !snap.dpadUp && !snap.dpadDown && !snap.dpadLeft && !snap.dpadRight &&
+                !snap.l1 && !snap.r1 && !snap.l3 && !snap.r3;
+    
+            if (circleProbe)
+            {
+                const BYTE prev2 = (s_ps4HasPrevBytes0to7 && nBytes > 2) ? s_ps4PrevBytes0to7[2] : 0;
+                const BYTE cur2 = (nBytes > 2) ? p[2] : 0;
+                const BYTE xor2 = (nBytes > 2 && s_ps4HasPrevBytes0to7) ? static_cast<BYTE>(p[2] ^ prev2) : 0;
+    
+                const BYTE prev5 = s_ps4PrevB5to8[0];
+                const BYTE prev6 = s_ps4PrevB5to8[1];
+                const BYTE prev7 = s_ps4PrevB5to8[2];
+                const BYTE xor5 = static_cast<BYTE>(p[5] ^ prev5);
+                const BYTE xor6 = static_cast<BYTE>(p[6] ^ prev6);
+                const BYTE xor7 = static_cast<BYTE>(p[7] ^ prev7);
+    
+                const unsigned c_b2_01 = (cur2 & 0x01) != 0 ? 1u : 0u;
+                const unsigned c_b2_02 = (cur2 & 0x02) != 0 ? 1u : 0u;
+                const unsigned c_b2_04 = (cur2 & 0x04) != 0 ? 1u : 0u;
+                const unsigned c_b2_08 = (cur2 & 0x08) != 0 ? 1u : 0u;
+                const unsigned c_b5_40 = (p[5] & 0x40) != 0 ? 1u : 0u;
+                const unsigned c_b5_80 = (p[5] & 0x80) != 0 ? 1u : 0u;
+                const unsigned c_b6_10 = (p[6] & 0x10) != 0 ? 1u : 0u;
+                const unsigned c_b6_20 = (p[6] & 0x20) != 0 ? 1u : 0u;
+                const unsigned c_b6_40 = (p[6] & 0x40) != 0 ? 1u : 0u;
+                const unsigned c_b6_80 = (p[6] & 0x80) != 0 ? 1u : 0u;
+                const unsigned c_b7_01 = (p[7] & 0x01) != 0 ? 1u : 0u;
+                const unsigned c_b7_02 = (p[7] & 0x02) != 0 ? 1u : 0u;
+                const unsigned c_b7_04 = (p[7] & 0x04) != 0 ? 1u : 0u;
+                const unsigned c_b7_08 = (p[7] & 0x08) != 0 ? 1u : 0u;
+                const unsigned c_b7_10 = (p[7] & 0x10) != 0 ? 1u : 0u;
+                const unsigned c_b7_20 = (p[7] & 0x20) != 0 ? 1u : 0u;
+                const unsigned c_b7_40 = (p[7] & 0x40) != 0 ? 1u : 0u;
+                const unsigned c_b7_80 = (p[7] & 0x80) != 0 ? 1u : 0u;
+    
+                wchar_t ps4circ[1024] = {};
+                swprintf_s(
+                    ps4circ,
+                    _countof(ps4circ),
+                    L"[PS4CIRCLE] diffIdx=%s "
+                    L"b2=%02X prev2=%02X xor2=%02X b5=%02X prev5=%02X xor5=%02X "
+                    L"b6=%02X prev6=%02X xor6=%02X b7=%02X prev7=%02X xor7=%02X "
+                    L"cand_b2(01,02,04,08)=%u%u%u%u cand_b5(40,80)=%u%u "
+                    L"cand_b6(10,20,40,80)=%u%u%u%u cand_b7(01,02,04,08,10,20,40,80)=%u%u%u%u%u%u%u%u "
+                    L"parsedEast=%d parsedNorth=%d\r\n",
+                    ps4CircleDiffIdx,
+                    static_cast<unsigned int>(cur2),
+                    static_cast<unsigned int>(prev2),
+                    static_cast<unsigned int>(xor2),
+                    static_cast<unsigned int>(p[5]),
+                    static_cast<unsigned int>(prev5),
+                    static_cast<unsigned int>(xor5),
+                    static_cast<unsigned int>(p[6]),
+                    static_cast<unsigned int>(prev6),
+                    static_cast<unsigned int>(xor6),
+                    static_cast<unsigned int>(p[7]),
+                    static_cast<unsigned int>(prev7),
+                    static_cast<unsigned int>(xor7),
+                    c_b2_01,
+                    c_b2_02,
+                    c_b2_04,
+                    c_b2_08,
+                    c_b5_40,
+                    c_b5_80,
+                    c_b6_10,
+                    c_b6_20,
+                    c_b6_40,
+                    c_b6_80,
+                    c_b7_01,
+                    c_b7_02,
+                    c_b7_04,
+                    c_b7_08,
+                    c_b7_10,
+                    c_b7_20,
+                    c_b7_40,
+                    c_b7_80,
+                    snap.east ? 1 : 0,
+                    snap.north ? 1 : 0);
+                OutputDebugStringW(ps4circ);
+            }
         }
+    
+        if (parseOk)
+        {
+            const bool noDpad =
+                !snap.dpadUp && !snap.dpadDown && !snap.dpadLeft && !snap.dpadRight;
+            const bool noMisc =
+                !snap.select && !snap.l3 && !snap.l1 && !snap.r1 && !snap.psHome;
+            if (snap.south && !snap.east && !snap.west && !snap.north && !snap.start && noMisc && noDpad)
+            {
+                OutputDebugStringW(L"[PS4BTN] isolate singleFace=South(Cross)_only\r\n");
+            }
+            if (snap.east && !snap.south && !snap.west && !snap.north && !snap.start && noMisc && noDpad)
+            {
+                OutputDebugStringW(L"[PS4BTN] isolate singleFace=East(Circle)_only\r\n");
+            }
+            if (snap.start && !snap.south && !snap.east && !snap.west && !snap.north && !snap.select && !snap.psHome &&
+                !snap.l3 && !snap.r3 && !snap.l1 && !snap.r1 && noDpad)
+            {
+                OutputDebugStringW(L"[PS4BTN] isolate singleMenu=Options_only\r\n");
+            }
+        }
+    
+        wchar_t hidline[512] = {};
+        swprintf_s(
+            hidline,
+            _countof(hidline),
+            L"[PS4HID] usagePage=0x%04X usage=0x%04X sizeHid=%u count=%u payload=%u btnBytesChanged=%d\r\n",
+            static_cast<unsigned int>(up),
+            static_cast<unsigned int>(u),
+            static_cast<unsigned int>(hid.dwSizeHid),
+            static_cast<unsigned int>(hid.dwCount),
+            static_cast<unsigned int>(nBytes),
+            btnBytesChanged ? 1 : 0);
+    
+        OutputDebugStringW(hidline);
     }
-
-    wchar_t hidline[512] = {};
-    swprintf_s(
-        hidline,
-        _countof(hidline),
-        L"[PS4HID] usagePage=0x%04X usage=0x%04X sizeHid=%u count=%u payload=%u btnBytesChanged=%d\r\n",
-        static_cast<unsigned int>(up),
-        static_cast<unsigned int>(u),
-        static_cast<unsigned int>(hid.dwSizeHid),
-        static_cast<unsigned int>(hid.dwCount),
-        static_cast<unsigned int>(nBytes),
-        btnBytesChanged ? 1 : 0);
-
-    OutputDebugStringW(hidline);
 
     if (nBytes >= 8)
     {
@@ -4976,6 +5300,11 @@ static void Win32_TryLogRawInputHidPs4AndBridge(const RAWINPUT* raw)
         s_ps4HasPrevBtn567 = true;
         memcpy(s_ps4PrevBytes0to7, p, 8);
         s_ps4HasPrevBytes0to7 = true;
+    }
+    if (nBytes >= 9)
+    {
+        memcpy(s_ps4PrevB5to8, p + 5, 4);
+        s_ps4HasPrevB5to8 = true;
     }
 
     if (nBytes <= sizeof(s_ps4InvestPrevReport))
