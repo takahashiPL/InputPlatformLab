@@ -569,7 +569,8 @@ struct DisplayMonitorInfo
 
 static std::vector<DisplayMonitorInfo> s_displayMonitorsCache;
 
-// T14 UI: 表示は visibleModeCount 行のみ。menuOpen 中は矢印はメニュー用のため T14 スクロールしない。
+// T14 UI: 表示は visibleModeCount 行のみ。VirtualInputMenuSample の menuOpen 中は矢印は 2x2 メニュー用のため T14 の選択は動かさない（Tab で menu トグル）。
+static constexpr bool kT14KeyboardSelDebugLog = false; // true で [T14sel] 1 行（回帰確認用）
 static constexpr size_t kT14VisibleModeCount = 8;
 static constexpr size_t kT14SelectedMonitorIndex = 0;
 static size_t s_t14SelectedModeIndex = 0;
@@ -1101,6 +1102,21 @@ static void Win32_T14_TryScrollFromKeyboardEdges(bool upEdge, bool downEdge, HWN
     if (s_t14SelectedModeIndex >= s_t14FirstVisibleModeIndex + kT14VisibleModeCount)
     {
         s_t14FirstVisibleModeIndex = s_t14SelectedModeIndex - (kT14VisibleModeCount - 1);
+    }
+
+    if (kT14KeyboardSelDebugLog)
+    {
+        wchar_t sel[192] = {};
+        swprintf_s(
+            sel,
+            _countof(sel),
+            L"[T14sel] up=%d down=%d old=%zu new=%zu first=%zu\r\n",
+            upEdge ? 1 : 0,
+            downEdge ? 1 : 0,
+            oldSel,
+            newSel,
+            s_t14FirstVisibleModeIndex);
+        OutputDebugStringW(sel);
     }
 
     Win32_T14_TryAutoScrollSelectionIntoView(hwnd);
@@ -4725,7 +4741,7 @@ static void Win32_XInputPollDigitalEdgesOnTimer(HWND hwnd)
         s_virtualInputConsumerHasPrev = false;
         VirtualInputMenuSample_Reset(s_virtualInputMenuSampleState);
         s_virtualInputMenuSampleDumpHasPrev = false;
-        s_keyboardActionStateAtLastTimer = s_keyboardActionState;
+        // keyboard edge 履歴は Win32_UnifiedInputConsumerMenuTick 末尾でのみ更新する（ここで同期すると矢印エッジが消える）
         Win32_MenuSample_ResetPaintTracking(s_mainWindowHwnd);
         return;
     }
@@ -4747,7 +4763,6 @@ static void Win32_XInputPollDigitalEdgesOnTimer(HWND hwnd)
         s_virtualInputConsumerHasPrev = false;
         VirtualInputMenuSample_Reset(s_virtualInputMenuSampleState);
         s_virtualInputMenuSampleDumpHasPrev = false;
-        s_keyboardActionStateAtLastTimer = s_keyboardActionState;
         Win32_MenuSample_ResetPaintTracking(s_mainWindowHwnd);
         return;
     }
@@ -4794,7 +4809,6 @@ static void Win32_XInputPollDigitalEdgesOnTimer(HWND hwnd)
         s_virtualInputConsumerHasPrev = false;
         VirtualInputMenuSample_Reset(s_virtualInputMenuSampleState);
         s_virtualInputMenuSampleDumpHasPrev = false;
-        s_keyboardActionStateAtLastTimer = s_keyboardActionState;
         Win32_MenuSample_ResetPaintTracking(s_mainWindowHwnd);
         return;
     }

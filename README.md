@@ -20,6 +20,8 @@ Windowsアプリの入力基盤試作プロジェクト。
 - 1マイルストーン = 1ブランチ = 1検証可能単位
 - AIで雛形生成、人間が理解・修正・検証する
 
+メイン画面デバッグの **T14 visible modes**（`>` 行）: **VirtualInputMenuSample が menuOpen=false** のとき、**↑/↓** で `selectedModeIndex` が動く（**Tab** でメニューを開いている間は矢印は 2x2 メニュー用）。キーボードのエッジは **タイマー内** `Win32_UnifiedInputConsumerMenuTick` で `s_keyboardActionState` と前回サンプルから検出する。
+
 ## DS4 USB（Sony VID 054C）ボタンマップ（実機確認済み）
 `MainApp.cpp` の `Win32_FillVirtualInputFromDs4StyleHidReport` 参照。実測ログと整合する要点:
 - **L1** = `byte6 & 0x01`（例: `rawB6=0x01`、`[PS4DS4ISO] L1Only`、`VirtualInput slot=99` の `L1R1=10`）
