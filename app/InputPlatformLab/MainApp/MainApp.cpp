@@ -472,7 +472,7 @@ static bool Win32_HidTraitsLookLikeGamepad(const GameControllerHidSummary& t)
         (t.vendor_id == 0x045E || t.vendor_id == 0x054C || t.vendor_id == 0x057E);
 }
 
-// VID/PID → parser / support（DS4 のみ Verified+Known。他は暫定受け皿）
+// VID/PID → parser / support（DS4 のみ verified+Known HID。他はテーブル行があれば family のみ寄せ、未実機は決め打ちマッピングを増やさない暫定受け皿）
 struct ControllerHidProductTableEntry
 {
     std::uint16_t vid;
@@ -2597,7 +2597,7 @@ static void Win32_T18_AppendPaintSection(wchar_t* buf, size_t bufCount)
         _countof(prodDisp),
         64);
 
-    wchar_t slotStr[16] = L"(none)";
+    wchar_t slotStr[16] = L"-1";
     if (s_t18.xinput_slot >= 0)
     {
         swprintf_s(slotStr, _countof(slotStr), L"%d", s_t18.xinput_slot);
@@ -2606,21 +2606,32 @@ static void Win32_T18_AppendPaintSection(wchar_t* buf, size_t bufCount)
     const unsigned vid = s_t18.hid_found ? static_cast<unsigned>(s_t18.hid.vendor_id) : 0u;
     const unsigned pid = s_t18.hid_found ? static_cast<unsigned>(s_t18.hid.product_id) : 0u;
 
+    wchar_t vidPidLine[128] = {};
+    if (s_t18.hid_found)
+    {
+        swprintf_s(vidPidLine, _countof(vidPidLine), L"vid: 0x%04X  pid: 0x%04X", vid, pid);
+    }
+    else
+    {
+        wcscpy_s(vidPidLine, L"vid/pid: n/a (no HID gamepad in Raw Input order)");
+    }
+
     wchar_t block[2048] = {};
     swprintf_s(
         block,
         _countof(block),
         L"\r\n--- T18 controller identify ---\r\n"
-        L"slot: %s\r\n"
-        L"vid: 0x%04X  pid: 0x%04X\r\n"
+        L"slot: %s  (first connected XInput slot; -1 if none)\r\n"
+        L"raw HID: %s\r\n"
+        L"%s\r\n"
         L"inferred family: %s\r\n"
         L"parser: %s  support: %s\r\n"
         L"product name: %s\r\n"
         L"device path: %s\r\n"
-        L"(1 device: first HID gamepad in Raw Input order; XInput first connected slot)\r\n",
+        L"(T18: one device — first HID gamepad in Raw Input enum order; VID/PID table is a receiver bucket; GenericHid+tentative is not a verified button map.)\r\n",
         slotStr,
-        vid,
-        pid,
+        s_t18.hid_found ? L"found" : L"not found",
+        vidPidLine,
         Win32_GameControllerKindFamilyLabel(s_t18.inferred_kind),
         Win32_ControllerParserKindLabel(s_t18.parser_kind),
         Win32_ControllerSupportLevelLabel(s_t18.support_level),
@@ -5144,8 +5155,8 @@ static void Win32_T18_LogIfChanged()
 {
     const bool same =
         s_t18HasLogPrev &&
-        (s_t18.xinput_slot == s_t18LogPrev.xinput_slot) &&
         (s_t18.hid_found == s_t18LogPrev.hid_found) &&
+        (s_t18.xinput_slot == s_t18LogPrev.xinput_slot) &&
         (s_t18.hid.vendor_id == s_t18LogPrev.hid.vendor_id) &&
         (s_t18.hid.product_id == s_t18LogPrev.hid.product_id) &&
         (s_t18.inferred_kind == s_t18LogPrev.inferred_kind) &&
@@ -5166,7 +5177,8 @@ static void Win32_T18_LogIfChanged()
     swprintf_s(
         line,
         _countof(line),
-        L"[T18] slot=%d vid=0x%04X pid=0x%04X family=%s parser=%s support=%s product=\"%s\" path=\"%s\"\r\n",
+        L"[T18] hid_found=%d slot=%d vid=0x%04X pid=0x%04X family=%s parser=%s support=%s product=\"%s\" path=\"%s\"\r\n",
+        s_t18.hid_found ? 1 : 0,
         s_t18.xinput_slot,
         vid,
         pid,
@@ -5753,7 +5765,7 @@ static void Win32_LogGenericHidGamepadFallback(const RAWINPUT* raw, const GameCo
     swprintf_s(
         line,
         _countof(line),
-        L"[HIDgen] vid=0x%04X pid=0x%04X usage=0x%04X/0x%04X payload=%u parser=%s support=%s (generic)\r\n",
+        L"[HIDgen] vid=0x%04X pid=0x%04X usage=0x%04X/0x%04X payload=%u parser=%s support=%s (tentative bucket; no verified map)\r\n",
         static_cast<unsigned int>(t.vendor_id),
         static_cast<unsigned int>(t.product_id),
         static_cast<unsigned int>(t.usage_page),

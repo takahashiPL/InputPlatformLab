@@ -53,7 +53,10 @@ T18 の短い調査ログ（いずれも `MainApp.cpp` で既定 `false`。`true
 アプリは次の 3 経路に分かれる（T18 の `parser` / `support` に反映）。
 1. **XInput** — `XInputGetState` 系。`ControllerParserKind::XInput` + **verified**（Microsoft 公式 API 経路）。
 2. **Known Raw HID（DS4）** — VID/PID が `kControllerHidProductTable` の DS4 行に一致するときのみ `Win32_FillVirtualInputFromDs4StyleHidReport` で橋渡し。**verified**。
-3. **Generic HID fallback** — 上記以外のゲームパッド HID。`[HIDgen]` の要約ログ（同一 Raw デバイスかつ VID/PID・usage・payload 長が前回と同じ場合は 500ms に 1 行まで）のみ。ビットマップは未固定のため **tentative**。
+3. **Generic HID fallback** — 上記以外のゲームパッド HID。`[HIDgen]` の要約ログ（同一 Raw デバイスかつ VID/PID・usage・payload 長が前回と同じ場合は 500ms に 1 行まで）のみ。ビットマップは未固定のため **tentative**（ログ文言は「tentative bucket; no verified map」で、固定マッピングを主張しない）。
 
 **verified** … 実機でマップまたは API 契約を固定したもの（現状は XInput と DS4 USB/BT のテーブル行）。  
-**tentative** … VID/PID や名称の受け皿のみ。PS5 / Nintendo / Microsoft HID ワイルドカード等は今後テーブル行を足して昇格させる。
+**tentative** … VID/PID などの**受け皿**に過ぎない。テーブル行は family の寄せ先の目印であり、実機未確認機種向けにボタンマップを増やしていない。
+
+### T18: コントローラー識別（メイン画面デバッグ表示）
+WM_PAINT で **1 台分**を表示: Raw Input 列挙で最初に見つかった **HID ゲームパッド**（`Win32_HidTraitsLookLikeGamepad`）の **vid/pid・product・device path**、および **先頭接続の XInput スロット**。フィールドは **family**（推定）、**parser**、**support**、上記 **vid/pid**、**slot**、**product/path**。`raw HID: not found` のときは Raw 側に該当デバイスが無く **vid/pid は n/a**（XInput のみ接続など）。DS4 以外でも **None / GenericHid / tentative** などが破綻なく並ぶ想定。変更時のみ `[T18] hid_found=…` が OutputDebugString に 1 行出る。
