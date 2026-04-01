@@ -5711,14 +5711,12 @@ static void Win32_TryLogRawInputHidPs4AndBridge(const RAWINPUT* raw)
 }
 
 // WM_INPUT: XInput はタイマー側。ここは Raw HID — 既知 DS4 橋渡し or 汎用 HID 要約。
-// [HIDgen]: 同一 hDevice かつ usage/payload が前回と同じ場合は 500ms に 1 行まで（VID/PID のみでは別デバイスが交互に来たときに誤って連発しうる）
+// [HIDgen]: 同一 VID/PID は kHidGenericLogMinIntervalMs に 1 行まで（usage/payload はコレクションで変わりうるためスロットルキーに含めない）
+static constexpr DWORD kHidGenericLogMinIntervalMs = 1000u;
+static constexpr bool kHidGenThrottleDebugLog = false; // true で [HIDgenDbg]（調査時のみ）
 static DWORD s_hidGenericLastLogTick = 0;
-static HANDLE s_hidGenericLastDevice = nullptr;
 static std::uint16_t s_hidGenericLastVid = 0;
 static std::uint16_t s_hidGenericLastPid = 0;
-static std::uint16_t s_hidGenericLastUsagePage = 0;
-static std::uint16_t s_hidGenericLastUsage = 0;
-static UINT s_hidGenericLastPayload = 0;
 
 static bool Win32_FillGameControllerHidSummaryFromRawInput(const RAWINPUT* raw, GameControllerHidSummary& out)
 {
@@ -5751,25 +5749,37 @@ static void Win32_LogGenericHidGamepadFallback(const RAWINPUT* raw, const GameCo
 {
     const RAWHID& hid = raw->data.hid;
     const UINT nBytes = hid.dwSizeHid * hid.dwCount;
-    const HANDLE hDev = raw->header.hDevice;
     ControllerParserKind pk{};
     ControllerSupportLevel sl{};
     Win32_ResolveHidProductTable(t.vendor_id, t.product_id, pk, sl);
     const DWORD now = GetTickCount();
-    const bool sameSignature = (hDev == s_hidGenericLastDevice) && (t.vendor_id == s_hidGenericLastVid)
-        && (t.product_id == s_hidGenericLastPid) && (t.usage_page == s_hidGenericLastUsagePage)
-        && (t.usage == s_hidGenericLastUsage) && (nBytes == s_hidGenericLastPayload);
-    if (sameSignature && (now - s_hidGenericLastLogTick) < 500u)
+    const bool sameVidPid =
+        (t.vendor_id == s_hidGenericLastVid) && (t.product_id == s_hidGenericLastPid);
+    const DWORD dtMs =
+        (s_hidGenericLastLogTick == 0) ? 0xFFFFFFFFu : (now - s_hidGenericLastLogTick);
+    if (kHidGenThrottleDebugLog)
+    {
+        wchar_t dbg[320] = {};
+        swprintf_s(
+            dbg,
+            _countof(dbg),
+            L"[HIDgenDbg] sameVP=%d dt=%u vid=0x%04X pid=0x%04X usage=0x%04X/0x%04X payload=%u\r\n",
+            sameVidPid ? 1 : 0,
+            static_cast<unsigned int>(dtMs),
+            static_cast<unsigned int>(t.vendor_id),
+            static_cast<unsigned int>(t.product_id),
+            static_cast<unsigned int>(t.usage_page),
+            static_cast<unsigned int>(t.usage),
+            static_cast<unsigned int>(nBytes));
+        OutputDebugStringW(dbg);
+    }
+    if (sameVidPid && dtMs < kHidGenericLogMinIntervalMs)
     {
         return;
     }
     s_hidGenericLastLogTick = now;
-    s_hidGenericLastDevice = hDev;
     s_hidGenericLastVid = t.vendor_id;
     s_hidGenericLastPid = t.product_id;
-    s_hidGenericLastUsagePage = t.usage_page;
-    s_hidGenericLastUsage = t.usage;
-    s_hidGenericLastPayload = nBytes;
     wchar_t line[384] = {};
     swprintf_s(
         line,

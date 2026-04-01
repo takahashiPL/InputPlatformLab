@@ -55,7 +55,7 @@ T18 の短い調査ログ（いずれも `MainApp.cpp` で既定 `false`。`true
 アプリは次の 3 経路に分かれる（T18 の `parser` / `support` に反映）。
 1. **XInput** — `XInputGetState` 系。`ControllerParserKind::XInput` + **verified**（Microsoft 公式 API 経路）。
 2. **Known Raw HID（DS4）** — VID/PID が `kControllerHidProductTable` の DS4 行に一致するときのみ `Win32_FillVirtualInputFromDs4StyleHidReport` で橋渡し。**verified**。
-3. **Generic HID fallback** — 上記以外のゲームパッド HID。`[HIDgen]` の要約ログ（同一 Raw デバイスかつ VID/PID・usage・payload 長が前回と同じ場合は 500ms に 1 行まで）のみ。ビットマップは未固定のため **tentative**（ログ文言は「tentative bucket; no verified map」で、固定マッピングを主張しない）。
+3. **Generic HID fallback** — 上記以外のゲームパッド HID。`[HIDgen]` の要約ログ（同一 VID/PID は約 1000ms に 1 行まで。usage/payload 長はコレクションで変わりうるためスロットルキーに含めない）のみ。ビットマップは未固定のため **tentative**（ログ文言は「tentative bucket; no verified map」で、固定マッピングを主張しない）。
 
 **verified** … 実機でマップまたは API 契約を固定したもの（現状は XInput と DS4 USB/BT のテーブル行）。  
 **tentative** … VID/PID などの**受け皿**に過ぎない。テーブル行は family の寄せ先の目印であり、実機未確認機種向けにボタンマップを増やしていない。
