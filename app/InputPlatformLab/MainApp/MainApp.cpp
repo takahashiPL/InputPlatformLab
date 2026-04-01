@@ -3072,6 +3072,43 @@ static BYTE s_ps4BridgeDeltaPrevB8 = 0;
 static BYTE s_ps4BridgeDeltaPrevB9 = 0;
 // WM_INPUT 経路の冗長ログ（PS4BTN/MAP/CIRCLE/HID/isolate）。既定 false。ビット調査時のみ true。
 static constexpr bool kPs4HidVerboseRawLog = false;
+// 一時調査: [PS4ISOskip] / [PS4BridgeReset] のみ。既定 false（通常時ログ量は増えない）
+// T18: [PS4ISOskip] がコンボで出ないのは skip のバグではなく、WM_INPUT 生が hatLo=8（中立）のフレームでは条件を満たさないため。README「DPad 混在時」参照。
+static constexpr bool kPs4IsoSkipDebugLog = true;
+// T18: L1/R3/L3/Tri の candidate エッジで hat 分岐の直前に [PS4ISOprobe] 1 行。既定 false。
+static constexpr bool kPs4IsoProbeDebugLog = true;
+// T18: byte5 下位ニブルまたは VirtualInput の dpad ビット変化時のみ [PS4DPadProbe] 1 行。既定 false。
+static constexpr bool kPs4DPadProbeDebugLog = true;
+// T18: WM_INPUT 生レポートで hatLo または L1 ビット変化時のみ [PS4RawCombo] 1 行。既定 false。結論は README「DPad 混在時」。
+static constexpr bool kPs4RawComboProbeDebugLog = true;
+static constexpr bool kPs4BridgeResetDebugLog = true;
+
+static DWORD s_ps4BridgeResetDebugLastTickNoDs4 = 0;
+static DWORD s_ps4BridgeResetDebugLastTickXinput = 0;
+
+static void Win32_Ps4DebugLogBridgeResetIf(const wchar_t* reason)
+{
+    if (!kPs4BridgeResetDebugLog)
+    {
+        return;
+    }
+    if (!s_ps4LastReportB5to9Valid && !s_ps4BridgeDeltaHasPrev)
+    {
+        return;
+    }
+    const DWORD now = GetTickCount();
+    const bool isNoDs4 = (wcscmp(reason, L"no_ds4_hid") == 0);
+    DWORD& lastTick = isNoDs4 ? s_ps4BridgeResetDebugLastTickNoDs4 : s_ps4BridgeResetDebugLastTickXinput;
+    // XInput 優先と DS4 未接続が短周期で交互に起きても、調査ログは理由別に 2s に 1 行まで
+    if (lastTick != 0 && (now - lastTick) < 2000u)
+    {
+        return;
+    }
+    lastTick = now;
+    wchar_t line[128] = {};
+    swprintf_s(line, _countof(line), L"[PS4BridgeReset] %s\r\n", reason);
+    OutputDebugStringW(line);
+}
 
 // T13: サンプル画面用（prevMove は毎フレーム変わり得るため Invalidate 判定から除外）
 enum class MenuSampleUiLastEventKind : std::uint8_t
@@ -3173,8 +3210,9 @@ static void Win32_FillVirtualInputSnapshotFromXInputState(const XINPUT_STATE& st
 }
 
 // DS4 USB (VID 054C / PID 05C4) 実機確認済みマップ（VirtualInput 橋渡し）
-// byte5: hat0-3, Share 0x10, Circle 0x20, Options 0x40, R3 仮説 0x80（観測補強中・L1/R3 同様に verified 本文へ未昇格）
-// byte6: L1 仮説 0x01（観測補強中）, R1 0x02, L2 0x04, R2 0x08, Square 0x10, Cross 0x20, L3 0x40, Triangle 0x80
+// T18: hat>=8 では dpad ビットは立てない（hat<8 のみ）。DPad+L1 同時の WM_INPUT で hatLo=8・L1=1 が来ることがあり（[PS4RawCombo]）、dpad=0000 でも生と整合。
+// byte5: hat0-3, Share 0x10, Circle 0x20, Options 0x40, R3=b5&0x80（例: rawB5=0x88=hat8+R3）
+// byte6: L1=b6&0x01（例: rawB6=0x01 + slot99 L1R1=10）, R1 0x02, L2 0x04, R2 0x08, Square 0x10, Cross 0x20, L3 0x40, Triangle 0x80
 // byte7: PS 0x01
 // byte8/9: L2/R2 アナログ
 // VirtualInputPolicy: South=confirm, East=cancel, Start=Options(0x40), Select=Share(0x10), psHome=PS
@@ -3213,13 +3251,13 @@ static bool Win32_FillVirtualInputFromDs4StyleHidReport(const BYTE* buf, UINT le
     out.select = (buf[5] & 0x10) != 0;
     out.east = (buf[5] & 0x20) != 0;
     out.start = (buf[5] & 0x40) != 0;
-    out.r3 = (buf[5] & 0x80) != 0; // R3 仮説 b5&0x80（isolate/[PS4Bridge] で実機確認まで観測補強）
+    out.r3 = (buf[5] & 0x80) != 0; // R3: b5&0x80（実測 rawB5=0x88, R3Only, slot99 L3R3=01）
 
     out.west = (buf[6] & 0x10) != 0;
     out.south = (buf[6] & 0x20) != 0;
     out.north = (buf[6] & 0x80) != 0;
 
-    out.l1 = (buf[6] & 0x01) != 0; // L1 仮説 b6&0x01（同上）
+    out.l1 = (buf[6] & 0x01) != 0; // L1: b6&0x01（実測 rawB6=0x01, L1Only, slot99 L1R1=10）
     out.r1 = (buf[6] & 0x02) != 0;
     out.l3 = (buf[6] & 0x40) != 0;
 
@@ -3309,32 +3347,29 @@ static bool Win32_Ps4VirtualSlot99LogWorthy(
     return false;
 }
 
-static bool Win32_Ps4VirtualIsolate_L1Only(const VirtualInputSnapshot& s)
+// L1/R3/L3/Tri の「肩・顔・StSel・PS 以外の単独」候補。DPad は見ない（hat は Win32_LogVirtualInputPs4Slot99IsolateEdges で分岐）。
+static bool Win32_Ps4VirtualIsolate_L1Candidate(const VirtualInputSnapshot& s)
 {
     return s.l1 && !s.r1 && !s.l2Pressed && !s.r2Pressed && !s.l3 && !s.r3
-        && !s.south && !s.east && !s.west && !s.north && !s.start && !s.select && !s.psHome
-        && !s.dpadUp && !s.dpadDown && !s.dpadLeft && !s.dpadRight;
+        && !s.south && !s.east && !s.west && !s.north && !s.start && !s.select && !s.psHome;
 }
 
-static bool Win32_Ps4VirtualIsolate_R3Only(const VirtualInputSnapshot& s)
+static bool Win32_Ps4VirtualIsolate_R3Candidate(const VirtualInputSnapshot& s)
 {
     return !s.l1 && !s.r1 && !s.l2Pressed && !s.r2Pressed && !s.l3 && s.r3
-        && !s.south && !s.east && !s.west && !s.north && !s.start && !s.select && !s.psHome
-        && !s.dpadUp && !s.dpadDown && !s.dpadLeft && !s.dpadRight;
+        && !s.south && !s.east && !s.west && !s.north && !s.start && !s.select && !s.psHome;
 }
 
-static bool Win32_Ps4VirtualIsolate_L3Only(const VirtualInputSnapshot& s)
+static bool Win32_Ps4VirtualIsolate_L3Candidate(const VirtualInputSnapshot& s)
 {
     return !s.l1 && !s.r1 && !s.l2Pressed && !s.r2Pressed && s.l3 && !s.r3
-        && !s.south && !s.east && !s.west && !s.north && !s.start && !s.select && !s.psHome
-        && !s.dpadUp && !s.dpadDown && !s.dpadLeft && !s.dpadRight;
+        && !s.south && !s.east && !s.west && !s.north && !s.start && !s.select && !s.psHome;
 }
 
-static bool Win32_Ps4VirtualIsolate_TriOnly(const VirtualInputSnapshot& s)
+static bool Win32_Ps4VirtualIsolate_TriCandidate(const VirtualInputSnapshot& s)
 {
     return !s.l1 && !s.r1 && !s.l2Pressed && !s.r2Pressed && !s.l3 && !s.r3
-        && !s.south && !s.east && !s.west && s.north && !s.start && !s.select && !s.psHome
-        && !s.dpadUp && !s.dpadDown && !s.dpadLeft && !s.dpadRight;
+        && !s.south && !s.east && !s.west && s.north && !s.start && !s.select && !s.psHome;
 }
 
 static bool Win32_Ps4VirtualIsolate_PSOnly(const VirtualInputSnapshot& s)
@@ -3399,27 +3434,57 @@ static void Win32_LogVirtualInputPs4Slot99IsolateEdges(
     struct Iso
     {
         const wchar_t* tag;
-        bool (*fn)(const VirtualInputSnapshot&);
+        bool (*edgeCandidate)(const VirtualInputSnapshot&);
+        bool splitHatForDs4Iso;
     };
     static const Iso kIsos[] = {
-        { L"L1Only", Win32_Ps4VirtualIsolate_L1Only },
-        { L"R3Only", Win32_Ps4VirtualIsolate_R3Only },
-        { L"L3Only", Win32_Ps4VirtualIsolate_L3Only },
-        { L"TriOnly", Win32_Ps4VirtualIsolate_TriOnly },
-        { L"PSOnly", Win32_Ps4VirtualIsolate_PSOnly },
+        { L"L1Only", Win32_Ps4VirtualIsolate_L1Candidate, true },
+        { L"R3Only", Win32_Ps4VirtualIsolate_R3Candidate, true },
+        { L"L3Only", Win32_Ps4VirtualIsolate_L3Candidate, true },
+        { L"TriOnly", Win32_Ps4VirtualIsolate_TriCandidate, true },
+        { L"PSOnly", Win32_Ps4VirtualIsolate_PSOnly, false },
     };
     for (const Iso& iso : kIsos)
     {
-        if (iso.fn(curr) && !iso.fn(prev))
+        if (iso.edgeCandidate(curr) && !iso.edgeCandidate(prev))
         {
-            const bool needHatNeutral =
-                (iso.tag == L"L1Only") || (iso.tag == L"R3Only") || (iso.tag == L"L3Only")
-                || (iso.tag == L"TriOnly");
-            if (needHatNeutral)
+            if (iso.splitHatForDs4Iso)
             {
-                // DPad 中立: 実機 DS4 では hat 下位ニブル 8 が無入力に近い
+                if (kPs4IsoProbeDebugLog)
+                {
+                    const unsigned int hatLo = s_ps4LastReportB5to9Valid
+                        ? static_cast<unsigned int>(s_ps4LastReportB5 & 0x0FU)
+                        : 0u;
+                    wchar_t pr[256] = {};
+                    swprintf_s(
+                        pr,
+                        _countof(pr),
+                        L"[PS4ISOprobe] tag=%s cand=1 hatLo=%u dpad=%d%d%d%d valid=%d\r\n",
+                        iso.tag,
+                        hatLo,
+                        curr.dpadUp ? 1 : 0,
+                        curr.dpadDown ? 1 : 0,
+                        curr.dpadLeft ? 1 : 0,
+                        curr.dpadRight ? 1 : 0,
+                        s_ps4LastReportB5to9Valid ? 1 : 0);
+                    OutputDebugStringW(pr);
+                }
+                // hatLo==8: [PS4DS4ISO] / hatLo!=8: [PS4ISOskip]（コンボで hat=8 のフレームでは skip は出ない＝生レポートが中立のため。README T18）
                 if (!s_ps4LastReportB5to9Valid || ((s_ps4LastReportB5 & 0x0FU) != 8u))
                 {
+                    if (kPs4IsoSkipDebugLog)
+                    {
+                        wchar_t sk[192] = {};
+                        swprintf_s(
+                            sk,
+                            _countof(sk),
+                            L"[PS4ISOskip] tag=%s hatLo=%u\r\n",
+                            iso.tag,
+                            s_ps4LastReportB5to9Valid
+                                ? static_cast<unsigned int>(s_ps4LastReportB5 & 0x0FU)
+                                : 0u);
+                        OutputDebugStringW(sk);
+                    }
                     continue;
                 }
             }
@@ -4546,6 +4611,64 @@ static DWORD Win32_GetFirstConnectedXInputSlotOrMax()
     return XUSER_MAX_COUNT;
 }
 
+static bool s_ps4DpadProbeHasPrev = false;
+static BYTE s_ps4DpadProbePrevB5Lo = 0;
+static std::uint8_t s_ps4DpadProbePrevDpadMask = 0;
+
+static bool s_ps4RawComboProbeHasPrev = false;
+static BYTE s_ps4RawComboProbePrevB5Lo = 0;
+static bool s_ps4RawComboProbePrevL1 = false;
+static std::uint32_t s_ps4RawComboProbeSeq = 0;
+
+static void Win32_Ps4DpadProbeResetState()
+{
+    s_ps4DpadProbeHasPrev = false;
+    s_ps4RawComboProbeHasPrev = false;
+}
+
+// slot=99 タイマー経路: rawB5 下位ニブルと curr.dpad* の変化のみ観測（DPad 単独実測用）
+static void Win32_LogPs4DpadProbeIfChanged(const VirtualInputSnapshot& curr)
+{
+    if (!kPs4DPadProbeDebugLog || !s_ps4LastReportB5to9Valid)
+    {
+        return;
+    }
+    const BYTE b5Lo = static_cast<BYTE>(s_ps4LastReportB5 & 0x0FU);
+    const std::uint8_t dpadMask = static_cast<std::uint8_t>(
+        (curr.dpadUp ? 1u : 0u) << 3u | (curr.dpadDown ? 1u : 0u) << 2u | (curr.dpadLeft ? 1u : 0u) << 1u
+        | (curr.dpadRight ? 1u : 0u));
+    if (!s_ps4DpadProbeHasPrev)
+    {
+        s_ps4DpadProbeHasPrev = true;
+        s_ps4DpadProbePrevB5Lo = b5Lo;
+        s_ps4DpadProbePrevDpadMask = dpadMask;
+        return;
+    }
+    const bool b5LoChanged = (b5Lo != s_ps4DpadProbePrevB5Lo);
+    const bool dpadChanged = (dpadMask != s_ps4DpadProbePrevDpadMask);
+    if (!b5LoChanged && !dpadChanged)
+    {
+        return;
+    }
+    const wchar_t* reason =
+        (b5LoChanged && dpadChanged) ? L"b5_lo+dpad" : (b5LoChanged ? L"b5_lo" : L"dpad");
+    wchar_t line[256] = {};
+    swprintf_s(
+        line,
+        _countof(line),
+        L"[PS4DPadProbe] rawB5=%02X hatLo=%u dpad=%d%d%d%d reason=%s\r\n",
+        static_cast<unsigned int>(s_ps4LastReportB5),
+        static_cast<unsigned int>(b5Lo),
+        curr.dpadUp ? 1 : 0,
+        curr.dpadDown ? 1 : 0,
+        curr.dpadLeft ? 1 : 0,
+        curr.dpadRight ? 1 : 0,
+        reason);
+    OutputDebugStringW(line);
+    s_ps4DpadProbePrevB5Lo = b5Lo;
+    s_ps4DpadProbePrevDpadMask = dpadMask;
+}
+
 // 入力レイヤー 1/3: XInput（verified API 経路）
 static void Win32_XInputPollDigitalEdgesOnTimer(HWND hwnd)
 {
@@ -4562,6 +4685,7 @@ static void Win32_XInputPollDigitalEdgesOnTimer(HWND hwnd)
             constexpr DWORD kPs4PseudoSlot = 99;
             s_virtualInputPrev = s_virtualInputCurr;
             s_virtualInputCurr = s_ps4HidVirtualFromLastReport;
+            Win32_LogPs4DpadProbeIfChanged(s_virtualInputCurr);
             Win32_LogVirtualInputPs4Slot99ShoulderGroupIfChanged(
                 s_virtualInputPrev, s_virtualInputCurr, kPs4PseudoSlot);
             Win32_LogPs4Slot99BridgeDeltaIfChanged(
@@ -4572,6 +4696,8 @@ static void Win32_XInputPollDigitalEdgesOnTimer(HWND hwnd)
             return;
         }
 
+        Win32_Ps4DebugLogBridgeResetIf(L"no_ds4_hid");
+        Win32_Ps4DpadProbeResetState();
         s_ps4LastReportB5to9Valid = false;
         s_ps4BridgeDeltaHasPrev = false;
         s_xinputPollPrevSlot = XUSER_MAX_COUNT;
@@ -4616,6 +4742,8 @@ static void Win32_XInputPollDigitalEdgesOnTimer(HWND hwnd)
     }
 
     s_ps4HidVirtualFromLastReportValid = false;
+    Win32_Ps4DebugLogBridgeResetIf(L"xinput_active");
+    Win32_Ps4DpadProbeResetState();
     s_ps4LastReportB5to9Valid = false;
     s_ps4BridgeDeltaHasPrev = false;
 
@@ -5262,6 +5390,45 @@ static void Win32_TryLogRawInputHidPs4AndBridge(const RAWINPUT* raw)
         s_ps4LastReportB8 = p[8];
         s_ps4LastReportB9 = p[9];
         s_ps4LastReportB5to9Valid = true;
+
+        // s_ps4HidVirtualFromLastReport は上の parseOk ブロックで既に snap と同期済み。hatLo/L1 変化時のみ WM_INPUT 生遷移を 1 行。
+        if (kPs4RawComboProbeDebugLog)
+        {
+            const BYTE b5Lo = static_cast<BYTE>(p[5] & 0x0FU);
+            const bool l1Now = (p[6] & 0x01) != 0;
+            if (!s_ps4RawComboProbeHasPrev)
+            {
+                s_ps4RawComboProbeHasPrev = true;
+                s_ps4RawComboProbePrevB5Lo = b5Lo;
+                s_ps4RawComboProbePrevL1 = l1Now;
+            }
+            else
+            {
+                const bool b5LoChanged = (b5Lo != s_ps4RawComboProbePrevB5Lo);
+                const bool l1Changed = (l1Now != s_ps4RawComboProbePrevL1);
+                if (b5LoChanged || l1Changed)
+                {
+                    ++s_ps4RawComboProbeSeq;
+                    wchar_t rc[256] = {};
+                    swprintf_s(
+                        rc,
+                        _countof(rc),
+                        L"[PS4RawCombo] b5=%02X hatLo=%u b6=%02X l1=%d seq=%u dpad=%d%d%d%d\r\n",
+                        static_cast<unsigned int>(p[5]),
+                        static_cast<unsigned int>(b5Lo),
+                        static_cast<unsigned int>(p[6]),
+                        l1Now ? 1 : 0,
+                        static_cast<unsigned int>(s_ps4RawComboProbeSeq),
+                        snap.dpadUp ? 1 : 0,
+                        snap.dpadDown ? 1 : 0,
+                        snap.dpadLeft ? 1 : 0,
+                        snap.dpadRight ? 1 : 0);
+                    OutputDebugStringW(rc);
+                    s_ps4RawComboProbePrevB5Lo = b5Lo;
+                    s_ps4RawComboProbePrevL1 = l1Now;
+                }
+            }
+        }
     }
 
     if (kPs4HidVerboseRawLog)
@@ -5523,9 +5690,14 @@ static void Win32_TryLogRawInputHidPs4AndBridge(const RAWINPUT* raw)
 }
 
 // WM_INPUT: XInput はタイマー側。ここは Raw HID — 既知 DS4 橋渡し or 汎用 HID 要約。
+// [HIDgen]: 同一 hDevice かつ usage/payload が前回と同じ場合は 500ms に 1 行まで（VID/PID のみでは別デバイスが交互に来たときに誤って連発しうる）
 static DWORD s_hidGenericLastLogTick = 0;
+static HANDLE s_hidGenericLastDevice = nullptr;
 static std::uint16_t s_hidGenericLastVid = 0;
 static std::uint16_t s_hidGenericLastPid = 0;
+static std::uint16_t s_hidGenericLastUsagePage = 0;
+static std::uint16_t s_hidGenericLastUsage = 0;
+static UINT s_hidGenericLastPayload = 0;
 
 static bool Win32_FillGameControllerHidSummaryFromRawInput(const RAWINPUT* raw, GameControllerHidSummary& out)
 {
@@ -5558,19 +5730,25 @@ static void Win32_LogGenericHidGamepadFallback(const RAWINPUT* raw, const GameCo
 {
     const RAWHID& hid = raw->data.hid;
     const UINT nBytes = hid.dwSizeHid * hid.dwCount;
+    const HANDLE hDev = raw->header.hDevice;
     ControllerParserKind pk{};
     ControllerSupportLevel sl{};
     Win32_ResolveHidProductTable(t.vendor_id, t.product_id, pk, sl);
     const DWORD now = GetTickCount();
-    const bool sameDev =
-        (t.vendor_id == s_hidGenericLastVid && t.product_id == s_hidGenericLastPid);
-    if (sameDev && (now - s_hidGenericLastLogTick) < 500u)
+    const bool sameSignature = (hDev == s_hidGenericLastDevice) && (t.vendor_id == s_hidGenericLastVid)
+        && (t.product_id == s_hidGenericLastPid) && (t.usage_page == s_hidGenericLastUsagePage)
+        && (t.usage == s_hidGenericLastUsage) && (nBytes == s_hidGenericLastPayload);
+    if (sameSignature && (now - s_hidGenericLastLogTick) < 500u)
     {
         return;
     }
     s_hidGenericLastLogTick = now;
+    s_hidGenericLastDevice = hDev;
     s_hidGenericLastVid = t.vendor_id;
     s_hidGenericLastPid = t.product_id;
+    s_hidGenericLastUsagePage = t.usage_page;
+    s_hidGenericLastUsage = t.usage;
+    s_hidGenericLastPayload = nBytes;
     wchar_t line[384] = {};
     swprintf_s(
         line,
