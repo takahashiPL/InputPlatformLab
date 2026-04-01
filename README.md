@@ -22,11 +22,11 @@ Windowsアプリの入力基盤試作プロジェクト。
 
 ## DS4 USB（Sony VID 054C）ボタンマップ（実機確認済み）
 `MainApp.cpp` の `Win32_FillVirtualInputFromDs4StyleHidReport` 参照。概要:
-- byte5: DPad hat（下位ニブル）, Share `0x10`, Circle `0x20`, Options `0x40`, R3 `0x80`
-- byte6: L1 `0x01`, R1 `0x02`, L2 `0x04`, R2 `0x08`, Square `0x10`, Cross `0x20`, L3 `0x40`, Triangle `0x80`
+- byte5: DPad hat（下位ニブル）, Share `0x10`, Circle `0x20`, Options `0x40`, R3 仮説 `0x80`（観測補強中・verified 本文へ未昇格）
+- byte6: L1 仮説 `0x01`, R1 `0x02`, L2 `0x04`, R2 `0x08`, Square `0x10`, Cross `0x20`, L3 `0x40`, Triangle `0x80`
 - byte7: PS `0x01`
 - byte8/9: L2/R2 アナログ
-- 調査用 WM_INPUT 冗長ログは `kPs4HidVerboseRawLog`（既定 `false`）。slot=99 の `[PS4VIchg]` / `[PS4ISO]` はタイマー側のまま。
+- 調査用 WM_INPUT 冗長ログは `kPs4HidVerboseRawLog`（既定 `false`）。slot=99 は `[PS4VIchg]`（肩・StSel・PS 等）に加え `[PS4Bridge]`（L1R1/L2R2/L3R3/PS + raw b5/b6/b8/b9 要約）、単発確認は `[PS4DS4ISO]`（DPad hat 中立時の L1/R3/L3/Tri 等）。
 
 ## 入力レイヤーと検証度（MainApp.cpp）
 アプリは次の 3 経路に分かれる（T18 の `parser` / `support` に反映）。
