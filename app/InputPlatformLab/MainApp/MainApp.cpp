@@ -3074,14 +3074,14 @@ static BYTE s_ps4BridgeDeltaPrevB9 = 0;
 static constexpr bool kPs4HidVerboseRawLog = false;
 // 一時調査: [PS4ISOskip] / [PS4BridgeReset] のみ。既定 false（通常時ログ量は増えない）
 // T18: [PS4ISOskip] がコンボで出ないのは skip のバグではなく、WM_INPUT 生が hatLo=8（中立）のフレームでは条件を満たさないため。README「DPad 混在時」参照。
-static constexpr bool kPs4IsoSkipDebugLog = true;
+static constexpr bool kPs4IsoSkipDebugLog = false;
 // T18: L1/R3/L3/Tri の candidate エッジで hat 分岐の直前に [PS4ISOprobe] 1 行。既定 false。
-static constexpr bool kPs4IsoProbeDebugLog = true;
+static constexpr bool kPs4IsoProbeDebugLog = false;
 // T18: byte5 下位ニブルまたは VirtualInput の dpad ビット変化時のみ [PS4DPadProbe] 1 行。既定 false。
-static constexpr bool kPs4DPadProbeDebugLog = true;
+static constexpr bool kPs4DPadProbeDebugLog = false;
 // T18: WM_INPUT 生レポートで hatLo または L1 ビット変化時のみ [PS4RawCombo] 1 行。既定 false。結論は README「DPad 混在時」。
-static constexpr bool kPs4RawComboProbeDebugLog = true;
-static constexpr bool kPs4BridgeResetDebugLog = true;
+static constexpr bool kPs4RawComboProbeDebugLog = false;
+static constexpr bool kPs4BridgeResetDebugLog = false;
 
 static DWORD s_ps4BridgeResetDebugLastTickNoDs4 = 0;
 static DWORD s_ps4BridgeResetDebugLastTickXinput = 0;
