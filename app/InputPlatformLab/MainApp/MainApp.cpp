@@ -4739,10 +4739,8 @@ static void Win32_XInputPollDigitalEdgesOnTimer(HWND hwnd)
         VirtualInput_ResetDisconnected(s_virtualInputPrev);
         VirtualInput_ResetDisconnected(s_virtualInputCurr);
         s_virtualInputConsumerHasPrev = false;
-        VirtualInputMenuSample_Reset(s_virtualInputMenuSampleState);
-        s_virtualInputMenuSampleDumpHasPrev = false;
+        // keyboard 由来の VirtualInputMenuSample（Tab の menuOpen 等）は XInput 不在のたびに VirtualInputMenuSample_Reset しない
         // keyboard edge 履歴は Win32_UnifiedInputConsumerMenuTick 末尾でのみ更新する（ここで同期すると矢印エッジが消える）
-        Win32_MenuSample_ResetPaintTracking(s_mainWindowHwnd);
         return;
     }
 
@@ -4761,9 +4759,6 @@ static void Win32_XInputPollDigitalEdgesOnTimer(HWND hwnd)
         VirtualInput_ResetDisconnected(s_virtualInputPrev);
         VirtualInput_ResetDisconnected(s_virtualInputCurr);
         s_virtualInputConsumerHasPrev = false;
-        VirtualInputMenuSample_Reset(s_virtualInputMenuSampleState);
-        s_virtualInputMenuSampleDumpHasPrev = false;
-        Win32_MenuSample_ResetPaintTracking(s_mainWindowHwnd);
         return;
     }
 
