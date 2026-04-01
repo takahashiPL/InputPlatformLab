@@ -92,6 +92,21 @@ enum class GameControllerKind : std::uint8_t
     XInputCompatible,
 };
 
+// 入力経路: XInput / 既知 Raw HID(DS4) / 汎用 HID。実機検証度は SupportLevel。
+enum class ControllerParserKind : std::uint8_t
+{
+    None = 0,
+    XInput,
+    Ds4KnownHid,
+    GenericHid,
+};
+
+enum class ControllerSupportLevel : std::uint8_t
+{
+    Verified = 0,
+    Tentative,
+};
+
 // 論理ボタン（物理番号・API とは未対応。将来 input/ 配下へ移設可能）
 enum class GamepadButtonId : std::uint8_t
 {
@@ -457,6 +472,76 @@ static bool Win32_HidTraitsLookLikeGamepad(const GameControllerHidSummary& t)
         (t.vendor_id == 0x045E || t.vendor_id == 0x054C || t.vendor_id == 0x057E);
 }
 
+// VID/PID → parser / support（DS4 のみ Verified+Known。他は暫定受け皿）
+struct ControllerHidProductTableEntry
+{
+    std::uint16_t vid;
+    std::uint16_t pid; // 0xFFFF = その VID の残り PID すべて（具体 PID 行より後に置く）
+    GameControllerKind family;
+    ControllerParserKind parser;
+    ControllerSupportLevel support;
+};
+
+static const ControllerHidProductTableEntry kControllerHidProductTable[] = {
+    { 0x054C, 0x05C4, GameControllerKind::PlayStation4, ControllerParserKind::Ds4KnownHid,
+        ControllerSupportLevel::Verified },
+    { 0x054C, 0x09CC, GameControllerKind::PlayStation4, ControllerParserKind::Ds4KnownHid,
+        ControllerSupportLevel::Verified },
+    { 0x054C, 0x0CE6, GameControllerKind::PlayStation5, ControllerParserKind::GenericHid,
+        ControllerSupportLevel::Tentative },
+    { 0x054C, 0x0DF2, GameControllerKind::PlayStation5, ControllerParserKind::GenericHid,
+        ControllerSupportLevel::Tentative },
+    { 0x057E, 0xFFFF, GameControllerKind::Nintendo, ControllerParserKind::GenericHid,
+        ControllerSupportLevel::Tentative },
+    { 0x045E, 0xFFFF, GameControllerKind::Xbox, ControllerParserKind::GenericHid,
+        ControllerSupportLevel::Tentative },
+};
+
+static void Win32_ResolveHidProductTable(
+    std::uint16_t vid,
+    std::uint16_t pid,
+    ControllerParserKind& outParser,
+    ControllerSupportLevel& outSupport)
+{
+    for (const ControllerHidProductTableEntry& e : kControllerHidProductTable)
+    {
+        if (e.vid != vid)
+        {
+            continue;
+        }
+        if (e.pid == pid || e.pid == 0xFFFF)
+        {
+            outParser = e.parser;
+            outSupport = e.support;
+            return;
+        }
+    }
+    outParser = ControllerParserKind::GenericHid;
+    outSupport = ControllerSupportLevel::Tentative;
+}
+
+static const wchar_t* Win32_ControllerParserKindLabel(ControllerParserKind p)
+{
+    switch (p)
+    {
+    case ControllerParserKind::None: return L"None";
+    case ControllerParserKind::XInput: return L"XInput";
+    case ControllerParserKind::Ds4KnownHid: return L"Ds4KnownHid";
+    case ControllerParserKind::GenericHid: return L"GenericHid";
+    default: return L"?";
+    }
+}
+
+static const wchar_t* Win32_ControllerSupportLevelLabel(ControllerSupportLevel s)
+{
+    switch (s)
+    {
+    case ControllerSupportLevel::Verified: return L"verified";
+    case ControllerSupportLevel::Tentative: return L"tentative";
+    default: return L"?";
+    }
+}
+
 // グローバル変数:
 HINSTANCE hInst;                                // 現在のインターフェイス
 WCHAR szTitle[MAX_LOADSTRING];                  // タイトル バーのテキスト
@@ -573,6 +658,8 @@ struct T18ControllerIdentifySnapshot
     wchar_t device_path[512];
     wchar_t product_name[256];
     GameControllerKind inferred_kind;
+    ControllerParserKind parser_kind;
+    ControllerSupportLevel support_level;
 };
 static T18ControllerIdentifySnapshot s_t18{};
 static T18ControllerIdentifySnapshot s_t18LogPrev{};
@@ -2523,6 +2610,7 @@ static void Win32_T18_AppendPaintSection(wchar_t* buf, size_t bufCount)
         L"slot: %s\r\n"
         L"vid: 0x%04X  pid: 0x%04X\r\n"
         L"inferred family: %s\r\n"
+        L"parser: %s  support: %s\r\n"
         L"product name: %s\r\n"
         L"device path: %s\r\n"
         L"(1 device: first HID gamepad in Raw Input order; XInput first connected slot)\r\n",
@@ -2530,6 +2618,8 @@ static void Win32_T18_AppendPaintSection(wchar_t* buf, size_t bufCount)
         vid,
         pid,
         Win32_GameControllerKindFamilyLabel(s_t18.inferred_kind),
+        Win32_ControllerParserKindLabel(s_t18.parser_kind),
+        Win32_ControllerSupportLevelLabel(s_t18.support_level),
         prodDisp,
         pathDisp);
     wcscat_s(buf, bufCount, block);
@@ -4376,6 +4466,7 @@ static DWORD Win32_GetFirstConnectedXInputSlotOrMax()
     return XUSER_MAX_COUNT;
 }
 
+// 入力レイヤー 1/3: XInput（verified API 経路）
 static void Win32_XInputPollDigitalEdgesOnTimer(HWND hwnd)
 {
     UNREFERENCED_PARAMETER(hwnd);
@@ -4385,7 +4476,7 @@ static void Win32_XInputPollDigitalEdgesOnTimer(HWND hwnd)
     const DWORD slot = Win32_GetFirstConnectedXInputSlotOrMax();
     if (slot >= XUSER_MAX_COUNT)
     {
-        // PS4 等: XInput なしでも Raw HID で届いていれば VirtualInput を更新（調査ログ [PS4HID] 参照）
+        // レイヤー 2: known DS4 HID が WM_INPUT で届いていれば VirtualInput を更新（DS4 verified マップ）
         if (s_ps4HidVirtualFromLastReportValid)
         {
             constexpr DWORD kPs4PseudoSlot = 99;
@@ -4812,10 +4903,14 @@ static void Win32_LogRawInputHidGameControllersClassified()
         const wchar_t* pathPtr = (pathBuf[0] != L'\0') ? pathBuf : nullptr;
 
         const GameControllerKind kind = Win32_ClassifyGameControllerKind(traits, productPtr, pathPtr, anyXInput);
+        ControllerParserKind pk{};
+        ControllerSupportLevel sl{};
+        Win32_ResolveHidProductTable(traits.vendor_id, traits.product_id, pk, sl);
 
         wchar_t line[1024] = {};
         swprintf_s(line, _countof(line),
-            L"Gamepad: kind=%s vid=0x%04X pid=0x%04X usage=0x%04X/0x%04X xinput_any=%d name=\"%s\" path=\"%s\"\r\n",
+            L"Gamepad: kind=%s vid=0x%04X pid=0x%04X usage=0x%04X/0x%04X xinput_any=%d name=\"%s\" path=\"%s\" "
+            L"parser=%s support=%s\r\n",
             Win32_GameControllerKindLabel(kind),
             static_cast<unsigned int>(traits.vendor_id),
             static_cast<unsigned int>(traits.product_id),
@@ -4823,7 +4918,9 @@ static void Win32_LogRawInputHidGameControllersClassified()
             static_cast<unsigned int>(traits.usage),
             anyXInput ? 1 : 0,
             productPtr ? productPtr : L"",
-            pathPtr ? pathPtr : L"");
+            pathPtr ? pathPtr : L"",
+            Win32_ControllerParserKindLabel(pk),
+            Win32_ControllerSupportLevelLabel(sl));
         OutputDebugStringW(line);
     }
 }
@@ -4838,6 +4935,8 @@ static void Win32_T18_LogIfChanged()
         (s_t18.hid.vendor_id == s_t18LogPrev.hid.vendor_id) &&
         (s_t18.hid.product_id == s_t18LogPrev.hid.product_id) &&
         (s_t18.inferred_kind == s_t18LogPrev.inferred_kind) &&
+        (s_t18.parser_kind == s_t18LogPrev.parser_kind) &&
+        (s_t18.support_level == s_t18LogPrev.support_level) &&
         (wcscmp(s_t18.product_name, s_t18LogPrev.product_name) == 0) &&
         (wcscmp(s_t18.device_path, s_t18LogPrev.device_path) == 0);
     if (same)
@@ -4853,11 +4952,13 @@ static void Win32_T18_LogIfChanged()
     swprintf_s(
         line,
         _countof(line),
-        L"[T18] slot=%d vid=0x%04X pid=0x%04X family=%s product=\"%s\" path=\"%s\"\r\n",
+        L"[T18] slot=%d vid=0x%04X pid=0x%04X family=%s parser=%s support=%s product=\"%s\" path=\"%s\"\r\n",
         s_t18.xinput_slot,
         vid,
         pid,
         Win32_GameControllerKindFamilyLabel(s_t18.inferred_kind),
+        Win32_ControllerParserKindLabel(s_t18.parser_kind),
+        Win32_ControllerSupportLevelLabel(s_t18.support_level),
         (s_t18.product_name[0] != L'\0') ? s_t18.product_name : L"",
         (s_t18.device_path[0] != L'\0') ? s_t18.device_path : L"");
     OutputDebugStringW(line);
@@ -4870,6 +4971,8 @@ static void Win32_T18_RefreshControllerIdentifySnapshot()
     snap.hid_found = false;
     snap.hid.device_info_valid = false;
     snap.inferred_kind = GameControllerKind::Unknown;
+    snap.parser_kind = ControllerParserKind::None;
+    snap.support_level = ControllerSupportLevel::Tentative;
 
     const DWORD slotDw = Win32_GetFirstConnectedXInputSlotOrMax();
     if (slotDw < XUSER_MAX_COUNT)
@@ -4941,6 +5044,11 @@ static void Win32_T18_RefreshControllerIdentifySnapshot()
 
                 snap.inferred_kind =
                     Win32_ClassifyGameControllerKind(traits, productPtr, pathPtr, anyXInput);
+                Win32_ResolveHidProductTable(
+                    traits.vendor_id,
+                    traits.product_id,
+                    snap.parser_kind,
+                    snap.support_level);
                 break;
             }
         }
@@ -4949,6 +5057,11 @@ static void Win32_T18_RefreshControllerIdentifySnapshot()
     if (!snap.hid_found)
     {
         snap.inferred_kind = anyXInput ? GameControllerKind::XInputCompatible : GameControllerKind::Unknown;
+        if (snap.xinput_slot >= 0 || anyXInput)
+        {
+            snap.parser_kind = ControllerParserKind::XInput;
+            snap.support_level = ControllerSupportLevel::Verified;
+        }
     }
 
     s_t18 = snap;
@@ -5315,6 +5428,88 @@ static void Win32_TryLogRawInputHidPs4AndBridge(const RAWINPUT* raw)
     }
 }
 
+// WM_INPUT: XInput はタイマー側。ここは Raw HID — 既知 DS4 橋渡し or 汎用 HID 要約。
+static DWORD s_hidGenericLastLogTick = 0;
+static std::uint16_t s_hidGenericLastVid = 0;
+static std::uint16_t s_hidGenericLastPid = 0;
+
+static bool Win32_FillGameControllerHidSummaryFromRawInput(const RAWINPUT* raw, GameControllerHidSummary& out)
+{
+    if (raw == nullptr || raw->header.dwType != RIM_TYPEHID)
+    {
+        return false;
+    }
+    const HANDLE hDev = raw->header.hDevice;
+    RID_DEVICE_INFO info = {};
+    info.cbSize = sizeof(info);
+    UINT cb = sizeof(info);
+    if (GetRawInputDeviceInfo(hDev, RIDI_DEVICEINFO, &info, &cb) == static_cast<UINT>(-1))
+    {
+        return false;
+    }
+    if (info.dwType != RIM_TYPEHID)
+    {
+        return false;
+    }
+    out = {};
+    out.device_info_valid = true;
+    out.vendor_id = static_cast<std::uint16_t>(info.hid.dwVendorId);
+    out.product_id = static_cast<std::uint16_t>(info.hid.dwProductId);
+    out.usage_page = info.hid.usUsagePage;
+    out.usage = info.hid.usUsage;
+    return true;
+}
+
+static void Win32_LogGenericHidGamepadFallback(const RAWINPUT* raw, const GameControllerHidSummary& t)
+{
+    const RAWHID& hid = raw->data.hid;
+    const UINT nBytes = hid.dwSizeHid * hid.dwCount;
+    ControllerParserKind pk{};
+    ControllerSupportLevel sl{};
+    Win32_ResolveHidProductTable(t.vendor_id, t.product_id, pk, sl);
+    const DWORD now = GetTickCount();
+    const bool sameDev =
+        (t.vendor_id == s_hidGenericLastVid && t.product_id == s_hidGenericLastPid);
+    if (sameDev && (now - s_hidGenericLastLogTick) < 500u)
+    {
+        return;
+    }
+    s_hidGenericLastLogTick = now;
+    s_hidGenericLastVid = t.vendor_id;
+    s_hidGenericLastPid = t.product_id;
+    wchar_t line[384] = {};
+    swprintf_s(
+        line,
+        _countof(line),
+        L"[HIDgen] vid=0x%04X pid=0x%04X usage=0x%04X/0x%04X payload=%u parser=%s support=%s (generic)\r\n",
+        static_cast<unsigned int>(t.vendor_id),
+        static_cast<unsigned int>(t.product_id),
+        static_cast<unsigned int>(t.usage_page),
+        static_cast<unsigned int>(t.usage),
+        static_cast<unsigned int>(nBytes),
+        Win32_ControllerParserKindLabel(pk),
+        Win32_ControllerSupportLevelLabel(sl));
+    OutputDebugStringW(line);
+}
+
+static void Win32_OnRawInputHidGamepadLayers(const RAWINPUT* raw)
+{
+    GameControllerHidSummary t{};
+    if (!Win32_FillGameControllerHidSummaryFromRawInput(raw, t) || !Win32_HidTraitsLookLikeGamepad(t))
+    {
+        return;
+    }
+    ControllerParserKind pk{};
+    ControllerSupportLevel sl{};
+    Win32_ResolveHidProductTable(t.vendor_id, t.product_id, pk, sl);
+    if (pk == ControllerParserKind::Ds4KnownHid && sl == ControllerSupportLevel::Verified)
+    {
+        Win32_TryLogRawInputHidPs4AndBridge(raw);
+        return;
+    }
+    Win32_LogGenericHidGamepadFallback(raw, t);
+}
+
 // ToUnicodeEx 用 keyState: 修飾キー自身の make では従来どおり空配列（GetKeyNameTextW フォールバック）を優先する。
 // 非修飾キーでは Shift のみ GetAsyncKeyState で反映（Ctrl/Alt/AltGr/CapsLock は T07 スコープ外）。
 static bool Win32_IsModifierVirtualKeyForLabel(UINT vk)
@@ -5520,7 +5715,7 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam)
 
             if (raw->header.dwType == RIM_TYPEHID)
             {
-                Win32_TryLogRawInputHidPs4AndBridge(raw);
+                Win32_OnRawInputHidGamepadLayers(raw);
             }
             else if (raw->header.dwType == RIM_TYPEKEYBOARD)
             {

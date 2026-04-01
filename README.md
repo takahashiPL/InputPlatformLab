@@ -27,3 +27,12 @@ Windowsアプリの入力基盤試作プロジェクト。
 - byte7: PS `0x01`
 - byte8/9: L2/R2 アナログ
 - 調査用 WM_INPUT 冗長ログは `kPs4HidVerboseRawLog`（既定 `false`）。slot=99 の `[PS4VIchg]` / `[PS4ISO]` はタイマー側のまま。
+
+## 入力レイヤーと検証度（MainApp.cpp）
+アプリは次の 3 経路に分かれる（T18 の `parser` / `support` に反映）。
+1. **XInput** — `XInputGetState` 系。`ControllerParserKind::XInput` + **verified**（Microsoft 公式 API 経路）。
+2. **Known Raw HID（DS4）** — VID/PID が `kControllerHidProductTable` の DS4 行に一致するときのみ `Win32_FillVirtualInputFromDs4StyleHidReport` で橋渡し。**verified**。
+3. **Generic HID fallback** — 上記以外のゲームパッド HID。`[HIDgen]` の要約ログ（500ms スロットル）のみ。ビットマップは未固定のため **tentative**。
+
+**verified** … 実機でマップまたは API 契約を固定したもの（現状は XInput と DS4 USB/BT のテーブル行）。  
+**tentative** … VID/PID や名称の受け皿のみ。PS5 / Nintendo / Microsoft HID ワイルドカード等は今後テーブル行を足して昇格させる。
