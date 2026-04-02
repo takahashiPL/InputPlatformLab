@@ -4,8 +4,6 @@
 #include "GamepadTypes.h"
 #include "VirtualInputMenuSample.h"
 
-#include <cstdint>
-
 // === T25 [3] VirtualInputSnapshot + helpers（中立） — 将来: VirtualInputSnapshot.h / VirtualInputHelpers.cpp ===
 // 1 フレーム分の仮想入力（Win32 型なし。将来 input/ 配下へ移設可能）
 struct VirtualInputSnapshot
@@ -31,13 +29,13 @@ struct VirtualInputSnapshot
 
     bool l2Pressed;
     bool r2Pressed;
-    std::uint8_t leftTriggerRaw;
-    std::uint8_t rightTriggerRaw;
+    UINT8 leftTriggerRaw;
+    UINT8 rightTriggerRaw;
 
-    std::int16_t leftStickX;
-    std::int16_t leftStickY;
-    std::int16_t rightStickX;
-    std::int16_t rightStickY;
+    INT16 leftStickX;
+    INT16 leftStickY;
+    INT16 rightStickX;
+    INT16 rightStickY;
 
     bool leftInDeadzone;
     GamepadLeftStickDir leftDir;
@@ -76,8 +74,8 @@ bool VirtualInput_RightInDeadzone(const VirtualInputSnapshot& s);
 // DPad または左スティックから得た -1/0/+1 の移動（そのフレームの held）。
 struct VirtualInputPolicyHeld
 {
-    std::int8_t moveX;
-    std::int8_t moveY;
+    INT8 moveX;
+    INT8 moveY;
 };
 
 // South / East / Start の pressed エッジ（confirm / cancel / menu）。
@@ -88,9 +86,9 @@ struct VirtualInputPolicyMenuEdges
     bool menu;
 };
 
-std::int8_t VirtualInputPolicy_ClampNeg1_0_1(int v);
-void VirtualInputPolicy_FillMoveFromDpad(const VirtualInputSnapshot& s, std::int8_t& outX, std::int8_t& outY);
-void VirtualInputPolicy_FillMoveFromLeftStick(const VirtualInputSnapshot& s, std::int8_t& outX, std::int8_t& outY);
+INT8 VirtualInputPolicy_ClampNeg1_0_1(INT32 v);
+void VirtualInputPolicy_FillMoveFromDpad(const VirtualInputSnapshot& s, INT8& outX, INT8& outY);
+void VirtualInputPolicy_FillMoveFromLeftStick(const VirtualInputSnapshot& s, INT8& outX, INT8& outY);
 VirtualInputPolicyHeld VirtualInputPolicy_MoveHeld(const VirtualInputSnapshot& s);
 VirtualInputPolicyMenuEdges VirtualInputPolicy_MenuEdges(
     const VirtualInputSnapshot& prev,

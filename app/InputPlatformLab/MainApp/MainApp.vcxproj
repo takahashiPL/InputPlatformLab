@@ -139,6 +139,7 @@
     <ClInclude Include="include\MainApp.h" />
     <ClInclude Include="include\Resource.h" />
     <ClInclude Include="include\targetver.h" />
+    <ClInclude Include="include\CommonTypes.h" />
     <ClInclude Include="include\ControllerClassification.h" />
     <ClInclude Include="include\GamepadTypes.h" />
     <ClInclude Include="include\InputCore.h" />

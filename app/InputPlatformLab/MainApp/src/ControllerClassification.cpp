@@ -34,8 +34,8 @@ const ControllerHidProductTableEntry kControllerHidProductTable[] = {
 
 // テーブル一致時は Ds4KnownHid や verified を付与。無ければ GenericHid + tentative に落とす。
 void Win32_ResolveHidProductTable(
-    std::uint16_t vid,
-    std::uint16_t pid,
+    UINT16 vid,
+    UINT16 pid,
     ControllerParserKind& outParser,
     ControllerSupportLevel& outSupport)
 {

@@ -63,8 +63,8 @@ bool WindowsRenderer_InitPlaceholder(HWND hwnd, const WindowsRendererConfig& cfg
     }
     WindowsRenderer_ShutdownPlaceholder(outState);
 
-    const std::uint32_t w = (std::max)(1u, cfg.clientWidth);
-    const std::uint32_t h = (std::max)(1u, cfg.clientHeight);
+    const UINT32 w = (std::max)(1u, cfg.clientWidth);
+    const UINT32 h = (std::max)(1u, cfg.clientHeight);
 
     OutputDebugStringW(L"[D3D11] init: D3D11CreateDeviceAndSwapChain (loads d3d11.dll / dxgi.dll on demand)\r\n");
 
@@ -180,7 +180,7 @@ void WindowsRenderer_ShutdownPlaceholder(WindowsRendererState* state)
 }
 
 // WM_SIZE に合わせてバックバッファを ResizeBuffers し、RTV を作り直す。
-void WindowsRenderer_OnResizePlaceholder(WindowsRendererState* state, std::uint32_t clientW, std::uint32_t clientH)
+void WindowsRenderer_OnResizePlaceholder(WindowsRendererState* state, UINT32 clientW, UINT32 clientH)
 {
     if (!state || !state->initialized || !state->swapChain || !state->device)
     {

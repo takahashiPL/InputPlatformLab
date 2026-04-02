@@ -87,7 +87,7 @@ bool VirtualInput_RightInDeadzone(const VirtualInputSnapshot& s)
     return s.rightInDeadzone;
 }
 
-std::int8_t VirtualInputPolicy_ClampNeg1_0_1(int v)
+INT8 VirtualInputPolicy_ClampNeg1_0_1(INT32 v)
 {
     if (v < -1)
     {
@@ -97,17 +97,17 @@ std::int8_t VirtualInputPolicy_ClampNeg1_0_1(int v)
     {
         return 1;
     }
-    return static_cast<std::int8_t>(v);
+    return static_cast<INT8>(v);
 }
 
 // ---------------------------------------------------------------------------
 // ポリシー: メニュー試作向けの move（DPad 優先）と confirm/cancel/menu（エッジ）
 // ---------------------------------------------------------------------------
 
-void VirtualInputPolicy_FillMoveFromDpad(const VirtualInputSnapshot& s, std::int8_t& outX, std::int8_t& outY)
+void VirtualInputPolicy_FillMoveFromDpad(const VirtualInputSnapshot& s, INT8& outX, INT8& outY)
 {
-    int x = 0;
-    int y = 0;
+    INT32 x = 0;
+    INT32 y = 0;
     if (s.dpadLeft)
     {
         x -= 1;
@@ -129,7 +129,7 @@ void VirtualInputPolicy_FillMoveFromDpad(const VirtualInputSnapshot& s, std::int
 }
 
 // 左スティックを 4 方向の離散値に落とす（deadzone 済みの leftDir を前提）。
-void VirtualInputPolicy_FillMoveFromLeftStick(const VirtualInputSnapshot& s, std::int8_t& outX, std::int8_t& outY)
+void VirtualInputPolicy_FillMoveFromLeftStick(const VirtualInputSnapshot& s, INT8& outX, INT8& outY)
 {
     outX = 0;
     outY = 0;
@@ -194,8 +194,8 @@ VirtualInputConsumerFrame VirtualInputConsumer_BuildFrameFromKeyboardState(
     const KeyboardActionState& currKs)
 {
     VirtualInputConsumerFrame f{};
-    std::int8_t mx = 0;
-    std::int8_t my = 0;
+    INT8 mx = 0;
+    INT8 my = 0;
     if (currKs.left && !currKs.right)
     {
         mx = -1;

@@ -79,8 +79,8 @@
 // プラットフォーム中立な物理キーイベント（将来 input/ 配下へ移設可能）
 struct PhysicalKeyEvent
 {
-    std::uint16_t native_key_code; // Win32 では仮想キー（VK）に相当
-    std::uint16_t scan_code;       // スキャンコード（拡張プレフィックスは is_extended_* と併用）
+    UINT16 native_key_code; // Win32 では仮想キー（VK）に相当
+    UINT16 scan_code;       // スキャンコード（拡張プレフィックスは is_extended_* と併用）
     bool is_extended_0;            // 拡張キー前置 E0 相当
     bool is_extended_1;            // 拡張キー前置 E1 相当
     bool is_key_up;                // 離上（break）なら true
@@ -91,11 +91,11 @@ struct PhysicalKeyEvent
 // XInput スロット列挙結果（将来 input/ 配下へ移設可能）
 struct ControllerSlotProbeResult
 {
-    std::uint8_t slot;        // 0..3
+    UINT8 slot;        // 0..3
     bool connected;
-    std::uint8_t type;        // XINPUT_CAPABILITIES::Type
-    std::uint8_t sub_type;    // XINPUT_CAPABILITIES::SubType
-    std::uint16_t flags;      // XINPUT_CAPABILITIES::Flags
+    UINT8 type;        // XINPUT_CAPABILITIES::Type
+    UINT8 sub_type;    // XINPUT_CAPABILITIES::SubType
+    UINT16 flags;      // XINPUT_CAPABILITIES::Flags
 };
 
 // T20: VirtualInputSnapshot / policy / keyboard→consumer — VirtualInputNeutral.h / VirtualInputNeutral.cpp
@@ -190,7 +190,7 @@ struct MainWindowConfig
 };
 
 // T17: Windowed / Borderless / Fullscreen（monitor 0 固定）
-enum class T17PresentationMode : std::uint8_t
+enum class T17PresentationMode : UINT8
 {
     Windowed = 0,
     Borderless = 1,
@@ -324,7 +324,7 @@ static void Win32_FillLayoutTag(wchar_t* buffer, size_t bufferCount);
 static void PhysicalKey_FormatDebugLine(const PhysicalKeyEvent& ev, const wchar_t* displayLabel, const wchar_t* layoutTag, wchar_t* buffer, size_t bufferCount);
 
 // [8] XInput slot probe / startup
-static void Win32_FillControllerSlotProbe(std::uint8_t slot, ControllerSlotProbeResult& out);
+static void Win32_FillControllerSlotProbe(UINT8 slot, ControllerSlotProbeResult& out);
 static void Win32_LogControllerSlotProbeLine(const ControllerSlotProbeResult& probe);
 static void Win32_LogXInputSlotsAtStartup();
 
@@ -1482,9 +1482,9 @@ static bool Win32_RecreateMainWindowFromConfig(HWND oldHwnd, const MainWindowCon
         RECT cr{};
         GetClientRect(newHwnd, &cr);
         WindowsRendererConfig wrCfg{};
-        wrCfg.clientWidth = static_cast<std::uint32_t>(
+        wrCfg.clientWidth = static_cast<UINT32>(
             (std::max)(0, static_cast<int>(cr.right - cr.left)));
-        wrCfg.clientHeight = static_cast<std::uint32_t>(
+        wrCfg.clientHeight = static_cast<UINT32>(
             (std::max)(0, static_cast<int>(cr.bottom - cr.top)));
         WindowsRenderer_ShutdownPlaceholder(&s_windowsRendererState);
         (void)WindowsRenderer_InitPlaceholder(newHwnd, wrCfg, &s_windowsRendererState);
@@ -2408,9 +2408,9 @@ BOOL InitInstance(HINSTANCE hInstance, int nCmdShow)
       RECT cr{};
       GetClientRect(hWnd, &cr);
       WindowsRendererConfig wrCfg{};
-      wrCfg.clientWidth = static_cast<std::uint32_t>(
+      wrCfg.clientWidth = static_cast<UINT32>(
           (std::max)(0, static_cast<int>(cr.right - cr.left)));
-      wrCfg.clientHeight = static_cast<std::uint32_t>(
+      wrCfg.clientHeight = static_cast<UINT32>(
           (std::max)(0, static_cast<int>(cr.bottom - cr.top)));
       (void)WindowsRenderer_InitPlaceholder(hWnd, wrCfg, &s_windowsRendererState);
    }
@@ -2466,7 +2466,7 @@ static BOOL Win32_RegisterKeyboardRawInput(HWND hwnd)
 }
 
 // === T25 [8] Win32: XInput スロット列挙・接続確認（先頭接続スロット前提の土台） ===
-static void Win32_FillControllerSlotProbe(std::uint8_t slot, ControllerSlotProbeResult& out)
+static void Win32_FillControllerSlotProbe(UINT8 slot, ControllerSlotProbeResult& out)
 {
     out.slot = slot;
     out.connected = false;
@@ -2508,7 +2508,7 @@ static void Win32_LogControllerSlotProbeLine(const ControllerSlotProbeResult& pr
 
 static void Win32_LogXInputSlotsAtStartup()
 {
-    for (std::uint8_t i = 0; i < XUSER_MAX_COUNT; ++i)
+    for (UINT8 i = 0; i < XUSER_MAX_COUNT; ++i)
     {
         ControllerSlotProbeResult probe{};
         Win32_FillControllerSlotProbe(i, probe);
@@ -2650,8 +2650,8 @@ static void GamepadButton_LogLabelTablesAtStartup()
         swprintf_s(header, _countof(header), L"family=%s\r\n", Win32_GameControllerKindLabel(family));
         OutputDebugStringW(header);
 
-        const auto count = static_cast<std::uint8_t>(GamepadButtonId::Count);
-        for (std::uint8_t i = 0; i < count; ++i)
+        const auto count = static_cast<UINT8>(GamepadButtonId::Count);
+        for (UINT8 i = 0; i < count; ++i)
         {
             const GamepadButtonId bid = static_cast<GamepadButtonId>(i);
             wchar_t line[192] = {};
@@ -2769,7 +2769,7 @@ static void Win32_Ps4DebugLogBridgeResetIf(const wchar_t* reason)
 }
 
 // T13: サンプル画面用（prevMove は毎フレーム変わり得るため Invalidate 判定から除外）
-enum class MenuSampleUiLastEventKind : std::uint8_t
+enum class MenuSampleUiLastEventKind : UINT8
 {
     None = 0,
     Toggle,
@@ -2780,8 +2780,8 @@ enum class MenuSampleUiLastEventKind : std::uint8_t
 static MenuSampleUiLastEventKind s_menuSampleUiLastEvent = MenuSampleUiLastEventKind::None;
 static bool s_menuSamplePaintHasPrev = false;
 static bool s_menuSamplePaintPrevOpen = false;
-static std::int8_t s_menuSamplePaintPrevSelX = 0;
-static std::int8_t s_menuSamplePaintPrevSelY = 0;
+static INT8 s_menuSamplePaintPrevSelX = 0;
+static INT8 s_menuSamplePaintPrevSelY = 0;
 static MenuSampleUiLastEventKind s_menuSamplePaintPrevEvent = MenuSampleUiLastEventKind::None;
 
 // === T25 [8] Win32: スティックデッドゾーン・方向（XInput 生値 → 中立 enum） ===
@@ -3921,12 +3921,12 @@ static DWORD Win32_GetFirstConnectedXInputSlotOrMax()
 
 static bool s_ps4DpadProbeHasPrev = false;
 static BYTE s_ps4DpadProbePrevB5Lo = 0;
-static std::uint8_t s_ps4DpadProbePrevDpadMask = 0;
+static UINT8 s_ps4DpadProbePrevDpadMask = 0;
 
 static bool s_ps4RawComboProbeHasPrev = false;
 static BYTE s_ps4RawComboProbePrevB5Lo = 0;
 static bool s_ps4RawComboProbePrevL1 = false;
-static std::uint32_t s_ps4RawComboProbeSeq = 0;
+static UINT32 s_ps4RawComboProbeSeq = 0;
 
 static void Win32_Ps4DpadProbeResetState()
 {
@@ -3942,7 +3942,7 @@ static void Win32_LogPs4DpadProbeIfChanged(const VirtualInputSnapshot& curr)
         return;
     }
     const BYTE b5Lo = static_cast<BYTE>(s_ps4LastReportB5 & 0x0FU);
-    const std::uint8_t dpadMask = static_cast<std::uint8_t>(
+    const UINT8 dpadMask = static_cast<UINT8>(
         (curr.dpadUp ? 1u : 0u) << 3u | (curr.dpadDown ? 1u : 0u) << 2u | (curr.dpadLeft ? 1u : 0u) << 1u
         | (curr.dpadRight ? 1u : 0u));
     if (!s_ps4DpadProbeHasPrev)
@@ -4340,8 +4340,8 @@ static void Win32_LogRawInputHidGameControllersClassified()
 
         GameControllerHidSummary traits = {};
         traits.device_info_valid = true;
-        traits.vendor_id = static_cast<std::uint16_t>(info.hid.dwVendorId);
-        traits.product_id = static_cast<std::uint16_t>(info.hid.dwProductId);
+        traits.vendor_id = static_cast<UINT16>(info.hid.dwVendorId);
+        traits.product_id = static_cast<UINT16>(info.hid.dwProductId);
         traits.usage_page = info.hid.usUsagePage;
         traits.usage = info.hid.usUsage;
 
@@ -4471,8 +4471,8 @@ static void Win32_T18_RefreshControllerIdentifySnapshot()
 
                 GameControllerHidSummary traits = {};
                 traits.device_info_valid = true;
-                traits.vendor_id = static_cast<std::uint16_t>(info.hid.dwVendorId);
-                traits.product_id = static_cast<std::uint16_t>(info.hid.dwProductId);
+                traits.vendor_id = static_cast<UINT16>(info.hid.dwVendorId);
+                traits.product_id = static_cast<UINT16>(info.hid.dwProductId);
                 traits.usage_page = info.hid.usUsagePage;
                 traits.usage = info.hid.usUsage;
 
@@ -4555,7 +4555,7 @@ static void Win32_UpdateKeyboardActionStateFromPhysicalKey(const PhysicalKeyEven
 // === T25 [1] 続き: PhysicalKeyEvent の Raw Input 取得・表示ラベル・デバッグ行 ===
 static void Win32_FillPhysicalKeyFromRawKeyboard(const RAWKEYBOARD& kb, PhysicalKeyEvent& out)
 {
-    out.native_key_code = static_cast<std::uint16_t>(kb.VKey);
+    out.native_key_code = static_cast<UINT16>(kb.VKey);
     out.scan_code = kb.MakeCode;
     out.is_extended_0 = (kb.Flags & RI_KEY_E0) != 0;
     out.is_extended_1 = (kb.Flags & RI_KEY_E1) != 0;
@@ -4937,8 +4937,8 @@ static void Win32_TryLogRawInputHidPs4AndBridge(const RAWINPUT* raw)
 static constexpr DWORD kHidGenericLogMinIntervalMs = 1000u;
 static constexpr bool kHidGenThrottleDebugLog = false; // true で [HIDgenDbg]（調査時のみ）
 static DWORD s_hidGenericLastLogTick = 0;
-static std::uint16_t s_hidGenericLastVid = 0;
-static std::uint16_t s_hidGenericLastPid = 0;
+static UINT16 s_hidGenericLastVid = 0;
+static UINT16 s_hidGenericLastPid = 0;
 
 static bool Win32_FillGameControllerHidSummaryFromRawInput(const RAWINPUT* raw, GameControllerHidSummary& out)
 {
@@ -4960,8 +4960,8 @@ static bool Win32_FillGameControllerHidSummaryFromRawInput(const RAWINPUT* raw, 
     }
     out = {};
     out.device_info_valid = true;
-    out.vendor_id = static_cast<std::uint16_t>(info.hid.dwVendorId);
-    out.product_id = static_cast<std::uint16_t>(info.hid.dwProductId);
+    out.vendor_id = static_cast<UINT16>(info.hid.dwVendorId);
+    out.product_id = static_cast<UINT16>(info.hid.dwProductId);
     out.usage_page = info.hid.usUsagePage;
     out.usage = info.hid.usUsage;
     return true;
@@ -5252,10 +5252,10 @@ static void Win32_WndProc_OnClientSize(HWND hWnd)
 {
     RECT cr{};
     GetClientRect(hWnd, &cr);
-    const std::uint32_t cw = static_cast<std::uint32_t>(
-        (std::max)(0, static_cast<int>(cr.right - cr.left)));
-    const std::uint32_t ch = static_cast<std::uint32_t>(
-        (std::max)(0, static_cast<int>(cr.bottom - cr.top)));
+    const UINT32 cw = static_cast<UINT32>(
+                (std::max)(0, static_cast<int>(cr.right - cr.left)));
+    const UINT32 ch = static_cast<UINT32>(
+                (std::max)(0, static_cast<int>(cr.bottom - cr.top)));
     WindowsRenderer_OnResizePlaceholder(&s_windowsRendererState, cw, ch);
 }
 

@@ -36,6 +36,9 @@
     <ClInclude Include="include\targetver.h">
       <Filter>include</Filter>
     </ClInclude>
+    <ClInclude Include="include\CommonTypes.h">
+      <Filter>include</Filter>
+    </ClInclude>
     <ClInclude Include="include\ControllerClassification.h">
       <Filter>include</Filter>
     </ClInclude>

@@ -1,13 +1,13 @@
-﻿// T26: VirtualInputConsumerFrame + メニュー試作（Win32 / XInput 非依存）。header-only。
+// T26: VirtualInputConsumerFrame + メニュー試作（Win32 / XInput 非依存）。header-only。
 #pragma once
 
-#include <cstdint>
+#include "CommonTypes.h"
 
 // T21: 消費側 1 フレーム分（VirtualInputSnapshot / XInput を知らない層向け）
 struct VirtualInputConsumerFrame
 {
-    std::int8_t moveX;
-    std::int8_t moveY;
+    INT8 moveX;
+    INT8 moveY;
     bool confirmPressed;
     bool cancelPressed;
     bool menuPressed;
@@ -25,10 +25,10 @@ struct VirtualInputConsumerFrame
 struct VirtualInputMenuSampleState
 {
     bool menuOpen;
-    std::int8_t selectionX;
-    std::int8_t selectionY;
-    std::int8_t prevMoveX;
-    std::int8_t prevMoveY;
+    INT8 selectionX;
+    INT8 selectionY;
+    INT8 prevMoveX;
+    INT8 prevMoveY;
 };
 
 struct VirtualInputMenuSampleEvents
@@ -45,7 +45,7 @@ inline void VirtualInputMenuSample_Reset(VirtualInputMenuSampleState& s)
     s = {};
 }
 
-inline std::int8_t VirtualInputMenuSample_ClampSelection(std::int8_t v)
+inline INT8 VirtualInputMenuSample_ClampSelection(INT8 v)
 {
     if (v < 0)
     {
@@ -87,19 +87,19 @@ inline VirtualInputMenuSampleEvents VirtualInputMenuSample_Apply(
 
     if (s.menuOpen)
     {
-        const std::int8_t osx = s.selectionX;
-        const std::int8_t osy = s.selectionY;
+        const INT8 osx = s.selectionX;
+        const INT8 osy = s.selectionY;
         const bool mxEdge = (s.prevMoveX == 0 && f.moveX != 0);
         const bool myEdge = (s.prevMoveY == 0 && f.moveY != 0);
         if (mxEdge)
         {
             s.selectionX = VirtualInputMenuSample_ClampSelection(
-                static_cast<std::int8_t>(s.selectionX + f.moveX));
+                static_cast<INT8>(s.selectionX + f.moveX));
         }
         if (myEdge)
         {
             s.selectionY = VirtualInputMenuSample_ClampSelection(
-                static_cast<std::int8_t>(s.selectionY + f.moveY));
+                static_cast<INT8>(s.selectionY + f.moveY));
         }
         if (osx != s.selectionX || osy != s.selectionY)
         {
