@@ -1,6 +1,18 @@
 # InputPlatformLab
 
-Windowsアプリの入力基盤試作プロジェクト。
+Windows アプリの入力基盤試作プロジェクトです。キーボード・ゲームパッドの取得、論理入力への正規化、モニタ解像度一覧と表示モード周りの検証を行います。メイン実装は Visual Studio の **MainApp**（`app/InputPlatformLab/MainApp/`）にあります。
+
+## ドキュメント
+
+第三者が参加する際は、まず次を参照してください。
+
+| 文書 | 内容 |
+|------|------|
+| [docs/architecture.md](docs/architecture.md) | フォルダ構成（`include` / `src` / `resources` / `platform/win`）の意味、`platform` での OS 分離、将来のプラットフォーム追加の考え方（例: `platform/ps4`） |
+| [docs/api_reference.md](docs/api_reference.md) | 主要ソースファイルの役割、主要 API の要点、**初期化と WM_INPUT / WM_TIMER / WM_PAINT の実行フロー** |
+| [docs/decisions.md](docs/decisions.md) | 再利用・移植に効く**設計判断**の記録（テンプレート付き） |
+| [docs/roadmap.md](docs/roadmap.md) | **段階計画・見通し**（テンプレート付き。期限の管理用ではない） |
+| [docs/worklog.md](docs/worklog.md) | **作業履歴と確認結果**（テンプレート付き） |
 
 ## 目的
 - キーボード入力の取得
