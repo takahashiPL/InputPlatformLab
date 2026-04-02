@@ -1,10 +1,14 @@
-﻿#include "WindowsRenderer.h"
+#include "WindowsRenderer.h"
 
 #include <algorithm>
 #include <stdio.h>
 
 #pragma comment(lib, "d3d11.lib")
 #pragma comment(lib, "dxgi.lib")
+
+// ---------------------------------------------------------------------------
+// D3D11: スワップチェーンでクライアントをクリアして Present するのみ（テキスト・UI は WM_PAINT の GDI 側）
+// ---------------------------------------------------------------------------
 
 namespace
 {
@@ -49,6 +53,7 @@ bool WindowsRenderer_InternalCreateRtv(WindowsRendererState* s)
 }
 } // namespace
 
+// デバイス・スワップチェーン・RTV を作成。DLL はこの呼び出しでロードされる。
 bool WindowsRenderer_InitPlaceholder(HWND hwnd, const WindowsRendererConfig& cfg, WindowsRendererState* outState)
 {
     if (!outState || !hwnd)
@@ -135,6 +140,7 @@ bool WindowsRenderer_InitPlaceholder(HWND hwnd, const WindowsRendererConfig& cfg
     return true;
 }
 
+// COM 参照を解放し、状態を無効化。
 void WindowsRenderer_ShutdownPlaceholder(WindowsRendererState* state)
 {
     if (!state)
@@ -173,6 +179,7 @@ void WindowsRenderer_ShutdownPlaceholder(WindowsRendererState* state)
     s_loggedPresentOk = false;
 }
 
+// WM_SIZE に合わせてバックバッファを ResizeBuffers し、RTV を作り直す。
 void WindowsRenderer_OnResizePlaceholder(WindowsRendererState* state, std::uint32_t clientW, std::uint32_t clientH)
 {
     if (!state || !state->initialized || !state->swapChain || !state->device)
@@ -231,6 +238,7 @@ void WindowsRenderer_OnResizePlaceholder(WindowsRendererState* state, std::uint3
     }
 }
 
+// RTV をクリアして Present。直後に GDI が同じクライアント上に文字を重ねる想定。
 void WindowsRenderer_RenderPlaceholder(WindowsRendererState* state, HWND hwnd)
 {
     if (!state || !state->initialized || !state->context || !state->swapChain || !state->rtv)

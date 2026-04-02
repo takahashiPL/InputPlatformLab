@@ -1,4 +1,4 @@
-﻿// MainApp.cpp : アプリケーションのエントリ ポイントを定義します。
+// MainApp.cpp : アプリケーションのエントリ ポイントを定義します。
 //
 
 #include "framework.h"
@@ -228,6 +228,13 @@ static T18ControllerIdentifySnapshot s_t18{};
 static T18ControllerIdentifySnapshot s_t18LogPrev{};
 static bool s_t18HasLogPrev = false;
 
+// T14〜T18 のまとまり（このファイル内のサンプル用デバッグ範囲）:
+//   T14: 列挙モードの選択・表示（T15 近傍の * 表示など）
+//   T15: 希望プリセットに対する最近傍（列挙結果の参照のみ。モード変更の直接適用ではない）
+//   T16: DPI・クライアントサイズ・ウィンドウ再生成
+//   T17: Windowed / Borderless / Fullscreen（F6 で候補循環、Enter で適用）
+//   T18: 画面上の「1 台」向け識別（Raw Input 先頭の HID ゲームパッド + XInput 先頭スロット）
+
 // メイン画面デバッグ表示の縦スクロール（T13〜T18 全体）。Win32DebugOverlay.cpp と共有。
 int s_paintScrollY = 0;
 int s_paintScrollLinePx = 16; // WM_PAINT で TEXTMETRIC から更新
@@ -374,6 +381,28 @@ static void Win32_LogVirtualInputMenuSample_StateDumpIfChanged(
 static DWORD Win32_GetFirstConnectedXInputSlotOrMax();
 static void Win32_XInputPollDigitalEdgesOnTimer(HWND hwnd);
 
+// WndProc から切り出した薄いハンドラ（挙動は元 case と同一）
+static void Win32_WndProc_OnRawInput(LPARAM lParam);
+static void Win32_WndProc_OnXInputPollTimer(HWND hWnd);
+static void Win32_WndProc_OnClientSize(HWND hWnd);
+static bool Win32_WndProc_OnVScroll(HWND hWnd, WPARAM wParam, LPARAM lParam, UINT message, LRESULT* outDefResult);
+static void Win32_WndProc_OnMouseWheel(HWND hWnd, WPARAM wParam);
+static void Win32_WndProc_OnPaint(HWND hWnd);
+
+// Win32_FillMenuSamplePaintBuffers の分割（T14〜T17 本文 + T18 追記）
+static void Win32_FillMenuSamplePaintBuffers_MenuColumn(wchar_t* menuBuf, size_t menuBufCount);
+static void Win32_FillMenuSamplePaintBuffers_T14T15Column(wchar_t* t14Buf, size_t t14BufCount);
+static void Win32_FillMenuSamplePaintBuffers_AppendT16T18T17(
+    HWND hwnd,
+    const RECT& rcClient,
+    wchar_t* t14Buf,
+    size_t t14BufCount);
+
+// menuOpen / 統合 Consumer の境界
+static void Win32_UnifiedInputMenuTick_ClearPendingT17IfMenuOpen(void);
+static void Win32_UnifiedInputMenuTick_WhenMenuClosed(HWND hwndForPaint);
+static void Win32_UnifiedInputMenuTick_MergeAndApply(HWND hwndForPaint);
+
 static void Win32_InitProcessDpiAwareness()
 {
     BOOL ok = FALSE;
@@ -466,6 +495,10 @@ ATOM MyRegisterClass(HINSTANCE hInstance)
     return RegisterClassExW(&wcex);
 }
 
+// ---------------------------------------------------------------------------
+// T14: ディスプレイ列挙（モニターと解像度のキャッシュ）
+// ---------------------------------------------------------------------------
+
 static BOOL CALLBACK Win32_DisplayMonitorEnumProc(
     HMONITOR hMonitor,
     HDC hdcMonitor,
@@ -528,6 +561,7 @@ static BOOL CALLBACK Win32_DisplayMonitorEnumProc(
     return TRUE;
 }
 
+// 起動時などに 1 回、モニターと EnumDisplaySettings のモード一覧を詰める。
 static void Win32_DisplayEnumerateAndCache()
 {
     s_displayMonitorsCache.clear();
@@ -572,6 +606,7 @@ static void Win32_LogDisplayMonitors()
     OutputDebugStringW(L"--- T14 end ---\r\n");
 }
 
+// 列挙直後に選択インデックスと「表示ウィンドウ先頭」を有効範囲に収める。
 static void Win32_T14_ClampIndicesAfterEnumerate()
 {
     if (s_displayMonitorsCache.empty() ||
@@ -673,7 +708,10 @@ static void Win32_T14_TryScrollFromKeyboardEdges(bool upEdge, bool downEdge, HWN
     InvalidateRect(hwnd, nullptr, FALSE);
 }
 
+// ---------------------------------------------------------------------------
+// T15: 希望解像度プリセット → 最近傍モード（スコア比較。実ディスプレイへの適用は T17 側）
 // T15 non-exact: 主に W/H のズレ（縦を強め）と総ピクセル差。アスペクト差はタイブレーク。
+// ---------------------------------------------------------------------------
 static constexpr int kT15HeightMismatchWeightSq = 4;
 
 static bool Win32_T15_IsBetterMatch(
@@ -925,6 +963,11 @@ static bool Win32_T14_GetSelectedDisplayModeInfo(DisplayModeInfo& outMode, size_
     outMode = modes[s_t14SelectedModeIndex];
     return true;
 }
+
+// ---------------------------------------------------------------------------
+// T16: ウィンドウのクライアント／外枠・再生成（T14 選択または T15 フォールバックを物理サイズに解決）
+// T17: 表示モード（下の Win32_T17_*）。T16 再生成の入口は Win32_T16_RecreateMainWindowFromCurrentSelection など。
+// ---------------------------------------------------------------------------
 
 static bool Win32_T16_GetTargetClientSizeFromNearestMode(int& outW, int& outH)
 {
@@ -1471,10 +1514,15 @@ static bool Win32_RecreateMainWindowFromConfig(HWND oldHwnd, const MainWindowCon
     return true;
 }
 
+// T14/T17 の現在選択に合わせてウィンドウを作り直す。実際の枠・CDS は Win32_T17_ApplyCurrentPresentationMode 内。
 static void Win32_T16_RecreateMainWindowFromCurrentSelection(HWND oldHwnd)
 {
     Win32_T17_ApplyCurrentPresentationMode(oldHwnd);
 }
+
+// ---------------------------------------------------------------------------
+// T17: プレゼンテーション（Windowed / Borderless / Fullscreen）
+// ---------------------------------------------------------------------------
 
 static const wchar_t* Win32_T17_ModeLabel(T17PresentationMode m)
 {
@@ -1645,6 +1693,7 @@ static void Win32_T17_CyclePresentationMode(HWND hwnd)
     }
 }
 
+// F6 で選んだ候補を実際の枠・CDS・再生成に反映する。Enter の短タップは WM_INPUT でラッチしタイマーで 1 回消費。
 static void Win32_T17_ApplyCurrentPresentationMode(HWND hwnd)
 {
     if (!hwnd)
@@ -1918,6 +1967,7 @@ static const wchar_t* Win32_T16_ShowCmdLabel(UINT sc)
     }
 }
 
+// WM_PAINT 用テキスト: T16（ウィンドウド時の目標／実測・再生成結果）を buf に追記。
 static void Win32_T16_AppendPaintSection(
     wchar_t* buf,
     size_t bufCount,
@@ -2145,7 +2195,7 @@ static void Win32_T18_TruncateWideForPaint(const wchar_t* src, wchar_t* dst, siz
     wcscat_s(dst, dstCount, L"...");
 }
 
-// RIDI_PRODUCTNAME がインスタンスパス風のときは product 表示に使わない（path と分離）
+// 製品名がデバイスパスに見えるときは T18 表示で path と混同しないよう弾く。
 static bool Win32_T18_RawInputProductLooksLikeDevicePath(const wchar_t* s)
 {
     if (!s || s[0] == L'\0')
@@ -2166,6 +2216,10 @@ static bool Win32_T18_RawInputProductLooksLikeDevicePath(const wchar_t* s)
     }
     return false;
 }
+
+// ---------------------------------------------------------------------------
+// T18: デバッグ表示ブロック（先頭 HID + 先頭 XInput スロット・VID/PID・parser/support）
+// ---------------------------------------------------------------------------
 
 static void Win32_T18_AppendPaintSection(wchar_t* buf, size_t bufCount)
 {
@@ -2221,6 +2275,7 @@ static void Win32_T18_AppendPaintSection(wchar_t* buf, size_t bufCount)
     wcscat_s(buf, bufCount, block);
 }
 
+// WM_PAINT 用: T17 の候補／適用結果・F5 ヒントなどを buf に追記。
 static void Win32_T17_AppendPaintSection(wchar_t* buf, size_t bufCount)
 {
     wchar_t t17[2560] = {};
@@ -3413,16 +3468,9 @@ static void Win32_MenuSample_ResetPaintTracking(HWND hwnd)
     }
 }
 
-void Win32_FillMenuSamplePaintBuffers(
-    HWND hwnd,
-    const RECT& rcClient,
-    wchar_t* menuBuf,
-    size_t menuBufCount,
-    wchar_t* t14Buf,
-    size_t t14BufCount)
+// 左列: メニュー試作の 2x2 と menuOpen 表示。
+static void Win32_FillMenuSamplePaintBuffers_MenuColumn(wchar_t* menuBuf, size_t menuBufCount)
 {
-    Win32_T18_RefreshControllerIdentifySnapshot();
-
     const VirtualInputMenuSampleState& s = s_virtualInputMenuSampleState;
     const wchar_t* evLabel = Win32_MenuSampleUiLastEventLabel(s_menuSampleUiLastEvent);
 
@@ -3460,7 +3508,11 @@ void Win32_FillMenuSamplePaintBuffers(
         static_cast<int>(s.selectionY),
         evLabel,
         c00, c10, c01, c11);
+}
 
+// T14 可視行 + T15 最近傍ブロック（モニタ無し時はプレースホルダ）。
+static void Win32_FillMenuSamplePaintBuffers_T14T15Column(wchar_t* t14Buf, size_t t14BufCount)
+{
     if (!s_displayMonitorsCache.empty() && kT14SelectedMonitorIndex < s_displayMonitorsCache.size())
     {
         const DisplayMonitorInfo& mon = s_displayMonitorsCache[kT14SelectedMonitorIndex];
@@ -3556,12 +3608,37 @@ void Win32_FillMenuSamplePaintBuffers(
     {
         swprintf_s(t14Buf, t14BufCount, L"--- T14 Displays ---\r\n(no monitors)\r\n");
     }
+}
 
+// T16 ウィンドウ情報 → T18 識別 → T17 表示モードの順で t14 バッファに連結。
+static void Win32_FillMenuSamplePaintBuffers_AppendT16T18T17(
+    HWND hwnd,
+    const RECT& rcClient,
+    wchar_t* t14Buf,
+    size_t t14BufCount)
+{
     Win32_T16_AppendPaintSection(t14Buf, t14BufCount, hwnd, rcClient);
     Win32_T18_AppendPaintSection(t14Buf, t14BufCount);
     Win32_T17_AppendPaintSection(t14Buf, t14BufCount);
 }
 
+// Win32DebugOverlay が WM_PAINT で読むバッファを組み立てる。T14〜T17 本文と T18 のスナップショットを含む。
+void Win32_FillMenuSamplePaintBuffers(
+    HWND hwnd,
+    const RECT& rcClient,
+    wchar_t* menuBuf,
+    size_t menuBufCount,
+    wchar_t* t14Buf,
+    size_t t14BufCount)
+{
+    Win32_T18_RefreshControllerIdentifySnapshot();
+
+    Win32_FillMenuSamplePaintBuffers_MenuColumn(menuBuf, menuBufCount);
+    Win32_FillMenuSamplePaintBuffers_T14T15Column(t14Buf, t14BufCount);
+    Win32_FillMenuSamplePaintBuffers_AppendT16T18T17(hwnd, rcClient, t14Buf, t14BufCount);
+}
+
+// menuOpen 中は T14 行スクロールを動かさない前提。キャッシュされたレイアウトで選択行が見えるよう scroll を補正。
 static void Win32_T14_TryAutoScrollSelectionIntoView(HWND hwnd)
 {
     if (!hwnd || !IsWindow(hwnd))
@@ -3702,98 +3779,108 @@ static void Win32_LogVirtualInputMenuSampleIfChanged(
     Win32_LogVirtualInputMenuSample_StateDumpIfChanged(s_virtualInputMenuSampleState);
 }
 
-static void Win32_UnifiedInputConsumerMenuTick(HWND hwndForPaint)
+static void Win32_UnifiedInputMenuTick_ClearPendingT17IfMenuOpen(void)
 {
     if (s_virtualInputMenuSampleState.menuOpen)
     {
         s_t17PendingApplyRequest = false;
     }
+}
+
+// menuOpen が閉じているときのみ: T14/T15/T17 のキー、スクロール、WM_INPUT でラッチした Enter による T17 apply 消費。
+static void Win32_UnifiedInputMenuTick_WhenMenuClosed(HWND hwndForPaint)
+{
+    if (!hwndForPaint || s_virtualInputMenuSampleState.menuOpen)
+    {
+        return;
+    }
 
     bool t17F6Edge = false;
     bool t17F5Edge = false;
-    if (hwndForPaint && !s_virtualInputMenuSampleState.menuOpen)
+    const bool upEdge = !s_keyboardActionStateAtLastTimer.up && s_keyboardActionState.up;
+    const bool downEdge = !s_keyboardActionStateAtLastTimer.down && s_keyboardActionState.down;
+    const bool leftEdge = !s_keyboardActionStateAtLastTimer.left && s_keyboardActionState.left;
+    const bool rightEdge = !s_keyboardActionStateAtLastTimer.right && s_keyboardActionState.right;
+    t17F6Edge = !s_keyboardActionStateAtLastTimer.f6 && s_keyboardActionState.f6;
+    t17F5Edge = !s_keyboardActionStateAtLastTimer.f5 && s_keyboardActionState.f5;
+    if (t17F5Edge)
     {
-        const bool upEdge = !s_keyboardActionStateAtLastTimer.up && s_keyboardActionState.up;
-        const bool downEdge = !s_keyboardActionStateAtLastTimer.down && s_keyboardActionState.down;
-        const bool leftEdge = !s_keyboardActionStateAtLastTimer.left && s_keyboardActionState.left;
-        const bool rightEdge = !s_keyboardActionStateAtLastTimer.right && s_keyboardActionState.right;
-        t17F6Edge = !s_keyboardActionStateAtLastTimer.f6 && s_keyboardActionState.f6;
-        t17F5Edge = !s_keyboardActionStateAtLastTimer.f5 && s_keyboardActionState.f5;
-        if (t17F5Edge)
+        wcscpy_s(s_t17LastKeyAffectingT17, _countof(s_t17LastKeyAffectingT17), L"F5 (no T17 action)");
+        wcscpy_s(
+            s_t17F5UnrelatedHint,
+            _countof(s_t17F5UnrelatedHint),
+            L"Reminder: F5 does not cycle or apply T17 — use F6 (cycle) and Enter (apply).");
+        OutputDebugStringW(L"[T17] F5 edge: no T17 action (F6=cycle, Enter=apply)\r\n");
+        InvalidateRect(hwndForPaint, nullptr, FALSE);
+    }
+    if (upEdge || downEdge)
+    {
+        Win32_T14_TryScrollFromKeyboardEdges(upEdge, downEdge, hwndForPaint);
+    }
+    if (leftEdge || rightEdge)
+    {
+        Win32_T15_TryChangePresetFromKeyboardEdges(leftEdge, rightEdge, hwndForPaint);
+    }
+    if (t17F6Edge)
+    {
+        ++s_t17CycleSeq;
+        wcscpy_s(s_t17LastKeyAffectingT17, _countof(s_t17LastKeyAffectingT17), L"F6 (mode cycle)");
+        s_t17F5UnrelatedHint[0] = L'\0';
+        Win32_T17_CyclePresentationMode(hwndForPaint);
+    }
+    {
+        const bool pageUpEdge =
+            !s_keyboardActionStateAtLastTimer.pageUp && s_keyboardActionState.pageUp;
+        const bool pageDownEdge =
+            !s_keyboardActionStateAtLastTimer.pageDown && s_keyboardActionState.pageDown;
+        const bool homeEdge = !s_keyboardActionStateAtLastTimer.home && s_keyboardActionState.home;
+        const bool endEdge = !s_keyboardActionStateAtLastTimer.end && s_keyboardActionState.end;
+        const bool f7Edge = !s_keyboardActionStateAtLastTimer.f7 && s_keyboardActionState.f7;
+        const bool f8Edge = !s_keyboardActionStateAtLastTimer.f8 && s_keyboardActionState.f8;
+        if (pageUpEdge)
         {
-            wcscpy_s(s_t17LastKeyAffectingT17, _countof(s_t17LastKeyAffectingT17), L"F5 (no T17 action)");
-            wcscpy_s(
-                s_t17F5UnrelatedHint,
-                _countof(s_t17F5UnrelatedHint),
-                L"Reminder: F5 does not cycle or apply T17 — use F6 (cycle) and Enter (apply).");
-            OutputDebugStringW(L"[T17] F5 edge: no T17 action (F6=cycle, Enter=apply)\r\n");
-            InvalidateRect(hwndForPaint, nullptr, FALSE);
+            SendMessageW(hwndForPaint, WM_VSCROLL, SB_PAGEUP, 0);
         }
-        if (upEdge || downEdge)
+        if (pageDownEdge)
         {
-            Win32_T14_TryScrollFromKeyboardEdges(upEdge, downEdge, hwndForPaint);
+            SendMessageW(hwndForPaint, WM_VSCROLL, SB_PAGEDOWN, 0);
         }
-        if (leftEdge || rightEdge)
+        if (homeEdge)
         {
-            Win32_T15_TryChangePresetFromKeyboardEdges(leftEdge, rightEdge, hwndForPaint);
+            SendMessageW(hwndForPaint, WM_VSCROLL, SB_TOP, 0);
         }
-        if (t17F6Edge)
+        if (endEdge)
         {
-            ++s_t17CycleSeq;
-            wcscpy_s(s_t17LastKeyAffectingT17, _countof(s_t17LastKeyAffectingT17), L"F6 (mode cycle)");
-            s_t17F5UnrelatedHint[0] = L'\0';
-            Win32_T17_CyclePresentationMode(hwndForPaint);
+            SendMessageW(hwndForPaint, WM_VSCROLL, SB_BOTTOM, 0);
         }
+        if (f7Edge)
         {
-            const bool pageUpEdge =
-                !s_keyboardActionStateAtLastTimer.pageUp && s_keyboardActionState.pageUp;
-            const bool pageDownEdge =
-                !s_keyboardActionStateAtLastTimer.pageDown && s_keyboardActionState.pageDown;
-            const bool homeEdge = !s_keyboardActionStateAtLastTimer.home && s_keyboardActionState.home;
-            const bool endEdge = !s_keyboardActionStateAtLastTimer.end && s_keyboardActionState.end;
-            const bool f7Edge = !s_keyboardActionStateAtLastTimer.f7 && s_keyboardActionState.f7;
-            const bool f8Edge = !s_keyboardActionStateAtLastTimer.f8 && s_keyboardActionState.f8;
-            if (pageUpEdge)
-            {
-                SendMessageW(hwndForPaint, WM_VSCROLL, SB_PAGEUP, 0);
-            }
-            if (pageDownEdge)
-            {
-                SendMessageW(hwndForPaint, WM_VSCROLL, SB_PAGEDOWN, 0);
-            }
-            if (homeEdge)
-            {
-                SendMessageW(hwndForPaint, WM_VSCROLL, SB_TOP, 0);
-            }
-            if (endEdge)
-            {
-                SendMessageW(hwndForPaint, WM_VSCROLL, SB_BOTTOM, 0);
-            }
-            if (f7Edge)
-            {
-                Win32DebugOverlay_MainView_SetScrollPos(
-                    hwndForPaint,
-                    Win32DebugOverlay_ScrollTargetT17WithTopMargin(),
-                    L"F7 jump to T17 (top margin)");
-            }
-            if (f8Edge)
-            {
-                Win32DebugOverlay_MainView_SetScrollPos(
-                    hwndForPaint,
-                    Win32DebugOverlay_ScrollTargetT17Centered(hwndForPaint),
-                    L"F8 center T17 in view");
-            }
+            Win32DebugOverlay_MainView_SetScrollPos(
+                hwndForPaint,
+                Win32DebugOverlay_ScrollTargetT17WithTopMargin(),
+                L"F7 jump to T17 (top margin)");
         }
-        if (s_t17PendingApplyRequest)
+        if (f8Edge)
         {
-            s_t17PendingApplyRequest = false;
-            OutputDebugStringW(L"[T17] APPLY CONSUME pending request\r\n");
-            wcscpy_s(s_t17LastKeyAffectingT17, _countof(s_t17LastKeyAffectingT17), L"Enter (apply)");
-            s_t17F5UnrelatedHint[0] = L'\0';
-            Win32_T17_ApplyCurrentPresentationMode(hwndForPaint);
+            Win32DebugOverlay_MainView_SetScrollPos(
+                hwndForPaint,
+                Win32DebugOverlay_ScrollTargetT17Centered(hwndForPaint),
+                L"F8 center T17 in view");
         }
     }
+    if (s_t17PendingApplyRequest)
+    {
+        s_t17PendingApplyRequest = false;
+        OutputDebugStringW(L"[T17] APPLY CONSUME pending request\r\n");
+        wcscpy_s(s_t17LastKeyAffectingT17, _countof(s_t17LastKeyAffectingT17), L"Enter (apply)");
+        s_t17F5UnrelatedHint[0] = L'\0';
+        Win32_T17_ApplyCurrentPresentationMode(hwndForPaint);
+    }
+}
 
+// キーとパッドの ConsumerFrame をマージしメニュー試作へ。末尾でタイマー境界のキー状態を進める。
+static void Win32_UnifiedInputMenuTick_MergeAndApply(HWND hwndForPaint)
+{
     const VirtualInputConsumerFrame kbFrame =
         VirtualInputConsumer_BuildFrameFromKeyboardState(
             s_keyboardActionStateAtLastTimer,
@@ -3805,6 +3892,18 @@ static void Win32_UnifiedInputConsumerMenuTick(HWND hwndForPaint)
     Win32_LogVirtualInputMenuSampleIfChanged(unified, hwndForPaint);
     s_keyboardActionStateAtLastTimer = s_keyboardActionState;
 }
+
+// menuOpen が true の間は T14/T15/T17 のキーボード操作を抑止（矢印は 2x2 メニュー用）。閉じているときだけ表示系デバッグ操作を処理。
+static void Win32_UnifiedInputConsumerMenuTick(HWND hwndForPaint)
+{
+    Win32_UnifiedInputMenuTick_ClearPendingT17IfMenuOpen();
+    Win32_UnifiedInputMenuTick_WhenMenuClosed(hwndForPaint);
+    Win32_UnifiedInputMenuTick_MergeAndApply(hwndForPaint);
+}
+
+// ---------------------------------------------------------------------------
+// タイマー: XInput ポーリング（先頭スロット）と、キー／パッドを統合したメニュー試作の 1 フレーム
+// ---------------------------------------------------------------------------
 
 // === T25 [8] Win32: 先頭接続スロット取得 + タイマーでの XInput 統合（VirtualInput 更新・エッジログ） ===
 static DWORD Win32_GetFirstConnectedXInputSlotOrMax()
@@ -3878,7 +3977,7 @@ static void Win32_LogPs4DpadProbeIfChanged(const VirtualInputSnapshot& curr)
     s_ps4DpadProbePrevDpadMask = dpadMask;
 }
 
-// 入力レイヤー 1/3: XInput（verified API 経路）
+// 先頭スロットの XInput を VirtualInput に反映。未接続時は DS4 Raw レポートがあればそちらを優先。
 static void Win32_XInputPollDigitalEdgesOnTimer(HWND hwnd)
 {
     UNREFERENCED_PARAMETER(hwnd);
@@ -4426,7 +4525,7 @@ static void Win32_T18_RefreshControllerIdentifySnapshot()
     Win32_T18_LogIfChanged();
 }
 
-// T12: 矢印 / Enter / Backspace / Tab の make-break を追跡（表示ラベルとは独立）
+// Raw Input キーから KeyboardActionState を更新。タイマー境界で prev→curr エッジを取る材料。
 static void Win32_UpdateKeyboardActionStateFromPhysicalKey(const PhysicalKeyEvent& ev)
 {
     const UINT vk = static_cast<UINT>(ev.native_key_code);
@@ -5078,17 +5177,230 @@ static void PhysicalKey_FormatDebugLine(const PhysicalKeyEvent& ev, const wchar_
         displayLabel ? displayLabel : L"");
 }
 
+static void Win32_WndProc_OnRawInput(LPARAM lParam)
+{
+    UINT dwSize = 0;
+    if (GetRawInputData(
+            reinterpret_cast<HRAWINPUT>(lParam),
+            RID_INPUT,
+            nullptr,
+            &dwSize,
+            sizeof(RAWINPUTHEADER)) == static_cast<UINT>(-1))
+    {
+        return;
+    }
+    if (dwSize == 0)
+    {
+        return;
+    }
+    std::vector<BYTE> inputBuf(dwSize);
+    if (GetRawInputData(
+            reinterpret_cast<HRAWINPUT>(lParam),
+            RID_INPUT,
+            inputBuf.data(),
+            &dwSize,
+            sizeof(RAWINPUTHEADER)) == static_cast<UINT>(-1))
+    {
+        return;
+    }
+    const RAWINPUT* raw = reinterpret_cast<const RAWINPUT*>(inputBuf.data());
+
+    if (raw->header.dwType == RIM_TYPEHID)
+    {
+        Win32_OnRawInputHidGamepadLayers(raw);
+    }
+    else if (raw->header.dwType == RIM_TYPEKEYBOARD)
+    {
+        PhysicalKeyEvent ev{};
+        Win32_FillPhysicalKeyFromRawKeyboard(raw->data.keyboard, ev);
+        Win32_UpdateKeyboardActionStateFromPhysicalKey(ev);
+        if (static_cast<UINT>(ev.native_key_code) == VK_RETURN && !ev.is_key_up &&
+            !s_virtualInputMenuSampleState.menuOpen)
+        {
+            s_t17PendingApplyRequest = true;
+            OutputDebugStringW(L"[T17] ENTER MAKE latched apply request\r\n");
+        }
+        const wchar_t* labelPtr = L"-";
+        wchar_t labelBuf[64] = {};
+        if (!ev.is_key_up)
+        {
+            if (Win32_TryFillDisplayLabel(ev, labelBuf, _countof(labelBuf)))
+            {
+                labelPtr = labelBuf;
+            }
+            else
+            {
+                labelPtr = L"(none)";
+            }
+        }
+        wchar_t layoutTag[96] = {};
+        Win32_FillLayoutTag(layoutTag, _countof(layoutTag));
+        wchar_t line[512];
+        PhysicalKey_FormatDebugLine(ev, labelPtr, layoutTag, line, _countof(line));
+        OutputDebugStringW(line);
+    }
+}
+
+// WM_TIMER: 先に XInput（内部で DS4 Raw 優先など）、続けてキー+パッドの統合メニュー 1 フレーム。
+static void Win32_WndProc_OnXInputPollTimer(HWND hWnd)
+{
+    Win32_XInputPollDigitalEdgesOnTimer(hWnd);
+    Win32_UnifiedInputConsumerMenuTick(hWnd);
+}
+
+static void Win32_WndProc_OnClientSize(HWND hWnd)
+{
+    RECT cr{};
+    GetClientRect(hWnd, &cr);
+    const std::uint32_t cw = static_cast<std::uint32_t>(
+        (std::max)(0, static_cast<int>(cr.right - cr.left)));
+    const std::uint32_t ch = static_cast<std::uint32_t>(
+        (std::max)(0, static_cast<int>(cr.bottom - cr.top)));
+    WindowsRenderer_OnResizePlaceholder(&s_windowsRendererState, cw, ch);
+}
+
+static bool Win32_WndProc_OnVScroll(
+    HWND hWnd,
+    WPARAM wParam,
+    LPARAM lParam,
+    UINT message,
+    LRESULT* outDefResult)
+{
+    SCROLLINFO si = {};
+    si.cbSize = sizeof(si);
+    si.fMask = SIF_ALL;
+    if (!GetScrollInfo(hWnd, SB_VERT, &si))
+    {
+        return false;
+    }
+    const int y = static_cast<int>(si.nPos);
+    const int nMin = static_cast<int>(si.nMin);
+    const int nMax = static_cast<int>(si.nMax);
+    const UINT nPage = si.nPage;
+    const int maxScroll = (std::max)(0, nMax - static_cast<int>(nPage) + 1);
+    int newY = y;
+    switch (LOWORD(wParam))
+    {
+    case SB_LINEUP:
+        newY -= (s_paintScrollLinePx > 0) ? s_paintScrollLinePx : WIN32_MAIN_DEBUG_SCROLL_LINE;
+        break;
+    case SB_LINEDOWN:
+        newY += (s_paintScrollLinePx > 0) ? s_paintScrollLinePx : WIN32_MAIN_DEBUG_SCROLL_LINE;
+        break;
+    case SB_PAGEUP:
+        newY -= (static_cast<int>(nPage) * WIN32_MAIN_SCROLL_PAGEUP_NUM) / WIN32_MAIN_SCROLL_PAGEUP_DEN;
+        break;
+    case SB_PAGEDOWN:
+        newY += (static_cast<int>(nPage) * WIN32_MAIN_SCROLL_PAGEUP_NUM) / WIN32_MAIN_SCROLL_PAGEUP_DEN;
+        break;
+    case SB_TOP:
+        newY = nMin;
+        break;
+    case SB_BOTTOM:
+        newY = maxScroll;
+        break;
+    case SB_THUMBTRACK:
+        {
+            SCROLLINFO st = {};
+            st.cbSize = sizeof(st);
+            st.fMask = SIF_TRACKPOS;
+            if (GetScrollInfo(hWnd, SB_VERT, &st))
+            {
+                newY = static_cast<int>(st.nTrackPos);
+            }
+        }
+        break;
+    case SB_THUMBPOSITION:
+        newY = static_cast<int>(static_cast<short>(HIWORD(wParam)));
+        break;
+    default:
+        *outDefResult = DefWindowProc(hWnd, message, wParam, lParam);
+        return true;
+    }
+    newY = (std::clamp)(newY, 0, maxScroll);
+    if (newY != y)
+    {
+        si.fMask = SIF_POS;
+        si.nPos = newY;
+        SetScrollInfo(hWnd, SB_VERT, &si, TRUE);
+        s_paintScrollY = newY;
+        {
+            wchar_t wv[96] = {};
+            swprintf_s(
+                wv,
+                _countof(wv),
+                L"WM_VSCROLL SB=%d",
+                static_cast<int>(LOWORD(wParam)));
+            Win32DebugOverlay_ScrollLog(wv, hWnd, y, newY, -1, -1, -1, -1);
+        }
+        InvalidateRect(hWnd, nullptr, FALSE);
+    }
+    return false;
+}
+
+static void Win32_WndProc_OnMouseWheel(HWND hWnd, WPARAM wParam)
+{
+    SCROLLINFO si = {};
+    si.cbSize = sizeof(si);
+    si.fMask = SIF_ALL;
+    if (!GetScrollInfo(hWnd, SB_VERT, &si))
+    {
+        return;
+    }
+    const int y = static_cast<int>(si.nPos);
+    UINT wheelLines = 3;
+    SystemParametersInfoW(SPI_GETWHEELSCROLLLINES, 0, &wheelLines, 0);
+    const int linePx = (s_paintScrollLinePx > 0) ? s_paintScrollLinePx : WIN32_MAIN_DEBUG_SCROLL_LINE;
+    const int pagePx = static_cast<int>(si.nPage);
+    const int quarterPage = (std::max)(pagePx / 4, linePx * 3);
+    int dy = 0;
+    if (wheelLines == WHEEL_PAGESCROLL)
+    {
+        dy = pagePx;
+    }
+    else
+    {
+        const int lineBased = static_cast<int>(wheelLines) * linePx;
+        dy = (std::max)(lineBased, quarterPage);
+    }
+    const int delta = GET_WHEEL_DELTA_WPARAM(wParam);
+    int newY = y;
+    if (delta > 0)
+    {
+        newY -= dy;
+    }
+    else if (delta < 0)
+    {
+        newY += dy;
+    }
+    const int maxScroll = (std::max)(0, static_cast<int>(si.nMax) - static_cast<int>(si.nPage) + 1);
+    newY = (std::clamp)(newY, 0, maxScroll);
+    if (newY != y)
+    {
+        si.fMask = SIF_POS;
+        si.nPos = newY;
+        SetScrollInfo(hWnd, SB_VERT, &si, TRUE);
+        s_paintScrollY = newY;
+        Win32DebugOverlay_ScrollLog(L"WM_MOUSEWHEEL", hWnd, y, newY, -1, -1, -1, -1);
+        InvalidateRect(hWnd, nullptr, FALSE);
+    }
+}
+
+static void Win32_WndProc_OnPaint(HWND hWnd)
+{
+    PAINTSTRUCT ps;
+    HDC hdc = BeginPaint(hWnd, &ps);
+    // T26: renderer (D3D clear/present) → GDI debug overlay（TRANSPARENT テキスト）
+    WindowsRenderer_RenderPlaceholder(&s_windowsRendererState, hWnd);
+#if !WIN32_MAIN_D3D_CLEAR_ONLY_PAINT
+    Win32DebugOverlay_Paint(hWnd, hdc, Win32_T17_ModeLabel(s_t17LastAppliedPresentationMode));
+#endif
+    EndPaint(hWnd, &ps);
+}
+
 //
-//  関数: WndProc(HWND, UINT, WPARAM, LPARAM)
-//
-//  目的: メイン ウィンドウのメッセージを処理します。
-//
-//  WM_COMMAND  - アプリケーション メニューの処理
-//  WM_INPUT    - Raw Input（物理キー）
-//  WM_TIMER    - XInput デジタルボタン（T11）
-//  WM_PAINT    - メイン ウィンドウを描画する
-//  WM_DESTROY  - 中止メッセージを表示して戻る
-//
+// WndProc: メインウィンドウ。入力は WM_INPUT（キー・HID）と WM_TIMER（XInput・統合メニュー）、
+// 描画は WM_PAINT で D3D クリア後に GDI オーバーレイ。サイズ・スクロールは WM_SIZE / WM_VSCROLL / WM_MOUSEWHEEL。
 //
 LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam)
 {
@@ -5114,221 +5426,40 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam)
             }
         }
         break;
+    // Raw Input: ゲームパッド HID は即時、キーは KeyboardActionState 更新。Enter make は menu 閉じ時のみ T17 適用をラッチ。
     case WM_INPUT:
-        {
-            UINT dwSize = 0;
-            if (GetRawInputData(
-                    reinterpret_cast<HRAWINPUT>(lParam),
-                    RID_INPUT,
-                    nullptr,
-                    &dwSize,
-                    sizeof(RAWINPUTHEADER)) == static_cast<UINT>(-1))
-            {
-                return 0;
-            }
-            if (dwSize == 0)
-            {
-                return 0;
-            }
-            std::vector<BYTE> inputBuf(dwSize);
-            if (GetRawInputData(
-                    reinterpret_cast<HRAWINPUT>(lParam),
-                    RID_INPUT,
-                    inputBuf.data(),
-                    &dwSize,
-                    sizeof(RAWINPUTHEADER)) == static_cast<UINT>(-1))
-            {
-                return 0;
-            }
-            const RAWINPUT* raw = reinterpret_cast<const RAWINPUT*>(inputBuf.data());
-
-            if (raw->header.dwType == RIM_TYPEHID)
-            {
-                Win32_OnRawInputHidGamepadLayers(raw);
-            }
-            else if (raw->header.dwType == RIM_TYPEKEYBOARD)
-            {
-                PhysicalKeyEvent ev{};
-                Win32_FillPhysicalKeyFromRawKeyboard(raw->data.keyboard, ev);
-                Win32_UpdateKeyboardActionStateFromPhysicalKey(ev);
-                if (static_cast<UINT>(ev.native_key_code) == VK_RETURN && !ev.is_key_up &&
-                    !s_virtualInputMenuSampleState.menuOpen)
-                {
-                    s_t17PendingApplyRequest = true;
-                    OutputDebugStringW(L"[T17] ENTER MAKE latched apply request\r\n");
-                }
-                const wchar_t* labelPtr = L"-";
-                wchar_t labelBuf[64] = {};
-                if (!ev.is_key_up)
-                {
-                    if (Win32_TryFillDisplayLabel(ev, labelBuf, _countof(labelBuf)))
-                    {
-                        labelPtr = labelBuf;
-                    }
-                    else
-                    {
-                        labelPtr = L"(none)";
-                    }
-                }
-                wchar_t layoutTag[96] = {};
-                Win32_FillLayoutTag(layoutTag, _countof(layoutTag));
-                wchar_t line[512];
-                PhysicalKey_FormatDebugLine(ev, labelPtr, layoutTag, line, _countof(line));
-                OutputDebugStringW(line);
-            }
-        }
+        Win32_WndProc_OnRawInput(lParam);
         return 0;
+    // 約 33ms: XInput 更新のあと、キーとパッドをマージして VirtualInputMenuSample などを進める。
     case WM_TIMER:
         if (wParam == TIMER_ID_XINPUT_POLL)
         {
-            Win32_XInputPollDigitalEdgesOnTimer(hWnd);
-            Win32_UnifiedInputConsumerMenuTick(hWnd);
+            Win32_WndProc_OnXInputPollTimer(hWnd);
         }
         break;
+    // クライアント変化に合わせてスワップチェーンをリサイズし、再描画を予約。
     case WM_SIZE:
-        {
-            RECT cr{};
-            GetClientRect(hWnd, &cr);
-            const std::uint32_t cw = static_cast<std::uint32_t>(
-                (std::max)(0, static_cast<int>(cr.right - cr.left)));
-            const std::uint32_t ch = static_cast<std::uint32_t>(
-                (std::max)(0, static_cast<int>(cr.bottom - cr.top)));
-            WindowsRenderer_OnResizePlaceholder(&s_windowsRendererState, cw, ch);
-        }
+        Win32_WndProc_OnClientSize(hWnd);
         Win32DebugOverlay_ScrollLog(L"WM_SIZE", hWnd, s_paintScrollY, s_paintScrollY, -1, -1, -1, -1);
         InvalidateRect(hWnd, nullptr, FALSE);
         break;
+    // デバッグ本文の縦スクロール（行・ページ・ホーム／エンド・サムトラック）。
     case WM_VSCROLL:
         {
-            SCROLLINFO si = {};
-            si.cbSize = sizeof(si);
-            si.fMask = SIF_ALL;
-            if (!GetScrollInfo(hWnd, SB_VERT, &si))
+            LRESULT defRes = 0;
+            if (Win32_WndProc_OnVScroll(hWnd, wParam, lParam, message, &defRes))
             {
-                break;
-            }
-            const int y = static_cast<int>(si.nPos);
-            const int nMin = static_cast<int>(si.nMin);
-            const int nMax = static_cast<int>(si.nMax);
-            const UINT nPage = si.nPage;
-            const int maxScroll = (std::max)(0, nMax - static_cast<int>(nPage) + 1);
-            int newY = y;
-            switch (LOWORD(wParam))
-            {
-            case SB_LINEUP:
-                newY -= (s_paintScrollLinePx > 0) ? s_paintScrollLinePx : WIN32_MAIN_DEBUG_SCROLL_LINE;
-                break;
-            case SB_LINEDOWN:
-                newY += (s_paintScrollLinePx > 0) ? s_paintScrollLinePx : WIN32_MAIN_DEBUG_SCROLL_LINE;
-                break;
-            case SB_PAGEUP:
-                newY -= (static_cast<int>(nPage) * WIN32_MAIN_SCROLL_PAGEUP_NUM) / WIN32_MAIN_SCROLL_PAGEUP_DEN;
-                break;
-            case SB_PAGEDOWN:
-                newY += (static_cast<int>(nPage) * WIN32_MAIN_SCROLL_PAGEUP_NUM) / WIN32_MAIN_SCROLL_PAGEUP_DEN;
-                break;
-            case SB_TOP:
-                newY = nMin;
-                break;
-            case SB_BOTTOM:
-                newY = maxScroll;
-                break;
-            case SB_THUMBTRACK:
-                {
-                    SCROLLINFO st = {};
-                    st.cbSize = sizeof(st);
-                    st.fMask = SIF_TRACKPOS;
-                    if (GetScrollInfo(hWnd, SB_VERT, &st))
-                    {
-                        newY = static_cast<int>(st.nTrackPos);
-                    }
-                }
-                break;
-            case SB_THUMBPOSITION:
-                newY = static_cast<int>(static_cast<short>(HIWORD(wParam)));
-                break;
-            default:
-                return DefWindowProc(hWnd, message, wParam, lParam);
-            }
-            newY = (std::clamp)(newY, 0, maxScroll);
-            if (newY != y)
-            {
-                si.fMask = SIF_POS;
-                si.nPos = newY;
-                SetScrollInfo(hWnd, SB_VERT, &si, TRUE);
-                s_paintScrollY = newY;
-                {
-                    wchar_t wv[96] = {};
-                    swprintf_s(
-                        wv,
-                        _countof(wv),
-                        L"WM_VSCROLL SB=%d",
-                        static_cast<int>(LOWORD(wParam)));
-                    Win32DebugOverlay_ScrollLog(wv, hWnd, y, newY, -1, -1, -1, -1);
-                }
-                InvalidateRect(hWnd, nullptr, FALSE);
+                return defRes;
             }
         }
         break;
+    // ホイールでも WM_VSCROLL と同様に s_paintScrollY を更新。
     case WM_MOUSEWHEEL:
-        {
-            SCROLLINFO si = {};
-            si.cbSize = sizeof(si);
-            si.fMask = SIF_ALL;
-            if (!GetScrollInfo(hWnd, SB_VERT, &si))
-            {
-                break;
-            }
-            const int y = static_cast<int>(si.nPos);
-            UINT wheelLines = 3;
-            SystemParametersInfoW(SPI_GETWHEELSCROLLLINES, 0, &wheelLines, 0);
-            const int linePx = (s_paintScrollLinePx > 0) ? s_paintScrollLinePx : WIN32_MAIN_DEBUG_SCROLL_LINE;
-            const int pagePx = static_cast<int>(si.nPage);
-            const int quarterPage = (std::max)(pagePx / 4, linePx * 3);
-            int dy = 0;
-            if (wheelLines == WHEEL_PAGESCROLL)
-            {
-                dy = pagePx;
-            }
-            else
-            {
-                const int lineBased = static_cast<int>(wheelLines) * linePx;
-                dy = (std::max)(lineBased, quarterPage);
-            }
-            const int delta = GET_WHEEL_DELTA_WPARAM(wParam);
-            int newY = y;
-            if (delta > 0)
-            {
-                newY -= dy;
-            }
-            else if (delta < 0)
-            {
-                newY += dy;
-            }
-            const int maxScroll = (std::max)(0, static_cast<int>(si.nMax) - static_cast<int>(si.nPage) + 1);
-            newY = (std::clamp)(newY, 0, maxScroll);
-            if (newY != y)
-            {
-                si.fMask = SIF_POS;
-                si.nPos = newY;
-                SetScrollInfo(hWnd, SB_VERT, &si, TRUE);
-                s_paintScrollY = newY;
-                Win32DebugOverlay_ScrollLog(L"WM_MOUSEWHEEL", hWnd, y, newY, -1, -1, -1, -1);
-                InvalidateRect(hWnd, nullptr, FALSE);
-            }
-        }
+        Win32_WndProc_OnMouseWheel(hWnd, wParam);
         break;
+    // D3D で背景クリア・Present のあと、GDI でテキストオーバーレイ（スクロールクリップ・下段 [scroll] 表示）。
     case WM_PAINT:
-        {
-            PAINTSTRUCT ps;
-            HDC hdc = BeginPaint(hWnd, &ps);
-            // T26: renderer (D3D clear/present) → GDI debug overlay（TRANSPARENT テキスト）
-            WindowsRenderer_RenderPlaceholder(&s_windowsRendererState, hWnd);
-#if !WIN32_MAIN_D3D_CLEAR_ONLY_PAINT
-            Win32DebugOverlay_Paint(hWnd, hdc, Win32_T17_ModeLabel(s_t17LastAppliedPresentationMode));
-#endif
-            EndPaint(hWnd, &ps);
-        }
+        Win32_WndProc_OnPaint(hWnd);
         break;
     case WM_DESTROY:
         KillTimer(hWnd, TIMER_ID_XINPUT_POLL);

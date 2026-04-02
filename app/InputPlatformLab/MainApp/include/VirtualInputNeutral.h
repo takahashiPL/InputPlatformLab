@@ -1,4 +1,4 @@
-﻿// T20: VirtualInputSnapshot, policy, keyboard→consumer merge (no Win32 / XInput types)
+// T20: VirtualInputSnapshot, policy, keyboard→consumer merge (no Win32 / XInput types)
 #pragma once
 
 #include "GamepadTypes.h"
@@ -73,12 +73,14 @@ bool VirtualInput_RightInDeadzone(const VirtualInputSnapshot& s);
 // - DPad    = 斜め合成あり（各軸 -1/0/+1 にクランプ）
 // - Move は curr スナップショットから held として読む / メニュー系は prev→curr で pressed（遷移）として読む
 
+// DPad または左スティックから得た -1/0/+1 の移動（そのフレームの held）。
 struct VirtualInputPolicyHeld
 {
     std::int8_t moveX;
     std::int8_t moveY;
 };
 
+// South / East / Start の pressed エッジ（confirm / cancel / menu）。
 struct VirtualInputPolicyMenuEdges
 {
     bool confirm;
@@ -122,6 +124,7 @@ struct KeyboardActionState
 VirtualInputConsumerFrame VirtualInputConsumer_BuildFrameFromKeyboardState(
     const KeyboardActionState& prevKs,
     const KeyboardActionState& currKs);
+// キーとパッドの ConsumerFrame を統合（移動はパッド優先、ボタンは OR）。
 VirtualInputConsumerFrame VirtualInputConsumer_MergeKeyboardController(
     const VirtualInputConsumerFrame& kb,
     const VirtualInputConsumerFrame& pad);

@@ -1,4 +1,4 @@
-﻿#include "framework.h"
+#include "framework.h"
 #include "Win32DebugOverlay.h"
 
 #include <algorithm>
@@ -6,6 +6,10 @@
 #ifndef WIN32_MAIN_T17_JUMP_TOP_MARGIN
 #define WIN32_MAIN_T17_JUMP_TOP_MARGIN 160
 #endif
+
+// ---------------------------------------------------------------------------
+// GDI: D3D で塗ったクライアント上にデバッグ文字を載せる。縦スクロール・[scroll] オーバーレイ・T14/T17 行位置の計測。
+// ---------------------------------------------------------------------------
 
 // MainApp.cpp で定義（スクロール・レイアウトキャッシュ。入力/T14 オートフォローと共有）
 extern int s_paintScrollY;
@@ -23,6 +27,7 @@ extern int s_paintDbgClientW;
 extern int s_paintDbgClientH;
 extern int s_paintDbgMaxScroll;
 
+// メニューと T14 本文のドキュメント高さを CALCRECT で求める（スクロール範囲・T17 行 Y の計測用）。
 static void Win32_MenuSampleMeasurePaintLayout(
     HDC hdc,
     int clientW,
@@ -59,11 +64,13 @@ static bool Win32_IsMainWindowFillMonitorPresentation(HWND hwnd)
     return (st & static_cast<LONG_PTR>(WS_POPUP)) != 0;
 }
 
+// F7 ジャンプ先: 「--- T17 presentation ---」行を上余白付きで見える scrollY。
 int Win32DebugOverlay_ScrollTargetT17WithTopMargin(void)
 {
     return (std::max)(0, s_paintDbgT17DocY - WIN32_MAIN_T17_JUMP_TOP_MARGIN);
 }
 
+// F8 ジャンプ先: T17 ブロックがクライアント高さの中央付近に来る scrollY。
 int Win32DebugOverlay_ScrollTargetT17Centered(HWND hwnd)
 {
     if (!hwnd || !IsWindow(hwnd))
@@ -78,6 +85,7 @@ int Win32DebugOverlay_ScrollTargetT17Centered(HWND hwnd)
     return (std::clamp)(y, 0, maxScr);
 }
 
+// スクロール調整時のデバッグ出力（クライアント高・maxScroll・T17 行の関係を確認するため）。
 void Win32DebugOverlay_ScrollLog(
     const wchar_t* where,
     HWND hwnd,
@@ -175,6 +183,7 @@ void Win32DebugOverlay_ScrollLog(
     OutputDebugStringW(L"[SCROLL] ----\r\n");
 }
 
+// 垂直スクロール位置を更新し、必要なら再描画。F7/F8 や WM_VSCROLL から呼ばれる。
 void Win32DebugOverlay_MainView_SetScrollPos(HWND hwnd, int newY, const wchar_t* logWhere)
 {
     if (!hwnd)
@@ -255,6 +264,7 @@ static int Win32_MainView_MeasureScrollOverlayTextHeight(HDC hdc, int clientW, c
     return static_cast<int>(rc.bottom - rc.top);
 }
 
+// 本文（メニュー + T14〜T18 テキスト）をスクロール付きで描画し、下端に [scroll] サマリを載せる。
 void Win32DebugOverlay_Paint(HWND hwnd, HDC hdc, const wchar_t* t17ModeLabelForOverlay)
 {
     RECT rcClient{};

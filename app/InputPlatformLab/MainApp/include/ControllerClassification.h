@@ -1,11 +1,11 @@
-﻿// T21: HID 属性・VID/PID テーブル・GameControllerKind 推定（Win32/Raw Input API なし）
+// T21: HID 属性・VID/PID テーブル・GameControllerKind 推定（Win32/Raw Input API なし）
 #pragma once
 
 #include "GamepadTypes.h"
 
 #include <cstdint>
 
-// 入力経路: XInput / 既知 Raw HID(DS4) / 汎用 HID。実機検証度は SupportLevel。
+// 入力の解釈経路（family とは別。Ds4KnownHid は既知レポート前提、GenericHid は汎用、XInput は API 経路）。
 enum class ControllerParserKind : std::uint8_t
 {
     None = 0,
@@ -20,7 +20,7 @@ enum class ControllerSupportLevel : std::uint8_t
     Tentative,
 };
 
-// Raw Input HID から得た属性（分類用。取得は Win32 側）
+// Raw Input の RIDI_DEVICEINFO 相当（分類用。取得は呼び出し側）
 struct GameControllerHidSummary
 {
     std::uint16_t vendor_id;

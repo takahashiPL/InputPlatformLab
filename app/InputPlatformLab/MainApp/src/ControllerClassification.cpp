@@ -1,7 +1,12 @@
-﻿#include "ControllerClassification.h"
+#include "ControllerClassification.h"
 
 #include <cwchar>
 
+// ---------------------------------------------------------------------------
+// VID/PID テーブル・usage と製品名から family / parser / support を決める（Win32 API 呼び出しなし）
+// ---------------------------------------------------------------------------
+
+// usage page / usage または既知ベンダでゲームパッド寄りとみなす粗い判定。
 bool Win32_HidTraitsLookLikeGamepad(const GameControllerHidSummary& t)
 {
     return (t.usage_page == 0x01 && (t.usage == 0x04 || t.usage == 0x05)) ||
@@ -10,6 +15,7 @@ bool Win32_HidTraitsLookLikeGamepad(const GameControllerHidSummary& t)
 
 namespace
 {
+// 具体 PID 行を先に、0xFFFF は「その VID の残り PID すべて」（ワイルドカード）
 const ControllerHidProductTableEntry kControllerHidProductTable[] = {
     { 0x054C, 0x05C4, GameControllerKind::PlayStation4, ControllerParserKind::Ds4KnownHid,
         ControllerSupportLevel::Verified },
@@ -26,6 +32,7 @@ const ControllerHidProductTableEntry kControllerHidProductTable[] = {
 };
 } // namespace
 
+// テーブル一致時は Ds4KnownHid や verified を付与。無ければ GenericHid + tentative に落とす。
 void Win32_ResolveHidProductTable(
     std::uint16_t vid,
     std::uint16_t pid,
@@ -49,6 +56,7 @@ void Win32_ResolveHidProductTable(
     outSupport = ControllerSupportLevel::Tentative;
 }
 
+// ログ・UI 用の短いラベル（enum の表示名）。
 const wchar_t* Win32_ControllerParserKindLabel(ControllerParserKind p)
 {
     switch (p)
@@ -71,7 +79,7 @@ const wchar_t* Win32_ControllerSupportLevelLabel(ControllerSupportLevel s)
     }
 }
 
-// === T25 [2] GameControllerKind 推定（HID + 名称パス） — Raw Input 起動ログから利用 ===
+// HID と（任意で）製品名・パス文字列から family を推定。XInput 接続のみのときは XInputCompatible になり得る。
 GameControllerKind Win32_ClassifyGameControllerKind(
     const GameControllerHidSummary& t,
     const wchar_t* productName,

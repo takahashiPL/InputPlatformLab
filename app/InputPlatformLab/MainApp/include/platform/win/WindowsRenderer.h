@@ -1,6 +1,7 @@
-﻿// T23/T24/T25: Windows 描画・DirectX 11 最小レンダラ
+// T23/T24/T25: Windows 描画・DirectX 11 最小レンダラ
 //
 // MainApp の GDI デバッグ描画は WM_PAINT 内で D3D clear/present の後に実行（上書き合成）。
+// D3D は背景クリアのみ。長文テキスト・スクロールは Win32DebugOverlay（GDI）。
 #pragma once
 
 #include "framework.h"
@@ -10,12 +11,14 @@
 
 #include <cstdint>
 
+// D3D 初期化時のクライアントサイズ（物理ピクセル想定）
 struct WindowsRendererConfig
 {
     std::uint32_t clientWidth = 0;
     std::uint32_t clientHeight = 0;
 };
 
+// スワップチェーンと RTV を保持。描画本体はプレースホルダ（クリア + Present）。
 struct WindowsRendererState
 {
     bool initialized = false;

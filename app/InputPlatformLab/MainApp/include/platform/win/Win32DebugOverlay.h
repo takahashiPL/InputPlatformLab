@@ -1,10 +1,10 @@
-﻿#pragma once
+#pragma once
 
 #include "framework.h"
 
 #include <stddef.h>
 
-// MainApp.cpp — テキストバッファ組み立て（T14〜T18 等）。描画は Win32DebugOverlay.cpp。
+// MainApp が WM_PAINT 用に組み立てたバッファを、GDI で描画するモジュール（D3D とは役割分担）。
 void Win32_FillMenuSamplePaintBuffers(
     HWND hwnd,
     const RECT& rcClient,

@@ -1,4 +1,8 @@
-﻿#include "VirtualInputNeutral.h"
+#include "VirtualInputNeutral.h"
+
+// ---------------------------------------------------------------------------
+// VirtualInputSnapshot: ボタン・スティックの読み取り（Win32 型なし）
+// ---------------------------------------------------------------------------
 
 void VirtualInput_ResetDisconnected(VirtualInputSnapshot& s)
 {
@@ -9,6 +13,7 @@ void VirtualInput_ResetDisconnected(VirtualInputSnapshot& s)
     s.rightInDeadzone = true;
 }
 
+// GamepadButtonId に対応する現在の押下状態。
 bool VirtualInput_IsButtonDown(const VirtualInputSnapshot& s, GamepadButtonId id)
 {
     switch (id)
@@ -34,6 +39,7 @@ bool VirtualInput_IsButtonDown(const VirtualInputSnapshot& s, GamepadButtonId id
     return false;
 }
 
+// 直前フレームは離れ、今フレームは押されている（1 フレームの押し始め）。
 bool VirtualInput_WasButtonPressed(
     const VirtualInputSnapshot& prev,
     const VirtualInputSnapshot& curr,
@@ -42,6 +48,7 @@ bool VirtualInput_WasButtonPressed(
     return !VirtualInput_IsButtonDown(prev, id) && VirtualInput_IsButtonDown(curr, id);
 }
 
+// 直前は押し、今は離した（押し終わり）。
 bool VirtualInput_WasButtonReleased(
     const VirtualInputSnapshot& prev,
     const VirtualInputSnapshot& curr,
@@ -93,6 +100,10 @@ std::int8_t VirtualInputPolicy_ClampNeg1_0_1(int v)
     return static_cast<std::int8_t>(v);
 }
 
+// ---------------------------------------------------------------------------
+// ポリシー: メニュー試作向けの move（DPad 優先）と confirm/cancel/menu（エッジ）
+// ---------------------------------------------------------------------------
+
 void VirtualInputPolicy_FillMoveFromDpad(const VirtualInputSnapshot& s, std::int8_t& outX, std::int8_t& outY)
 {
     int x = 0;
@@ -117,6 +128,7 @@ void VirtualInputPolicy_FillMoveFromDpad(const VirtualInputSnapshot& s, std::int
     outY = VirtualInputPolicy_ClampNeg1_0_1(y);
 }
 
+// 左スティックを 4 方向の離散値に落とす（deadzone 済みの leftDir を前提）。
 void VirtualInputPolicy_FillMoveFromLeftStick(const VirtualInputSnapshot& s, std::int8_t& outX, std::int8_t& outY)
 {
     outX = 0;
@@ -131,6 +143,7 @@ void VirtualInputPolicy_FillMoveFromLeftStick(const VirtualInputSnapshot& s, std
     }
 }
 
+// DPad のいずれかが押されていれば DPad のみ。未入力なら左スティックの 4 方向。
 VirtualInputPolicyHeld VirtualInputPolicy_MoveHeld(const VirtualInputSnapshot& s)
 {
     VirtualInputPolicyHeld h{};
@@ -147,6 +160,7 @@ VirtualInputPolicyHeld VirtualInputPolicy_MoveHeld(const VirtualInputSnapshot& s
     return h;
 }
 
+// South/East/Start の pressed エッジ（confirm / cancel / menu）。
 VirtualInputPolicyMenuEdges VirtualInputPolicy_MenuEdges(
     const VirtualInputSnapshot& prev,
     const VirtualInputSnapshot& curr)
@@ -158,6 +172,7 @@ VirtualInputPolicyMenuEdges VirtualInputPolicy_MenuEdges(
     return e;
 }
 
+// パッドのみの ConsumerFrame（move は held、操作系は prev→curr のエッジ）。
 VirtualInputConsumerFrame VirtualInputConsumer_BuildFrame(
     const VirtualInputSnapshot& prev,
     const VirtualInputSnapshot& curr)
@@ -173,6 +188,7 @@ VirtualInputConsumerFrame VirtualInputConsumer_BuildFrame(
     return f;
 }
 
+// 矢印・Tab・Enter・Backspace を上記ポリシーと同じ意味（move / menu / confirm / cancel）にマップ。
 VirtualInputConsumerFrame VirtualInputConsumer_BuildFrameFromKeyboardState(
     const KeyboardActionState& prevKs,
     const KeyboardActionState& currKs)
@@ -204,6 +220,7 @@ VirtualInputConsumerFrame VirtualInputConsumer_BuildFrameFromKeyboardState(
     return f;
 }
 
+// 移動はパッド優先（非ゼロならパッド）。ボタン系はキーとパッドの OR。
 VirtualInputConsumerFrame VirtualInputConsumer_MergeKeyboardController(
     const VirtualInputConsumerFrame& kb,
     const VirtualInputConsumerFrame& pad)
