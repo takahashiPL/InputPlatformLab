@@ -248,6 +248,10 @@ static int s_paintDbgMaxScroll = 0;
 #ifndef WIN32_MAIN_DEBUG_SCROLL_LINE
 #define WIN32_MAIN_DEBUG_SCROLL_LINE 16
 #endif
+// T25: 1 にすると WM_PAINT で D3D clear のみ（GDI テキストなし。clear 色の確認用）
+#ifndef WIN32_MAIN_D3D_CLEAR_ONLY_PAINT
+#define WIN32_MAIN_D3D_CLEAR_ONLY_PAINT 0
+#endif
 // F7: T17 行を画面上端付近へ（ピッタリだと窮屈なので上余白）
 #ifndef WIN32_MAIN_T17_JUMP_TOP_MARGIN
 #define WIN32_MAIN_T17_JUMP_TOP_MARGIN 160
@@ -4043,11 +4047,45 @@ static void Win32_PaintMenuSampleScreen(HWND hwnd, HDC hdc)
         baseContentH,
         extraBottomPadding);
 
-    FillRect(hdc, &rcClient, (HBRUSH)GetStockObject(WHITE_BRUSH));
+    // D3D が既にクライアントを塗っているため、ここでは白で全面上書きしない
     SetBkMode(hdc, TRANSPARENT);
+    // Dark gray RTV clear (~RGB 31,36,46); light text reads over it without a full-client GDI fill.
+    const COLORREF prevTextColor = SetTextColor(hdc, RGB(235, 238, 242));
+
+    const int jumpF7 = Win32_MainView_ScrollTargetT17WithTopMargin();
+    const int jumpF8 = Win32_MainView_ScrollTargetT17Centered(hwnd);
+    wchar_t overlay[1024] = {};
+    Win32_MainView_FormatScrollDebugOverlay(
+        overlay,
+        _countof(overlay),
+        Win32_T17_ModeLabel(s_t17LastAppliedPresentationMode),
+        s_paintDbgContentHeightBase,
+        s_paintDbgExtraBottomPadding,
+        s_paintDbgContentHeight,
+        maxScroll,
+        s_paintDbgT17DocY,
+        s_paintScrollY,
+        s_paintDbgClientHeight,
+        jumpF7,
+        jumpF8);
+    const int actualOverlayHeight =
+        Win32_MainView_MeasureScrollOverlayTextHeight(hdc, clientW, overlay);
+    s_paintDbgActualOverlayHeight = actualOverlayHeight;
+
+    RECT rcClipMain = rcClient;
+    {
+        const int overlayReserve = (std::min)(actualOverlayHeight, clientH);
+        rcClipMain.bottom =
+            (std::max)(rcClipMain.top, rcClipMain.bottom - overlayReserve);
+    }
 
     const int saved = SaveDC(hdc);
-    IntersectClipRect(hdc, rcClient.left, rcClient.top, rcClient.right, rcClient.bottom);
+    IntersectClipRect(
+        hdc,
+        rcClipMain.left,
+        rcClipMain.top,
+        rcClipMain.right,
+        rcClipMain.bottom);
     OffsetViewportOrgEx(hdc, 0, -s_paintScrollY, nullptr);
 
     DrawTextW(hdc, menuBuf, -1, &rcMenuDoc, DT_LEFT | DT_TOP | DT_NOPREFIX);
@@ -4060,31 +4098,11 @@ static void Win32_PaintMenuSampleScreen(HWND hwnd, HDC hdc)
 
     RestoreDC(hdc, saved);
 
-    {
-        const int jumpF7 = Win32_MainView_ScrollTargetT17WithTopMargin();
-        const int jumpF8 = Win32_MainView_ScrollTargetT17Centered(hwnd);
-        wchar_t overlay[1024] = {};
-        Win32_MainView_FormatScrollDebugOverlay(
-            overlay,
-            _countof(overlay),
-            Win32_T17_ModeLabel(s_t17LastAppliedPresentationMode),
-            s_paintDbgContentHeightBase,
-            s_paintDbgExtraBottomPadding,
-            s_paintDbgContentHeight,
-            maxScroll,
-            s_paintDbgT17DocY,
-            s_paintScrollY,
-            s_paintDbgClientHeight,
-            jumpF7,
-            jumpF8);
-        const int actualOverlayHeight =
-            Win32_MainView_MeasureScrollOverlayTextHeight(hdc, clientW, overlay);
-        s_paintDbgActualOverlayHeight = actualOverlayHeight;
-        RECT rcOv = rcClient;
-        rcOv.top = (std::max)(rcClient.top, rcClient.bottom - actualOverlayHeight);
-        FillRect(hdc, &rcOv, (HBRUSH)GetStockObject(WHITE_BRUSH));
-        DrawTextW(hdc, overlay, -1, &rcOv, DT_LEFT | DT_TOP | DT_NOPREFIX | DT_WORDBREAK);
-    }
+    RECT rcOv = rcClient;
+    rcOv.top = (std::max)(rcClient.top, rcClient.bottom - actualOverlayHeight);
+    DrawTextW(hdc, overlay, -1, &rcOv, DT_LEFT | DT_TOP | DT_NOPREFIX | DT_WORDBREAK);
+
+    SetTextColor(hdc, prevTextColor);
 }
 
 static void Win32_LogVirtualInputMenuSampleIfChanged(
@@ -5491,6 +5509,9 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam)
 {
     switch (message)
     {
+    case WM_ERASEBKGND:
+        // 既定の背景消去（白塗り）を抑止し、D3D の swap chain 表示を優先する
+        return 1;
     case WM_COMMAND:
         {
             int wmId = LOWORD(wParam);
@@ -5717,7 +5738,9 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam)
             PAINTSTRUCT ps;
             HDC hdc = BeginPaint(hWnd, &ps);
             WindowsRenderer_RenderPlaceholder(&s_windowsRendererState, hWnd);
+#if !WIN32_MAIN_D3D_CLEAR_ONLY_PAINT
             Win32_PaintMenuSampleScreen(hWnd, hdc);
+#endif
             EndPaint(hWnd, &ps);
         }
         break;
