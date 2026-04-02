@@ -3,9 +3,7 @@
 
 #include "framework.h"
 #include "MainApp.h"
-#include "VirtualInputMenuSample.h"
-#include "VirtualInputNeutral.h"
-#include "ControllerClassification.h"
+#include "InputCore.h"
 
 #include <windowsx.h>
 

@@ -133,6 +133,7 @@
     <ClInclude Include="targetver.h" />
     <ClInclude Include="ControllerClassification.h" />
     <ClInclude Include="GamepadTypes.h" />
+    <ClInclude Include="InputCore.h" />
     <ClInclude Include="VirtualInputMenuSample.h" />
     <ClInclude Include="VirtualInputNeutral.h" />
   </ItemGroup>
