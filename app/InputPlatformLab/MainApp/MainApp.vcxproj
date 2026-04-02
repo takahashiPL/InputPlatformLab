@@ -138,12 +138,14 @@
     <ClInclude Include="WindowsDisplayBackend.h" />
     <ClInclude Include="WindowsInputBackend.h" />
     <ClInclude Include="WindowsRenderer.h" />
+    <ClInclude Include="Win32DebugOverlay.h" />
     <ClInclude Include="VirtualInputMenuSample.h" />
     <ClInclude Include="VirtualInputNeutral.h" />
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="ControllerClassification.cpp" />
     <ClCompile Include="WindowsRenderer.cpp" />
+    <ClCompile Include="Win32DebugOverlay.cpp" />
     <ClCompile Include="MainApp.cpp" />
     <ClCompile Include="VirtualInputNeutral.cpp" />
   </ItemGroup>
