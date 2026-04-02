@@ -4,6 +4,10 @@
 #include "framework.h"
 #include "MainApp.h"
 #include "InputCore.h"
+#include "WindowsAppShell.h"
+#include "WindowsInputBackend.h"
+#include "WindowsDisplayBackend.h"
+#include "WindowsRenderer.h"
 
 #include <windowsx.h>
 

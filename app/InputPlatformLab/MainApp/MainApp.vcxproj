@@ -134,6 +134,10 @@
     <ClInclude Include="ControllerClassification.h" />
     <ClInclude Include="GamepadTypes.h" />
     <ClInclude Include="InputCore.h" />
+    <ClInclude Include="WindowsAppShell.h" />
+    <ClInclude Include="WindowsDisplayBackend.h" />
+    <ClInclude Include="WindowsInputBackend.h" />
+    <ClInclude Include="WindowsRenderer.h" />
     <ClInclude Include="VirtualInputMenuSample.h" />
     <ClInclude Include="VirtualInputNeutral.h" />
   </ItemGroup>
