@@ -131,11 +131,13 @@
     <ClInclude Include="MainApp.h" />
     <ClInclude Include="Resource.h" />
     <ClInclude Include="targetver.h" />
+    <ClInclude Include="ControllerClassification.h" />
     <ClInclude Include="GamepadTypes.h" />
     <ClInclude Include="VirtualInputMenuSample.h" />
     <ClInclude Include="VirtualInputNeutral.h" />
   </ItemGroup>
   <ItemGroup>
+    <ClCompile Include="ControllerClassification.cpp" />
     <ClCompile Include="MainApp.cpp" />
     <ClCompile Include="VirtualInputNeutral.cpp" />
   </ItemGroup>

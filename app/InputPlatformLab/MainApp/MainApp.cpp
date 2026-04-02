@@ -5,6 +5,7 @@
 #include "MainApp.h"
 #include "VirtualInputMenuSample.h"
 #include "VirtualInputNeutral.h"
+#include "ControllerClassification.h"
 
 #include <windowsx.h>
 
@@ -82,22 +83,7 @@ struct PhysicalKeyEvent
     bool is_key_up;                // 離上（break）なら true
 };
 
-// === T25 [2] Gamepad family / logical buttons / stick dir（中立） — GamepadTypes.h / VirtualInputNeutral.h へ一部移設
-// 入力経路: XInput / 既知 Raw HID(DS4) / 汎用 HID。実機検証度は SupportLevel。
-enum class ControllerParserKind : std::uint8_t
-{
-    None = 0,
-    XInput,
-    Ds4KnownHid,
-    GenericHid,
-};
-
-enum class ControllerSupportLevel : std::uint8_t
-{
-    Verified = 0,
-    Tentative,
-};
-
+// === T25 [2] Parser / Support / HID 分類（中立） — T21: ControllerClassification.h / ControllerClassification.cpp
 // === T25 [8] 型：XInput スロット列挙結果（中立） — 実装・ログは [8] ブロック側へ ===
 // XInput スロット列挙結果（将来 input/ 配下へ移設可能）
 struct ControllerSlotProbeResult
@@ -113,93 +99,6 @@ struct ControllerSlotProbeResult
 
 static KeyboardActionState s_keyboardActionState{};
 static KeyboardActionState s_keyboardActionStateAtLastTimer{};
-
-// === T25 [2] 補助：HID 属性（分類用。Raw Input 取得は [8]） — 将来: GamepadFamily.cpp など ===
-// Raw Input HID から得た属性（将来 input/ 配下へ移設可能）
-struct GameControllerHidSummary
-{
-    std::uint16_t vendor_id;
-    std::uint16_t product_id;
-    std::uint16_t usage_page;
-    std::uint16_t usage;
-    bool device_info_valid;
-};
-
-static bool Win32_HidTraitsLookLikeGamepad(const GameControllerHidSummary& t)
-{
-    return (t.usage_page == 0x01 && (t.usage == 0x04 || t.usage == 0x05)) ||
-        (t.vendor_id == 0x045E || t.vendor_id == 0x054C || t.vendor_id == 0x057E);
-}
-
-// VID/PID → parser / support（DS4 のみ verified+Known HID。他はテーブル行があれば family のみ寄せ、未実機は決め打ちマッピングを増やさない暫定受け皿）
-struct ControllerHidProductTableEntry
-{
-    std::uint16_t vid;
-    std::uint16_t pid; // 0xFFFF = その VID の残り PID すべて（具体 PID 行より後に置く）
-    GameControllerKind family;
-    ControllerParserKind parser;
-    ControllerSupportLevel support;
-};
-
-static const ControllerHidProductTableEntry kControllerHidProductTable[] = {
-    { 0x054C, 0x05C4, GameControllerKind::PlayStation4, ControllerParserKind::Ds4KnownHid,
-        ControllerSupportLevel::Verified },
-    { 0x054C, 0x09CC, GameControllerKind::PlayStation4, ControllerParserKind::Ds4KnownHid,
-        ControllerSupportLevel::Verified },
-    { 0x054C, 0x0CE6, GameControllerKind::PlayStation5, ControllerParserKind::GenericHid,
-        ControllerSupportLevel::Tentative },
-    { 0x054C, 0x0DF2, GameControllerKind::PlayStation5, ControllerParserKind::GenericHid,
-        ControllerSupportLevel::Tentative },
-    { 0x057E, 0xFFFF, GameControllerKind::Nintendo, ControllerParserKind::GenericHid,
-        ControllerSupportLevel::Tentative },
-    { 0x045E, 0xFFFF, GameControllerKind::Xbox, ControllerParserKind::GenericHid,
-        ControllerSupportLevel::Tentative },
-};
-
-static void Win32_ResolveHidProductTable(
-    std::uint16_t vid,
-    std::uint16_t pid,
-    ControllerParserKind& outParser,
-    ControllerSupportLevel& outSupport)
-{
-    for (const ControllerHidProductTableEntry& e : kControllerHidProductTable)
-    {
-        if (e.vid != vid)
-        {
-            continue;
-        }
-        if (e.pid == pid || e.pid == 0xFFFF)
-        {
-            outParser = e.parser;
-            outSupport = e.support;
-            return;
-        }
-    }
-    outParser = ControllerParserKind::GenericHid;
-    outSupport = ControllerSupportLevel::Tentative;
-}
-
-static const wchar_t* Win32_ControllerParserKindLabel(ControllerParserKind p)
-{
-    switch (p)
-    {
-    case ControllerParserKind::None: return L"None";
-    case ControllerParserKind::XInput: return L"XInput";
-    case ControllerParserKind::Ds4KnownHid: return L"Ds4KnownHid";
-    case ControllerParserKind::GenericHid: return L"GenericHid";
-    default: return L"?";
-    }
-}
-
-static const wchar_t* Win32_ControllerSupportLevelLabel(ControllerSupportLevel s)
-{
-    switch (s)
-    {
-    case ControllerSupportLevel::Verified: return L"verified";
-    case ControllerSupportLevel::Tentative: return L"tentative";
-    default: return L"?";
-    }
-}
 
 // グローバル変数:
 HINSTANCE hInst;                                // 現在のインターフェイス
@@ -426,16 +325,10 @@ static void Win32_LogXInputSlotsAtStartup();
 
 // [2] family classify + [8] Raw Input HID 列挙
 static bool Win32_QueryAnyXInputConnected();
-static GameControllerKind Win32_ClassifyGameControllerKind(
-    const GameControllerHidSummary& traits,
-    const wchar_t* productName,
-    const wchar_t* devicePath,
-    bool anyXInputConnected);
 static const wchar_t* Win32_GameControllerKindLabel(GameControllerKind kind);
 static bool Win32_TryGetRawInputDeviceString(HANDLE hDevice, UINT infoType, wchar_t* buffer, size_t bufferCount);
 static void Win32_LogRawInputHidGameControllersClassified();
 
-static bool Win32_HidTraitsLookLikeGamepad(const GameControllerHidSummary& t);
 static const wchar_t* Win32_GameControllerKindFamilyLabel(GameControllerKind kind);
 static void Win32_T18_RefreshControllerIdentifySnapshot();
 static void Win32_T18_AppendPaintSection(wchar_t* buf, size_t bufCount);
@@ -4637,65 +4530,6 @@ static void Win32_XInputPollDigitalEdgesOnTimer(HWND hwnd)
     s_xinputPrevLeftDir = leftDir;
     s_xinputPrevRightInDeadzone = rightInDz;
     s_xinputPrevRightDir = rightDir;
-}
-
-// === T25 [2] GameControllerKind 推定（HID + 名称パス） — Raw Input 起動ログから利用 ===
-static GameControllerKind Win32_ClassifyGameControllerKind(
-    const GameControllerHidSummary& t,
-    const wchar_t* productName,
-    const wchar_t* devicePath,
-    bool anyXInputConnected)
-{
-    if (!t.device_info_valid)
-    {
-        return GameControllerKind::Unknown;
-    }
-
-    const bool nameHasXbox = (productName != nullptr && wcsstr(productName, L"Xbox") != nullptr)
-        || (devicePath != nullptr && wcsstr(devicePath, L"Xbox") != nullptr);
-
-    // 1–2: Sony（DualSense を DualShock より先に）
-    if (t.vendor_id == 0x054C)
-    {
-        if (productName != nullptr && wcsstr(productName, L"DualSense") != nullptr)
-        {
-            return GameControllerKind::PlayStation5;
-        }
-        if (t.product_id == 0x0CE6 || t.product_id == 0x0DF2)
-        {
-            return GameControllerKind::PlayStation5;
-        }
-        if (productName != nullptr &&
-            (wcsstr(productName, L"DualShock") != nullptr ||
-             wcsstr(productName, L"Wireless Controller") != nullptr))
-        {
-            return GameControllerKind::PlayStation4;
-        }
-        if (t.product_id == 0x05C4 || t.product_id == 0x09CC)
-        {
-            return GameControllerKind::PlayStation4;
-        }
-    }
-
-    // Nintendo (HID)
-    if (t.vendor_id == 0x057E)
-    {
-        return GameControllerKind::Nintendo;
-    }
-
-    // 3: Microsoft VID または Xbox 名称
-    if (t.vendor_id == 0x045E || nameHasXbox)
-    {
-        return GameControllerKind::Xbox;
-    }
-
-    // 4: 上記以外で XInput が生きているなら互換パッド
-    if (anyXInputConnected)
-    {
-        return GameControllerKind::XInputCompatible;
-    }
-
-    return GameControllerKind::Unknown;
 }
 
 // === T25 [8] Win32: Raw Input デバイス文字列取得 + HID ゲームパッド列挙ログ ===
