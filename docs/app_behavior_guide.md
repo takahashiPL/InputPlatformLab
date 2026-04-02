@@ -158,16 +158,18 @@ Visual Studio の出力ウィンドウ、またはデバッガーに付随する
 - **ボタン表示ラベル**（ファミリー別）の追加
 - **T18 や [HIDgen] ログ**の見え方調整
 
-### 候補として見るファイル・責務（現状の構成に即した案内）
+### 調査・改修の入口（責務ベース。現行の置き場所は一例）
 
-| 場所 | よくある調整 |
-|------|----------------|
-| `include/ControllerClassification.h` / `src/ControllerClassification.cpp` | VID/PID テーブル、`Win32_ResolveHidProductTable`、ファミリー推定。 |
-| `include/GamepadTypes.h` | `GameControllerKind` 等の列挙（追加は影響範囲が広い）。 |
-| `include/InputCore.h` | 中立ヘッダの入口（他ファイルの参照関係の確認用）。 |
-| `include/VirtualInputNeutral.h` / `src/VirtualInputNeutral.cpp` | 論理ボタン・ポリシー・キーとパッドのマージ。 |
-| `src/MainApp.cpp` | Raw Input / XInput / HID レポートの取り込み、仮想入力・ログ・T18 表示文字列の組み立て。 |
-| `include/platform/win/` 配下 | Windows 固有の描画・オーバーレイ（表示の見え方はここに依存しない部分もある）。 |
+フォルダ構成の考え方は [architecture.md](architecture.md) を前提に、**どの責務に手を入れるか**を先に決め、そのあと **現行リポジトリではどのファイルに相当するか**を辿ると迷いにくいです。下表の「入手先」は、**現在の MainApp プロジェクト**（`app/InputPlatformLab/MainApp/`）から見た相対パスの例であり、将来ディレクトリを動かした場合は **同じ責務が別パスに移る**可能性があります。
+
+| 関心・責務 | 入手先の例（現行） | よくある調整 |
+|------------|-------------------|--------------|
+| VID/PID と parser / support の対応、ファミリー推定 | `ControllerClassification`（`include/…/ControllerClassification.h` と `src/ControllerClassification.cpp`） | テーブル行、解決関数、分類ロジック |
+| 論理ボタン列挙やファミリー名の拡張 | `GamepadTypes.h`（`include/`） | `GameControllerKind` 等の追加（影響範囲は広くなりがち） |
+| 論理入力ポリシー・スナップショット・キーとパッドのマージ | `VirtualInputNeutral`（`include/VirtualInputNeutral.h` と `src/VirtualInputNeutral.cpp`） | ポリシー、フレーム組み立て |
+| Raw Input / XInput / 既知 HID の取り込み、仮想入力・識別・ログ文字列の組み立て | メイン実装（現行は `src/MainApp.cpp` に集約されている部分が大きい） | WM_INPUT・タイマー経路、デバイス別の橋渡し |
+| 中立ヘッダの **参照の入口**（どの型がどこから来るかの把握） | `InputCore.h`（`include/`） | **ロジック本体の追記先というより**、include 関係の地図として見ることが多い |
+| 描画・GDI オーバーレイ（入力パースそのものではない） | `WindowsRenderer` / `Win32DebugOverlay`（`include/platform/win/` と `src/platform/win/`） | 画面に何を出すか・ログと並べて読みやすくするか |
 
 **PC 上の新しい HID ゲームパッド**を扱う追加と、**別 OS やゲーム機本体向けの platform 追加**は別問題です。後者は [architecture.md](architecture.md) の「プラットフォーム」節を参照してください。
 
