@@ -107,6 +107,7 @@ HINSTANCE hInst;                                // 現在のインターフェ�
 WCHAR szTitle[MAX_LOADSTRING];                  // タイトル バーのテキスト
 WCHAR szWindowClass[MAX_LOADSTRING];            // メイン ウィンドウ クラス名
 static HWND s_mainWindowHwnd = nullptr;         // T13: サンプル画面 InvalidateRect 用
+static WindowsRendererState s_windowsRendererState{}; // T24: 将来 DirectX（現状 placeholder）
 
 // T14: モニター / 解像度列挙（起動時 1 回キャッシュ。neutral ヘッダは触らない）
 struct DisplayModeInfo
@@ -1438,6 +1439,19 @@ static bool Win32_RecreateMainWindowFromConfig(HWND oldHwnd, const MainWindowCon
     }
 
     s_mainWindowHwnd = newHwnd;
+
+    {
+        RECT cr{};
+        GetClientRect(newHwnd, &cr);
+        WindowsRendererConfig wrCfg{};
+        wrCfg.clientWidth = static_cast<std::uint32_t>(
+            (std::max)(0, static_cast<int>(cr.right - cr.left)));
+        wrCfg.clientHeight = static_cast<std::uint32_t>(
+            (std::max)(0, static_cast<int>(cr.bottom - cr.top)));
+        WindowsRenderer_ShutdownPlaceholder(&s_windowsRendererState);
+        (void)WindowsRenderer_InitPlaceholder(newHwnd, wrCfg, &s_windowsRendererState);
+    }
+
     if (!Win32_RegisterKeyboardRawInput(newHwnd))
     {
         OutputDebugStringW(L"[T16] RegisterRawInputDevices failed\r\n");
@@ -2337,6 +2351,17 @@ BOOL InitInstance(HINSTANCE hInstance, int nCmdShow)
    }
 
    s_mainWindowHwnd = hWnd;
+
+   {
+      RECT cr{};
+      GetClientRect(hWnd, &cr);
+      WindowsRendererConfig wrCfg{};
+      wrCfg.clientWidth = static_cast<std::uint32_t>(
+          (std::max)(0, static_cast<int>(cr.right - cr.left)));
+      wrCfg.clientHeight = static_cast<std::uint32_t>(
+          (std::max)(0, static_cast<int>(cr.bottom - cr.top)));
+      (void)WindowsRenderer_InitPlaceholder(hWnd, wrCfg, &s_windowsRendererState);
+   }
 
    if (useNearestForCreate)
    {
@@ -5555,6 +5580,15 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam)
         }
         break;
     case WM_SIZE:
+        {
+            RECT cr{};
+            GetClientRect(hWnd, &cr);
+            const std::uint32_t cw = static_cast<std::uint32_t>(
+                (std::max)(0, static_cast<int>(cr.right - cr.left)));
+            const std::uint32_t ch = static_cast<std::uint32_t>(
+                (std::max)(0, static_cast<int>(cr.bottom - cr.top)));
+            WindowsRenderer_OnResizePlaceholder(&s_windowsRendererState, cw, ch);
+        }
         Win32_ScrollLog(L"WM_SIZE", hWnd, s_paintScrollY, s_paintScrollY, -1, -1);
         InvalidateRect(hWnd, nullptr, FALSE);
         break;
@@ -5682,6 +5716,7 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam)
         {
             PAINTSTRUCT ps;
             HDC hdc = BeginPaint(hWnd, &ps);
+            WindowsRenderer_RenderPlaceholder(&s_windowsRendererState, hWnd);
             Win32_PaintMenuSampleScreen(hWnd, hdc);
             EndPaint(hWnd, &ps);
         }
@@ -5698,6 +5733,7 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam)
             {
                 Win32_T17_ResetMonitor0DisplaySettings();
             }
+            WindowsRenderer_ShutdownPlaceholder(&s_windowsRendererState);
             s_mainWindowHwnd = nullptr;
             PostQuitMessage(0);
         }
