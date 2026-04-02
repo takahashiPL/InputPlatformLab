@@ -1,4 +1,4 @@
-// T20: platform-neutral gamepad enums (shared by VirtualInput layer and Win32 backend)
+﻿// T20: platform-neutral gamepad enums (shared by VirtualInput layer and Win32 backend)
 #pragma once
 
 #include <cstdint>

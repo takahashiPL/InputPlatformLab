@@ -1,4 +1,4 @@
-// T23: Windows 入力バックエンド（Raw Input / XInput / キー）
+﻿// T23: Windows 入力バックエンド（Raw Input / XInput / キー）
 //
 // 将来ここへ集約する責務（現状は MainApp.cpp 内）:
 //   - RegisterRawInputDevices、WM_INPUT（HID / キー）、PhysicalKeyEvent への橋渡し

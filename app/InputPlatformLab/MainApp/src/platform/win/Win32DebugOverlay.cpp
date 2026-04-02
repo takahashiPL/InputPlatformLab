@@ -1,4 +1,4 @@
-#include "framework.h"
+﻿#include "framework.h"
 #include "Win32DebugOverlay.h"
 
 #include <algorithm>

@@ -1,4 +1,4 @@
-#include "WindowsRenderer.h"
+﻿#include "WindowsRenderer.h"
 
 #include <algorithm>
 #include <stdio.h>

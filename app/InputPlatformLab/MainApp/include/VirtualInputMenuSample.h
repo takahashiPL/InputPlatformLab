@@ -1,4 +1,4 @@
-// T26: VirtualInputConsumerFrame + メニュー試作（Win32 / XInput 非依存）。header-only。
+﻿// T26: VirtualInputConsumerFrame + メニュー試作（Win32 / XInput 非依存）。header-only。
 #pragma once
 
 #include <cstdint>

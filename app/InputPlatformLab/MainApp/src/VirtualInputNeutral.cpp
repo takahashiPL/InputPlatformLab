@@ -1,4 +1,4 @@
-#include "VirtualInputNeutral.h"
+﻿#include "VirtualInputNeutral.h"
 
 void VirtualInput_ResetDisconnected(VirtualInputSnapshot& s)
 {

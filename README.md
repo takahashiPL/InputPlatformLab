@@ -16,6 +16,12 @@ Windowsアプリの入力基盤試作プロジェクト。
 
 ビルド設定の正は `app/InputPlatformLab/MainApp/MainApp.vcxproj` とする。
 
+## MainApp ディレクトリ構成
+- ヘッダー: `app/InputPlatformLab/MainApp/include/`（ファイル名に Windows / Win32 を含むものは `include/platform/win/`）
+- ソース: `app/InputPlatformLab/MainApp/src/`（同上は `src/platform/win/`）
+- リソース（.rc / .ico）: `app/InputPlatformLab/MainApp/resources/`
+- ソースは UTF-8（BOM 付き）で保存（MSVC C4819 回避）
+
 ## 方針
 - 1マイルストーン = 1ブランチ = 1検証可能単位
 - AIで雛形生成、人間が理解・修正・検証する
@@ -23,7 +29,7 @@ Windowsアプリの入力基盤試作プロジェクト。
 メイン画面デバッグの **T14 visible modes**（`>` 行）: **VirtualInputMenuSample が menuOpen=false** のとき、**↑/↓** で `selectedModeIndex` が動く（**Tab** でメニューを開いている間は矢印は 2x2 メニュー用）。キーボードのエッジは **タイマー内** `Win32_UnifiedInputConsumerMenuTick` で `s_keyboardActionState` と前回サンプルから検出する。
 
 ## DS4 USB（Sony VID 054C）ボタンマップ（実機確認済み）
-`MainApp.cpp` の `Win32_FillVirtualInputFromDs4StyleHidReport` 参照。実測ログと整合する要点:
+`src/MainApp.cpp` の `Win32_FillVirtualInputFromDs4StyleHidReport` 参照。実測ログと整合する要点:
 - **L1** = `byte6 & 0x01`（例: `rawB6=0x01`、`[PS4DS4ISO] L1Only`、`VirtualInput slot=99` の `L1R1=10`）
 - **R3** = `byte5 & 0x80`（例: `rawB5=0x88` = DPad hat8 + R3、`[PS4DS4ISO] R3Only`、`L3R3=01`）
 - byte5: DPad hat（下位ニブル; 無入力寄りは `8`）、Share `0x10`, Circle `0x20`, Options `0x40`
@@ -34,7 +40,7 @@ Windowsアプリの入力基盤試作プロジェクト。
 slot=99（XInput 不在時）: `[PS4VIchg]`（肩・StSel・PS 等）、`[PS4Bridge]`（L1R1/L2R2/L3R3/PS + raw b5/b6/b8/b9）、単発の `[PS4DS4ISO]`（DPad hat 中立時のみ L1/R3/L3/Tri 系）。
 
 調査用 WM_INPUT 冗長ログは `kPs4HidVerboseRawLog`（既定 `false`）。  
-T18 の短い調査ログ（いずれも `MainApp.cpp` で既定 `false`。`true` にしたビルドのみ該当行が出る）: `kPs4IsoSkipDebugLog` → `[PS4ISOskip]`、`kPs4IsoProbeDebugLog` → `[PS4ISOprobe]`、`kPs4DPadProbeDebugLog` → `[PS4DPadProbe]`、`kPs4RawComboProbeDebugLog` → `[PS4RawCombo]`、`kPs4BridgeResetDebugLog` → `[PS4BridgeReset]`。
+T18 の短い調査ログ（いずれも `src/MainApp.cpp` で既定 `false`。`true` にしたビルドのみ該当行が出る）: `kPs4IsoSkipDebugLog` → `[PS4ISOskip]`、`kPs4IsoProbeDebugLog` → `[PS4ISOprobe]`、`kPs4DPadProbeDebugLog` → `[PS4DPadProbe]`、`kPs4RawComboProbeDebugLog` → `[PS4RawCombo]`、`kPs4BridgeResetDebugLog` → `[PS4BridgeReset]`。
 
 ### DPad 混在時の isolate 抑止（`[PS4ISOskip]`）
 `[PS4ISOskip]` は **同一フレームの `s_ps4LastReportB5` 下位ニブル（hatLo）が 8 以外**のときにだけ出る（`kPs4IsoSkipDebugLog = true` 時）。**skip 分岐の不具合ではなく**、条件「hat 非中立」のときだけログが出る。
@@ -51,7 +57,7 @@ T18 の短い調査ログ（いずれも `MainApp.cpp` で既定 `false`。`true
 - **DPad + L3** → `tag=L3Only`
 - **DPad + Tri（△）** → `tag=TriOnly`
 
-## 入力レイヤーと検証度（MainApp.cpp）
+## 入力レイヤーと検証度（src/MainApp.cpp）
 アプリは次の 3 経路に分かれる（T18 の `parser` / `support` に反映）。
 1. **XInput** — `XInputGetState` 系。`ControllerParserKind::XInput` + **verified**（Microsoft 公式 API 経路）。
 2. **Known Raw HID（DS4）** — VID/PID が `kControllerHidProductTable` の DS4 行に一致するときのみ `Win32_FillVirtualInputFromDs4StyleHidReport` で橋渡し。**verified**。

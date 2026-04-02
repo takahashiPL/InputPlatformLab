@@ -1,4 +1,4 @@
-// MainApp.cpp : アプリケーションのエントリ ポイントを定義します。
+﻿// MainApp.cpp : アプリケーションのエントリ ポイントを定義します。
 //
 
 #include "framework.h"

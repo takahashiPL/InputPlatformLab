@@ -1,4 +1,4 @@
-// T23: Windows アプリシェル（エントリ・ウィンドウ・メッセージループ）
+﻿// T23: Windows アプリシェル（エントリ・ウィンドウ・メッセージループ）
 //
 // 将来ここへ集約する責務（現状は MainApp.cpp 内）:
 //   - wWinMain、メッセージループ（GetMessage / DispatchMessage）

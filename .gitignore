@@ -1,5 +1,6 @@
 # Visual Studio
 .vs/
+*.aps
 *.vcxproj.user
 *.VC.db
 *.VC.opendb

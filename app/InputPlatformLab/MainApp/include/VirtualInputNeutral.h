@@ -1,4 +1,4 @@
-// T20: VirtualInputSnapshot, policy, keyboard→consumer merge (no Win32 / XInput types)
+﻿// T20: VirtualInputSnapshot, policy, keyboard→consumer merge (no Win32 / XInput types)
 #pragma once
 
 #include "GamepadTypes.h"

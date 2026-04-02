@@ -1,4 +1,4 @@
-// T23/T24/T25: Windows 描画・DirectX 11 最小レンダラ
+﻿// T23/T24/T25: Windows 描画・DirectX 11 最小レンダラ
 //
 // MainApp の GDI デバッグ描画は WM_PAINT 内で D3D clear/present の後に実行（上書き合成）。
 #pragma once

@@ -1,58 +1,100 @@
 <?xml version="1.0" encoding="utf-8"?>
 <Project ToolsVersion="4.0" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
   <ItemGroup>
-    <Filter Include="ソース ファイル">
+    <Filter Include="include">
+      <UniqueIdentifier>{a1b2c3d4-1111-4111-8111-111111111111}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="include\platform">
+      <UniqueIdentifier>{a1b2c3d4-2222-4222-8222-222222222222}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="include\platform\win">
+      <UniqueIdentifier>{a1b2c3d4-3333-4333-8333-333333333333}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="src">
       <UniqueIdentifier>{4FC737F1-C7A5-4376-A066-2A32D752A2FF}</UniqueIdentifier>
-      <Extensions>cpp;c;cc;cxx;c++;cppm;ixx;def;odl;idl;hpj;bat;asm;asmx</Extensions>
     </Filter>
-    <Filter Include="ヘッダー ファイル">
-      <UniqueIdentifier>{93995380-89BD-4b04-88EB-625FBE52EBFB}</UniqueIdentifier>
-      <Extensions>h;hh;hpp;hxx;h++;hm;inl;inc;ipp;xsd</Extensions>
+    <Filter Include="src\platform">
+      <UniqueIdentifier>{a1b2c3d4-4444-4444-8444-444444444444}</UniqueIdentifier>
     </Filter>
-    <Filter Include="リソース ファイル">
+    <Filter Include="src\platform\win">
+      <UniqueIdentifier>{a1b2c3d4-5555-4555-8555-555555555555}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="resources">
       <UniqueIdentifier>{67DA6AB6-F800-4c08-8B7A-83BB121AAD01}</UniqueIdentifier>
-      <Extensions>rc;ico;cur;bmp;dlg;rc2;rct;bin;rgs;gif;jpg;jpeg;jpe;resx;tiff;tif;png;wav;mfcribbon-ms</Extensions>
     </Filter>
   </ItemGroup>
   <ItemGroup>
-    <ClInclude Include="framework.h">
-      <Filter>ヘッダー ファイル</Filter>
+    <ClInclude Include="include\framework.h">
+      <Filter>include</Filter>
     </ClInclude>
-    <ClInclude Include="targetver.h">
-      <Filter>ヘッダー ファイル</Filter>
+    <ClInclude Include="include\MainApp.h">
+      <Filter>include</Filter>
     </ClInclude>
-    <ClInclude Include="Resource.h">
-      <Filter>ヘッダー ファイル</Filter>
+    <ClInclude Include="include\Resource.h">
+      <Filter>include</Filter>
     </ClInclude>
-    <ClInclude Include="MainApp.h">
-      <Filter>ヘッダー ファイル</Filter>
+    <ClInclude Include="include\targetver.h">
+      <Filter>include</Filter>
     </ClInclude>
-    <ClInclude Include="VirtualInputMenuSample.h">
-      <Filter>ヘッダー ファイル</Filter>
+    <ClInclude Include="include\ControllerClassification.h">
+      <Filter>include</Filter>
     </ClInclude>
-    <ClInclude Include="Win32DebugOverlay.h">
-      <Filter>ヘッダー ファイル</Filter>
+    <ClInclude Include="include\GamepadTypes.h">
+      <Filter>include</Filter>
+    </ClInclude>
+    <ClInclude Include="include\InputCore.h">
+      <Filter>include</Filter>
+    </ClInclude>
+    <ClInclude Include="include\VirtualInputMenuSample.h">
+      <Filter>include</Filter>
+    </ClInclude>
+    <ClInclude Include="include\VirtualInputNeutral.h">
+      <Filter>include</Filter>
+    </ClInclude>
+    <ClInclude Include="include\platform\win\WindowsAppShell.h">
+      <Filter>include\platform\win</Filter>
+    </ClInclude>
+    <ClInclude Include="include\platform\win\WindowsDisplayBackend.h">
+      <Filter>include\platform\win</Filter>
+    </ClInclude>
+    <ClInclude Include="include\platform\win\WindowsInputBackend.h">
+      <Filter>include\platform\win</Filter>
+    </ClInclude>
+    <ClInclude Include="include\platform\win\WindowsRenderer.h">
+      <Filter>include\platform\win</Filter>
+    </ClInclude>
+    <ClInclude Include="include\platform\win\Win32DebugOverlay.h">
+      <Filter>include\platform\win</Filter>
     </ClInclude>
   </ItemGroup>
   <ItemGroup>
-    <ClCompile Include="Win32DebugOverlay.cpp">
-      <Filter>ソース ファイル</Filter>
+    <ClCompile Include="src\MainApp.cpp">
+      <Filter>src</Filter>
     </ClCompile>
-    <ClCompile Include="MainApp.cpp">
-      <Filter>ソース ファイル</Filter>
+    <ClCompile Include="src\ControllerClassification.cpp">
+      <Filter>src</Filter>
+    </ClCompile>
+    <ClCompile Include="src\VirtualInputNeutral.cpp">
+      <Filter>src</Filter>
+    </ClCompile>
+    <ClCompile Include="src\platform\win\WindowsRenderer.cpp">
+      <Filter>src\platform\win</Filter>
+    </ClCompile>
+    <ClCompile Include="src\platform\win\Win32DebugOverlay.cpp">
+      <Filter>src\platform\win</Filter>
     </ClCompile>
   </ItemGroup>
   <ItemGroup>
-    <ResourceCompile Include="MainApp.rc">
-      <Filter>リソース ファイル</Filter>
+    <ResourceCompile Include="resources\MainApp.rc">
+      <Filter>resources</Filter>
     </ResourceCompile>
   </ItemGroup>
   <ItemGroup>
-    <Image Include="small.ico">
-      <Filter>リソース ファイル</Filter>
+    <Image Include="resources\MainApp.ico">
+      <Filter>resources</Filter>
     </Image>
-    <Image Include="MainApp.ico">
-      <Filter>リソース ファイル</Filter>
+    <Image Include="resources\small.ico">
+      <Filter>resources</Filter>
     </Image>
   </ItemGroup>
 </Project>

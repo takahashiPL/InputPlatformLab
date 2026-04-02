@@ -1,4 +1,4 @@
-// T21: HID 属性・VID/PID テーブル・GameControllerKind 推定（Win32/Raw Input API なし）
+﻿// T21: HID 属性・VID/PID テーブル・GameControllerKind 推定（Win32/Raw Input API なし）
 #pragma once
 
 #include "GamepadTypes.h"

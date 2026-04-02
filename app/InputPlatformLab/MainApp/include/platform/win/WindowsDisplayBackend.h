@@ -1,4 +1,4 @@
-// T23: Windows 表示・解像度バックエンド
+﻿// T23: Windows 表示・解像度バックエンド
 //
 // 将来ここへ集約する責務（現状は MainApp.cpp 内）:
 //   - モニタ列挙・表示モードキャッシュ（EnumDisplayMonitors / EnumDisplaySettingsW）
