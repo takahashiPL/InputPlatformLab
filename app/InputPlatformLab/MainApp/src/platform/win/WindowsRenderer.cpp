@@ -1,6 +1,7 @@
 #include "WindowsRenderer.h"
 
 #include <algorithm>
+#include <cmath>
 #include <d2derr.h>
 #include <stdio.h>
 #include <wchar.h>
@@ -702,7 +703,7 @@ static bool WindowsRenderer_InternalEnsureBorderlessOffscreenRT(WindowsRendererS
 
 static void WindowsRenderer_InternalBindMainRtAndViewport(WindowsRendererState* state);
 
-// T37: オフスクリーン合成済みバックバッファ（dst）上に、committed 仮想幅でラップした本文を DWrite で重ねる（BeginDraw セッション内）
+// T37 / T37-1: オフスクリーン合成済みバックバッファ上に本文を DWrite で重ねる。グリッド+T33 下・GDI scroll 帯を避け、スケールは上下限で補正。
 static bool WindowsRenderer_TryDrawT37VirtualBodyOnCompositeTarget(
     WindowsRendererState* state,
     float wDipClient,
@@ -732,6 +733,40 @@ static bool WindowsRenderer_TryDrawT37VirtualBodyOnCompositeTarget(
     {
         return false;
     }
+
+#if WIN32_RENDERER_DEBUG_GRID_64PX
+    // グリッドラベル(~72) + T33 行(~80) より下から本文（DrawD2DContentToSurface と整合）
+    static constexpr float kT37TopReserveDip = 108.f;
+#else
+    static constexpr float kT37TopReserveDip = 32.f;
+#endif
+    static constexpr float kT37BottomReserveDip = 96.f;
+    static constexpr float kT37SideMarginDip = 8.f;
+    // フィットに対する倍率の上下限（640 全面拡大で巨大化しすぎない / 4096 で極小化しすぎない）
+    static constexpr float kT37ScaleMin = 0.42f;
+    static constexpr float kT37ScaleMax = 1.85f;
+
+    const float bodyLeft = kT37SideMarginDip;
+    const float bodyTop = kT37TopReserveDip;
+    const float bodyW = (std::max)(1.f, wDipClient - 2.f * kT37SideMarginDip);
+    const float bodyH = (std::max)(1.f, hDipClient - kT37TopReserveDip - kT37BottomReserveDip);
+
+    const float scaleFit = (std::min)(bodyW / vWdip, bodyH / vHdip);
+    float scaleEff = scaleFit;
+    if (scaleEff < kT37ScaleMin)
+    {
+        scaleEff = kT37ScaleMin;
+    }
+    if (scaleEff > kT37ScaleMax)
+    {
+        scaleEff = kT37ScaleMax;
+    }
+
+    const float scrollVirtDip = static_cast<float>(state->t37ScrollVirtualPx) * (96.f / dpiY);
+    const D2D1_MATRIX_3X2_F xform = D2D1::Matrix3x2F::Translation(bodyLeft, bodyTop) *
+        D2D1::Matrix3x2F::Scale(scaleEff, scaleEff) *
+        D2D1::Matrix3x2F::Translation(0.f, -scrollVirtDip);
+
     const size_t rawLen = wcslen(state->t37BodyText);
     const UINT textLen = static_cast<UINT>((std::min)(static_cast<size_t>(8191), rawLen));
     IDWriteTextLayout* layout = nullptr;
@@ -755,28 +790,55 @@ static bool WindowsRenderer_TryDrawT37VirtualBodyOnCompositeTarget(
         layout->Release();
         return false;
     }
-    const float scrollVirtDip = static_cast<float>(state->t37ScrollVirtualPx) * (96.f / dpiY);
-    state->d2dContext->SetTransform(D2D1::Matrix3x2F::Scale(wDipClient / vWdip, hDipClient / vHdip));
+
+    state->d2dContext->SetTransform(D2D1::Matrix3x2F::Identity());
+    const D2D1_RECT_F clipRect = D2D1::RectF(bodyLeft, bodyTop, bodyLeft + bodyW, bodyTop + bodyH);
+    state->d2dContext->PushAxisAlignedClip(clipRect, D2D1_ANTIALIAS_MODE_PER_PRIMITIVE);
+    state->d2dContext->SetTransform(xform);
     state->d2dContext->DrawTextLayout(
-        D2D1::Point2F(0.f, -scrollVirtDip),
+        D2D1::Point2F(0.f, 0.f),
         layout,
         state->d2dTextBrush,
         D2D1_DRAW_TEXT_OPTIONS_NONE);
     state->d2dContext->SetTransform(D2D1::Matrix3x2F::Identity());
+    state->d2dContext->PopAxisAlignedClip();
     layout->Release();
-    static bool s_loggedT37Once = false;
-    if (!s_loggedT37Once)
+
+    static float s_lastScaleEff = -1.f;
+    static float s_lastBodyLeft = 1e10f;
+    static float s_lastBodyTop = 1e10f;
+    static int s_lastClipW = -1;
+    static int s_lastClipH = -1;
+    const int clipWi = static_cast<int>(bodyW + 0.5f);
+    const int clipHi = static_cast<int>(bodyH + 0.5f);
+    if (std::fabs(static_cast<double>(scaleEff - s_lastScaleEff)) > 1e-4 ||
+        std::fabs(static_cast<double>(bodyLeft - s_lastBodyLeft)) > 1e-3 ||
+        std::fabs(static_cast<double>(bodyTop - s_lastBodyTop)) > 1e-3 || clipWi != s_lastClipW ||
+        clipHi != s_lastClipH)
     {
-        s_loggedT37Once = true;
-        wchar_t line[224] = {};
+        s_lastScaleEff = scaleEff;
+        s_lastBodyLeft = bodyLeft;
+        s_lastBodyTop = bodyTop;
+        s_lastClipW = clipWi;
+        s_lastClipH = clipHi;
+        wchar_t line[192] = {};
         swprintf_s(
             line,
             _countof(line),
-            L"[T37] overlay body DWrite virtual=%ux%u clientDip=%.0fx%.0f\r\n",
-            vw,
-            vh,
-            static_cast<double>(wDipClient),
-            static_cast<double>(hDipClient));
+            L"[T37] layout scale=%.4f (fit=%.4f min=%.2f max=%.2f)\r\n",
+            static_cast<double>(scaleEff),
+            static_cast<double>(scaleFit),
+            static_cast<double>(kT37ScaleMin),
+            static_cast<double>(kT37ScaleMax));
+        OutputDebugStringW(line);
+        swprintf_s(
+            line,
+            _countof(line),
+            L"[T37] layout origin=(%.1f,%.1f)\r\n",
+            static_cast<double>(bodyLeft),
+            static_cast<double>(bodyTop));
+        OutputDebugStringW(line);
+        swprintf_s(line, _countof(line), L"[T37] layout clip=%dx%d\r\n", clipWi, clipHi);
         OutputDebugStringW(line);
     }
     return true;
