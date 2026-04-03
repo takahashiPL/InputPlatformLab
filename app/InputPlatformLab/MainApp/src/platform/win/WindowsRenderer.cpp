@@ -40,6 +40,18 @@ static void WindowsRenderer_ReleaseBorderlessOffscreen(WindowsRendererState* s)
     }
 }
 
+void WindowsRenderer_ClearBorderlessOffscreen(WindowsRendererState* s)
+{
+    if (!s)
+    {
+        return;
+    }
+    WindowsRenderer_ReleaseBorderlessOffscreen(s);
+    s->borderlessOffscreenComposite = false;
+    s->borderlessOffscreenPhysW = 0;
+    s->borderlessOffscreenPhysH = 0;
+}
+
 namespace
 {
 bool s_loggedPresentOk = false;
@@ -869,15 +881,23 @@ static void WindowsRenderer_InternalBindMainRtAndViewport(WindowsRendererState* 
 }
 
 // clear（D3D）→ flush → D2D 1 行（任意）→ Present 1 回
-static void WindowsRenderer_Internal_ClearD2DPresent(WindowsRendererState* state)
+static void WindowsRenderer_Internal_ClearD2DPresent(
+    WindowsRendererState* state,
+    WindowsRendererPresentationMode presentationMode)
 {
-    if (!state->borderlessOffscreenComposite && state->borderlessOffscreenTexture != nullptr)
+    // T35: T34 オフスクリーンは Borderless のみ。それ以外は必ず解放し T34 に入らない
+    if (presentationMode != WindowsRendererPresentationMode::Borderless)
+    {
+        WindowsRenderer_ClearBorderlessOffscreen(state);
+    }
+    else if (!state->borderlessOffscreenComposite && state->borderlessOffscreenTexture != nullptr)
     {
         WindowsRenderer_ReleaseBorderlessOffscreen(state);
     }
 
-    if (state->borderlessOffscreenComposite && state->borderlessOffscreenPhysW >= 1u &&
-        state->borderlessOffscreenPhysH >= 1u && state->d2dContext != nullptr)
+    if (presentationMode == WindowsRendererPresentationMode::Borderless && state->borderlessOffscreenComposite &&
+        state->borderlessOffscreenPhysW >= 1u && state->borderlessOffscreenPhysH >= 1u &&
+        state->d2dContext != nullptr)
     {
         if (WindowsRenderer_TryBorderlessOffscreenPresent(state))
         {
@@ -1048,6 +1068,9 @@ void WindowsRenderer_Shutdown(WindowsRendererState* state)
         return;
     }
     WindowsRenderer_ReleaseBorderlessOffscreen(state);
+    state->borderlessOffscreenComposite = false;
+    state->borderlessOffscreenPhysW = 0;
+    state->borderlessOffscreenPhysH = 0;
     WindowsRenderer_InternalShutdownD2D(state);
     if (state->context)
     {
@@ -1141,7 +1164,10 @@ void WindowsRenderer_Resize(WindowsRendererState* state, UINT32 clientW, UINT32 
 }
 
 // Frame: RTV へ bind・viewport・clear → D2D 1 行（成功時）→ Present。
-void WindowsRenderer_Frame(WindowsRendererState* state, HWND hwnd)
+void WindowsRenderer_Frame(
+    WindowsRendererState* state,
+    HWND hwnd,
+    WindowsRendererPresentationMode presentationMode)
 {
     if (!state || !state->initialized || !state->context || !state->swapChain || !state->rtv)
     {
@@ -1156,5 +1182,24 @@ void WindowsRenderer_Frame(WindowsRendererState* state, HWND hwnd)
         return;
     }
 
-    WindowsRenderer_Internal_ClearD2DPresent(state);
+    static int s_lastT35PresentationModeLog = -1;
+    const int cur = static_cast<int>(presentationMode);
+    if (cur != s_lastT35PresentationModeLog)
+    {
+        switch (presentationMode)
+        {
+        case WindowsRendererPresentationMode::Borderless:
+            OutputDebugStringW(L"[T35] offscreen enabled: Borderless\r\n");
+            break;
+        case WindowsRendererPresentationMode::Fullscreen:
+            OutputDebugStringW(L"[T35] offscreen disabled: Fullscreen\r\n");
+            break;
+        case WindowsRendererPresentationMode::Windowed:
+            OutputDebugStringW(L"[T35] offscreen disabled: Windowed\r\n");
+            break;
+        }
+        s_lastT35PresentationModeLog = cur;
+    }
+
+    WindowsRenderer_Internal_ClearD2DPresent(state, presentationMode);
 }

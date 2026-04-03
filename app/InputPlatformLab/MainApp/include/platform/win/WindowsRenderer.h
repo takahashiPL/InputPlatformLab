@@ -28,6 +28,14 @@ enum class WindowsRendererGridDebugBasis : std::uint8_t
     CommittedSelected = 1,
 };
 
+// T35: MainApp の T17 と同順序（Frame で T34 ガードに使用）
+enum class WindowsRendererPresentationMode : std::uint8_t
+{
+    Windowed = 0,
+    Borderless = 1,
+    Fullscreen = 2,
+};
+
 // D3D 初期化時のクライアントサイズ（物理ピクセル想定）
 struct WindowsRendererConfig
 {
@@ -46,7 +54,7 @@ struct WindowsRendererState
     ID3D11DeviceContext* context = nullptr;
     IDXGISwapChain* swapChain = nullptr;
     ID3D11RenderTargetView* rtv = nullptr;
-    // T34（Borderless のみ）: committed 解像度のオフスクリーン RT → swapchain へ合成。T17 のウィンドウサイズとは別軸（T35 で全モード整理予定）。
+    // T34（Borderless のみ）: committed 解像度のオフスクリーン RT → swapchain へ合成。T17 のウィンドウサイズとは別軸。Frame は presentationMode でガード。
     ID3D11Texture2D* borderlessOffscreenTexture = nullptr;
     ID3D11RenderTargetView* borderlessOffscreenRtv = nullptr;
     bool borderlessOffscreenComposite = false;
@@ -78,6 +86,11 @@ struct WindowsRendererState
 bool WindowsRenderer_Init(HWND hwnd, const WindowsRendererConfig& cfg, WindowsRendererState* outState);
 void WindowsRenderer_Shutdown(WindowsRendererState* state);
 void WindowsRenderer_Resize(WindowsRendererState* state, UINT32 clientW, UINT32 clientH);
-void WindowsRenderer_Frame(WindowsRendererState* state, HWND hwnd);
+void WindowsRenderer_Frame(
+    WindowsRendererState* state,
+    HWND hwnd,
+    WindowsRendererPresentationMode presentationMode);
+// T35: Borderless 以外へ遷移したときにオフスクリーン RT/フラグを確実に捨てる（MainApp の Refresh からも呼ぶ）
+void WindowsRenderer_ClearBorderlessOffscreen(WindowsRendererState* state);
 // デバッググリッド: [GRID] mode=... の 1 回ログをリセット（Enter 確定直後の再描画で再度出したいとき）
 void WindowsRenderer_DebugGrid_ResetLogOnce(void);

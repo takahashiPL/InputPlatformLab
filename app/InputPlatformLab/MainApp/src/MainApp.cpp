@@ -1094,6 +1094,21 @@ static bool Win32_T16_ResolveWindowedTargetPhysicalSize(int& outW, int& outH, bo
 // デバッググリッド: 分母は Enter 時に保存した s_lastCommittedGrid* のみ（ここでは T14 を再参照しない）。
 static bool s_loggedGridClientDenomFallbackOnce = false;
 
+static WindowsRendererPresentationMode Win32_MapT17ToRendererPresentationMode(T17PresentationMode m)
+{
+    switch (m)
+    {
+    case T17PresentationMode::Windowed:
+        return WindowsRendererPresentationMode::Windowed;
+    case T17PresentationMode::Borderless:
+        return WindowsRendererPresentationMode::Borderless;
+    case T17PresentationMode::Fullscreen:
+        return WindowsRendererPresentationMode::Fullscreen;
+    default:
+        return WindowsRendererPresentationMode::Windowed;
+    }
+}
+
 static void Win32_RefreshRendererGridDebugParams(HWND hwnd)
 {
     RECT rc{};
@@ -1109,13 +1124,19 @@ static void Win32_RefreshRendererGridDebugParams(HWND hwnd)
     s_windowsRendererState.gridDebugCommittedPhysW = static_cast<std::uint32_t>((std::max)(0, gw));
     s_windowsRendererState.gridDebugCommittedPhysH = static_cast<std::uint32_t>((std::max)(0, gh));
 
-    // T34: Borderless のみ — committed をオフスクリーン解像度に。T17 apply ログの targetPhys/client とは別（T35 でモード方針整理）
-    s_windowsRendererState.borderlessOffscreenComposite =
-        (s_t17LastAppliedPresentationMode == T17PresentationMode::Borderless) && (gw > 0 && gh > 0);
-    s_windowsRendererState.borderlessOffscreenPhysW =
-        (gw > 0) ? static_cast<std::uint32_t>(gw) : 0u;
-    s_windowsRendererState.borderlessOffscreenPhysH =
-        (gh > 0) ? static_cast<std::uint32_t>(gh) : 0u;
+    // T34/T35: オフスクリーンは Borderless のみ。それ以外では毎フレームフラグと RT を捨てる
+    if (s_t17LastAppliedPresentationMode != T17PresentationMode::Borderless)
+    {
+        WindowsRenderer_ClearBorderlessOffscreen(&s_windowsRendererState);
+    }
+    else
+    {
+        s_windowsRendererState.borderlessOffscreenComposite = (gw > 0 && gh > 0);
+        s_windowsRendererState.borderlessOffscreenPhysW =
+            (gw > 0) ? static_cast<std::uint32_t>(gw) : 0u;
+        s_windowsRendererState.borderlessOffscreenPhysH =
+            (gh > 0) ? static_cast<std::uint32_t>(gh) : 0u;
+    }
 
     if (gw > 0 && gh > 0)
     {
@@ -1962,14 +1983,22 @@ static void Win32_T17_ApplyCurrentPresentationMode(HWND hwnd)
         OutputDebugStringW(gridCommitLine);
     }
 
+    // T35: 再生成中の WM_PAINT が古い Borderless とみなして T34 を有効化しないよう、再生成前に適用済みモードを更新する
+    const T17PresentationMode lastAppliedSnapshot = s_t17LastAppliedPresentationMode;
+    s_t17LastAppliedPresentationMode = appliedMode;
+
     const bool ok = Win32_RecreateMainWindowFromConfig(hwnd, cfg);
     s_t17LastWindowApplySuccess = ok;
 
-    if (!ok && gridCommittedPreRecreate)
+    if (!ok)
     {
-        s_lastCommittedGridSelectedPhysW = prevCommittedW;
-        s_lastCommittedGridSelectedPhysH = prevCommittedH;
-        OutputDebugStringW(L"[GRID] commit rolled back: recreate failed\r\n");
+        s_t17LastAppliedPresentationMode = lastAppliedSnapshot;
+        if (gridCommittedPreRecreate)
+        {
+            s_lastCommittedGridSelectedPhysW = prevCommittedW;
+            s_lastCommittedGridSelectedPhysH = prevCommittedH;
+            OutputDebugStringW(L"[GRID] commit rolled back: recreate failed\r\n");
+        }
     }
 
     HWND hwndAfter = s_mainWindowHwnd;
@@ -2030,8 +2059,6 @@ static void Win32_T17_ApplyCurrentPresentationMode(HWND hwnd)
             s_t16LastActualOuterW,
             s_t16LastActualOuterH);
         OutputDebugStringW(recLog);
-
-        s_t17LastAppliedPresentationMode = appliedMode;
 
         const int cdsNow = s_t17FullscreenDisplayAppliedNow ? 1 : 0;
         Win32_T17_LogStateVisibleMode(hwndAfter, appliedMode, cdsNow);
@@ -5589,7 +5616,10 @@ static void Win32_MainView_PaintFrame(HWND hWnd)
     HDC hdc = BeginPaint(hWnd, &ps);
     // T26/T33: renderer（clear → D2D 1 行 → Present）→ 任意で GDI debug overlay
     Win32_RefreshRendererGridDebugParams(hWnd);
-    WindowsRenderer_Frame(&s_windowsRendererState, hWnd);
+    WindowsRenderer_Frame(
+        &s_windowsRendererState,
+        hWnd,
+        Win32_MapT17ToRendererPresentationMode(s_t17LastAppliedPresentationMode));
 #if !WIN32_MAIN_D3D_CLEAR_ONLY_PAINT && !WIN32_MAIN_T33_HIDE_GDI_OVERLAY
     Win32DebugOverlay_Paint(hWnd, hdc, Win32_T17_ModeLabel(s_t17LastAppliedPresentationMode));
 #endif

@@ -20,7 +20,7 @@
 | 順 | 処理 | 備考 |
 |----|------|------|
 | 1 | `Win32_RefreshRendererGridDebugParams` | `gridDebug*`、Borderless では T34 用フラグ |
-| 2 | `WindowsRenderer_Frame` | D3D clear →（Borderless+committed なら T34）→ D2D グリッド+T33 → Present |
+| 2 | `WindowsRenderer_Frame(..., presentationMode)` | T35: `presentationMode` が **Borderless** のときだけ T34 に入る。モード切替時に `[T35] offscreen enabled/disabled` を 1 回ログ。 |
 | 3 | `Win32DebugOverlay_Paint`（GDI） | 同一クライアント HDC（D3D の上に重ねる） |
 
 **スワップチェーン**: `Init` / `Resize` で **クライアント幅×高さ**に `ResizeBuffers`。**Present** は `WindowsRenderer_Frame` 内。
