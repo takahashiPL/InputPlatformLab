@@ -108,7 +108,7 @@ HINSTANCE hInst;                                // 現在のインターフェ�
 WCHAR szTitle[MAX_LOADSTRING];                  // タイトル バーのテキスト
 WCHAR szWindowClass[MAX_LOADSTRING];            // メイン ウィンドウ クラス名
 static HWND s_mainWindowHwnd = nullptr;         // T13: サンプル画面 InvalidateRect 用
-static WindowsRendererState s_windowsRendererState{}; // T24: 将来 DirectX（現状 placeholder）
+static WindowsRendererState s_windowsRendererState{}; // T31: Init / Resize / Frame 経由で使用
 
 // T14: モニター / 解像度列挙（起動時 1 回キャッシュ。neutral ヘッダは触らない）
 struct DisplayModeInfo
@@ -1487,8 +1487,8 @@ static bool Win32_RecreateMainWindowFromConfig(HWND oldHwnd, const MainWindowCon
             (std::max)(0, static_cast<int>(cr.right - cr.left)));
         wrCfg.clientHeight = static_cast<UINT32>(
             (std::max)(0, static_cast<int>(cr.bottom - cr.top)));
-        WindowsRenderer_ShutdownPlaceholder(&s_windowsRendererState);
-        (void)WindowsRenderer_InitPlaceholder(newHwnd, wrCfg, &s_windowsRendererState);
+        WindowsRenderer_Shutdown(&s_windowsRendererState);
+        (void)WindowsRenderer_Init(newHwnd, wrCfg, &s_windowsRendererState);
     }
 
     if (!Win32_RegisterKeyboardRawInput(newHwnd))
@@ -2413,7 +2413,7 @@ BOOL InitInstance(HINSTANCE hInstance, int nCmdShow)
           (std::max)(0, static_cast<int>(cr.right - cr.left)));
       wrCfg.clientHeight = static_cast<UINT32>(
           (std::max)(0, static_cast<int>(cr.bottom - cr.top)));
-      (void)WindowsRenderer_InitPlaceholder(hWnd, wrCfg, &s_windowsRendererState);
+      (void)WindowsRenderer_Init(hWnd, wrCfg, &s_windowsRendererState);
    }
 
    if (useNearestForCreate)
@@ -5249,7 +5249,7 @@ static void Win32_WndProc_OnXInputPollTimer(HWND hWnd)
     Win32_UnifiedInputConsumerMenuTick(hWnd);
 }
 
-// T30: WM_SIZE → GetClientRect → WindowsRenderer_OnResizePlaceholder（ResizeBuffers / RTV）
+// T31: WM_SIZE → GetClientRect → WindowsRenderer_Resize（ResizeBuffers / RTV）
 static void Win32_WndProc_OnClientSize(HWND hWnd)
 {
     RECT cr{};
@@ -5258,7 +5258,7 @@ static void Win32_WndProc_OnClientSize(HWND hWnd)
                 (std::max)(0, static_cast<int>(cr.right - cr.left)));
     const UINT32 ch = static_cast<UINT32>(
                 (std::max)(0, static_cast<int>(cr.bottom - cr.top)));
-    WindowsRenderer_OnResizePlaceholder(&s_windowsRendererState, cw, ch);
+    WindowsRenderer_Resize(&s_windowsRendererState, cw, ch);
 }
 
 static bool Win32_WndProc_OnVScroll(
@@ -5394,7 +5394,7 @@ static void Win32_MainView_PaintFrame(HWND hWnd)
     PAINTSTRUCT ps;
     HDC hdc = BeginPaint(hWnd, &ps);
     // T26: renderer (D3D clear/present) → GDI debug overlay（TRANSPARENT テキスト）
-    WindowsRenderer_RenderPlaceholder(&s_windowsRendererState, hWnd);
+    WindowsRenderer_Frame(&s_windowsRendererState, hWnd);
 #if !WIN32_MAIN_D3D_CLEAR_ONLY_PAINT
     Win32DebugOverlay_Paint(hWnd, hdc, Win32_T17_ModeLabel(s_t17LastAppliedPresentationMode));
 #endif
@@ -5481,7 +5481,7 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam)
             {
                 Win32_T17_ResetMonitor0DisplaySettings();
             }
-            WindowsRenderer_ShutdownPlaceholder(&s_windowsRendererState);
+            WindowsRenderer_Shutdown(&s_windowsRendererState);
             s_mainWindowHwnd = nullptr;
             PostQuitMessage(0);
         }

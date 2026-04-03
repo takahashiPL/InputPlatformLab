@@ -7,7 +7,8 @@
 #pragma comment(lib, "dxgi.lib")
 
 // ---------------------------------------------------------------------------
-// D3D11: スワップチェーンでクライアントをクリアして Present するのみ（テキスト・UI は WM_PAINT の GDI 側）
+// D3D11（T31）: Init / Resize / Frame の 3 公開面。clear・Present・RTV・viewport は本ファイル内。
+// GDI・BeginPaint/EndPaint は MainApp（Win32_MainView_PaintFrame）側。
 // ---------------------------------------------------------------------------
 
 namespace
@@ -59,15 +60,15 @@ bool WindowsRenderer_InternalCreateRtv(WindowsRendererState* s)
 }
 } // namespace
 
-// デバイス・スワップチェーン・RTV を作成。DLL はこの呼び出しでロードされる。
-bool WindowsRenderer_InitPlaceholder(HWND hwnd, const WindowsRendererConfig& cfg, WindowsRendererState* outState)
+// Init: デバイス・スワップチェーン・RTV を作成。DLL はこの呼び出しでロードされる。
+bool WindowsRenderer_Init(HWND hwnd, const WindowsRendererConfig& cfg, WindowsRendererState* outState)
 {
     if (!outState || !hwnd)
     {
         OutputDebugStringW(L"[D3D11] init fail (bad hwnd or state)\r\n");
         return false;
     }
-    WindowsRenderer_ShutdownPlaceholder(outState);
+    WindowsRenderer_Shutdown(outState);
 
     const UINT32 w = (std::max)(1u, cfg.clientWidth);
     const UINT32 h = (std::max)(1u, cfg.clientHeight);
@@ -117,7 +118,7 @@ bool WindowsRenderer_InitPlaceholder(HWND hwnd, const WindowsRendererConfig& cfg
             L"[D3D11] init fail D3D11CreateDeviceAndSwapChain hr=0x%08X\r\n",
             static_cast<unsigned int>(hr));
         OutputDebugStringW(line);
-        WindowsRenderer_ShutdownPlaceholder(outState);
+        WindowsRenderer_Shutdown(outState);
         return false;
     }
 
@@ -128,7 +129,7 @@ bool WindowsRenderer_InitPlaceholder(HWND hwnd, const WindowsRendererConfig& cfg
     if (!WindowsRenderer_InternalCreateRtv(outState))
     {
         OutputDebugStringW(L"[D3D11] init fail (CreateRtv)\r\n");
-        WindowsRenderer_ShutdownPlaceholder(outState);
+        WindowsRenderer_Shutdown(outState);
         return false;
     }
 
@@ -146,8 +147,8 @@ bool WindowsRenderer_InitPlaceholder(HWND hwnd, const WindowsRendererConfig& cfg
     return true;
 }
 
-// COM 参照を解放し、状態を無効化。
-void WindowsRenderer_ShutdownPlaceholder(WindowsRendererState* state)
+// Shutdown: COM 参照を解放し、状態を無効化。
+void WindowsRenderer_Shutdown(WindowsRendererState* state)
 {
     if (!state)
     {
@@ -185,8 +186,8 @@ void WindowsRenderer_ShutdownPlaceholder(WindowsRendererState* state)
     s_loggedPresentOk = false;
 }
 
-// WM_SIZE に合わせてバックバッファを ResizeBuffers し、RTV を作り直す。
-void WindowsRenderer_OnResizePlaceholder(WindowsRendererState* state, UINT32 clientW, UINT32 clientH)
+// Resize: WM_SIZE に合わせてバックバッファを ResizeBuffers し、RTV を作り直す。
+void WindowsRenderer_Resize(WindowsRendererState* state, UINT32 clientW, UINT32 clientH)
 {
     if (!state || !state->initialized || !state->swapChain || !state->device)
     {
@@ -273,8 +274,8 @@ static void WindowsRenderer_Internal_ClearViewportAndPresent(WindowsRendererStat
     }
 }
 
-// RTV をクリアして Present。直後に GDI が同じクライアント上に文字を重ねる想定。
-void WindowsRenderer_RenderPlaceholder(WindowsRendererState* state, HWND hwnd)
+// Frame: RTV へ bind・viewport・clear・Present。直後に GDI が同じクライアント上に重ねる想定。
+void WindowsRenderer_Frame(WindowsRendererState* state, HWND hwnd)
 {
     if (!state || !state->initialized || !state->context || !state->swapChain || !state->rtv)
     {
