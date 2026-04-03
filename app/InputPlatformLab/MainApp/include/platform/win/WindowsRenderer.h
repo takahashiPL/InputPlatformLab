@@ -1,9 +1,15 @@
 // T23/T24/T25: Windows 描画・DirectX 11 最小レンダラ
 // T31: 公開面は Init / Resize / Frame の 3 役割（+ ライフサイクル Shutdown）。
 // T33: Frame 内で clear → D2D/DWrite（1 行）→ Present。失敗時は clear→Present のみ。
+// 確認用: WIN32_RENDERER_DEBUG_GRID_64PX で D2D ストロークの可変グリッド（分母は適用済みターゲット幅。D3D ライン API は未使用）。
 //
 // MainApp の GDI デバッグ描画は WM_PAINT 内で Frame の後に実行（上書き合成、WIN32_MAIN_T33_HIDE_GDI_OVERLAY で比較可）。
 #pragma once
+
+// MainApp と WindowsRenderer で同じ値に揃える（未設定時はデバッググリッド有効）。
+#ifndef WIN32_RENDERER_DEBUG_GRID_64PX
+#define WIN32_RENDERER_DEBUG_GRID_64PX 1
+#endif
 
 #include "CommonTypes.h"
 #include "framework.h"
@@ -14,6 +20,13 @@
 #include <dxgi.h>
 
 #include <cstdint>
+
+// デバッググリッドのセル幅の分母（1280@64 スケール）。CommittedSelected = Enter 確定時の T14 選択幅、Client = 未確定時フォールバック。
+enum class WindowsRendererGridDebugBasis : std::uint8_t
+{
+    Client = 0,
+    CommittedSelected = 1,
+};
 
 // D3D 初期化時のクライアントサイズ（物理ピクセル想定）
 struct WindowsRendererConfig
@@ -40,13 +53,25 @@ struct WindowsRendererState
     ID2D1DeviceContext* d2dContext = nullptr;
     IDWriteTextFormat* dwriteTextFormat = nullptr;
     ID2D1SolidColorBrush* d2dTextBrush = nullptr;
+    // デバッググリッド（WIN32_RENDERER_DEBUG_GRID_64PX、オプション）。Frame 前に MainApp が target を書き込む。
+    ID2D1SolidColorBrush* d2dGridBrush = nullptr;
+    ID2D1SolidColorBrush* d2dGridBrushEm = nullptr;
+    IDWriteTextFormat* dwriteGridLabelFormat = nullptr;
+    WindowsRendererGridDebugBasis gridDebugBasis = WindowsRendererGridDebugBasis::Client;
+    std::uint32_t gridDebugDenomPhysW = 0; // 0 のときは clientWidth を分母にフォールバック（Enter 確定の選択幅）
+    std::uint32_t gridDebugCommittedPhysW = 0;
+    std::uint32_t gridDebugCommittedPhysH = 0;
+    std::uint32_t gridDebugClientPhysW = 0;
+    std::uint32_t gridDebugClientPhysH = 0;
 };
 
 // --- T31 公開面（3 入口 + Shutdown）---
 // Init:   デバイス・スワップチェーン・初回 RTV。DLL はこの呼び出しでロードされる。
 // Resize: WM_SIZE 相当のクライアント幅・高さ → ResizeBuffers + RTV 再作成。
-// Frame:  対象 HWND が一致するとき、RTV へ bind・viewport・clear →（T33）D2D 1 行 → Present（GDI は呼ばない）。
+// Frame:  対象 HWND が一致するとき、RTV へ bind・viewport・clear →（任意）デバッググリッド →（T33）D2D 1 行 → Present（GDI は呼ばない）。
 bool WindowsRenderer_Init(HWND hwnd, const WindowsRendererConfig& cfg, WindowsRendererState* outState);
 void WindowsRenderer_Shutdown(WindowsRendererState* state);
 void WindowsRenderer_Resize(WindowsRendererState* state, UINT32 clientW, UINT32 clientH);
 void WindowsRenderer_Frame(WindowsRendererState* state, HWND hwnd);
+// デバッググリッド: [GRID] mode=... の 1 回ログをリセット（Enter 確定直後の再描画で再度出したいとき）
+void WindowsRenderer_DebugGrid_ResetLogOnce(void);

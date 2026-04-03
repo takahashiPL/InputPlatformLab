@@ -296,6 +296,15 @@ static int s_t16LastActualOuterW = 0;
 static int s_t16LastActualOuterH = 0;
 static int s_t16LastTargetPhysicalW = 0;
 static int s_t16LastTargetPhysicalH = 0;
+// デバッググリッド: Enter（T17 apply）成功時だけ更新。T14 カーソル移動では変えない。
+static int s_lastCommittedGridSelectedPhysW = 0;
+static int s_lastCommittedGridSelectedPhysH = 0;
+// WindowsRenderer.cpp の [GRID] mode=... 1 回ログ用（Release LTCG で TU 内関数が落ちるのを避け MainApp で定義）
+extern bool s_loggedGridOnce;
+void WindowsRenderer_DebugGrid_ResetLogOnce(void)
+{
+    s_loggedGridOnce = false;
+}
 static int s_t16LastTargetLogicalW = 0;
 static int s_t16LastTargetLogicalH = 0;
 static UINT s_t16LastDpiX = USER_DEFAULT_SCREEN_DPI;
@@ -1082,6 +1091,48 @@ static bool Win32_T16_ResolveWindowedTargetPhysicalSize(int& outW, int& outH, bo
     return true;
 }
 
+// デバッググリッド: 分母は Enter 時に保存した s_lastCommittedGrid* のみ（ここでは T14 を再参照しない）。
+static bool s_loggedGridClientDenomFallbackOnce = false;
+
+static void Win32_RefreshRendererGridDebugParams(HWND hwnd)
+{
+    RECT rc{};
+    GetClientRect(hwnd, &rc);
+    const UINT cw = static_cast<UINT>((std::max)(0, static_cast<int>(rc.right - rc.left)));
+    const UINT ch = static_cast<UINT>((std::max)(0, static_cast<int>(rc.bottom - rc.top)));
+
+    const int gw = s_lastCommittedGridSelectedPhysW;
+    const int gh = s_lastCommittedGridSelectedPhysH;
+
+    s_windowsRendererState.gridDebugClientPhysW = cw;
+    s_windowsRendererState.gridDebugClientPhysH = ch;
+    s_windowsRendererState.gridDebugCommittedPhysW = static_cast<std::uint32_t>((std::max)(0, gw));
+    s_windowsRendererState.gridDebugCommittedPhysH = static_cast<std::uint32_t>((std::max)(0, gh));
+
+    if (gw > 0 && gh > 0)
+    {
+        s_windowsRendererState.gridDebugBasis = WindowsRendererGridDebugBasis::CommittedSelected;
+        s_windowsRendererState.gridDebugDenomPhysW = static_cast<std::uint32_t>(gw);
+        s_loggedGridClientDenomFallbackOnce = false;
+    }
+    else
+    {
+        s_windowsRendererState.gridDebugBasis = WindowsRendererGridDebugBasis::Client;
+        s_windowsRendererState.gridDebugDenomPhysW = (std::max)(1u, cw);
+        if (!s_loggedGridClientDenomFallbackOnce)
+        {
+            s_loggedGridClientDenomFallbackOnce = true;
+            wchar_t fb[224] = {};
+            swprintf_s(
+                fb,
+                _countof(fb),
+                L"[GRID] fallback denom=client cw=%u (no committed grid snapshot yet)\r\n",
+                static_cast<unsigned int>(cw));
+            OutputDebugStringW(fb);
+        }
+    }
+}
+
 static bool Win32_T16_GetDpiForWindowBest(HWND hwnd, UINT& outDpiX, UINT& outDpiY)
 {
     if (hwnd && IsWindow(hwnd))
@@ -1861,8 +1912,57 @@ static void Win32_T17_ApplyCurrentPresentationMode(HWND hwnd)
         return;
     }
 
+    // グリッド用: 再作成で HWND が変わる前に T14 インデックスと modes[] を直接読む（GetSelected 再呼び出しに依存しない）。
+    const size_t gridSnapT14Idx = s_t14SelectedModeIndex;
+    int gridSnapW = 0;
+    int gridSnapH = 0;
+    bool gridSnapOk = false;
+    if (!s_displayMonitorsCache.empty() && kT14SelectedMonitorIndex < s_displayMonitorsCache.size())
+    {
+        const std::vector<DisplayModeInfo>& modes =
+            s_displayMonitorsCache[kT14SelectedMonitorIndex].modes;
+        if (!modes.empty() && gridSnapT14Idx < modes.size())
+        {
+            gridSnapW = modes[gridSnapT14Idx].width;
+            gridSnapH = modes[gridSnapT14Idx].height;
+            gridSnapOk = true;
+        }
+    }
+
+    // ログ順（目安）: [GRID] commit → Win32_RecreateMainWindowFromConfig 内の WM_PAINT で [GRID] mode=...
+    // （Refresh はこの時点で committed 済み）→ 成功後 [GRID] redraw requested → RedrawWindow で再度 [GRID] mode=...
+    // 再作成失敗時は committed をロールバック。
+    const int prevCommittedW = s_lastCommittedGridSelectedPhysW;
+    const int prevCommittedH = s_lastCommittedGridSelectedPhysH;
+    bool gridCommittedPreRecreate = false;
+    if (gridSnapOk)
+    {
+        s_lastCommittedGridSelectedPhysW = gridSnapW;
+        s_lastCommittedGridSelectedPhysH = gridSnapH;
+        s_loggedGridClientDenomFallbackOnce = false;
+        gridCommittedPreRecreate = true;
+        wchar_t gridCommitLine[288] = {};
+        swprintf_s(
+            gridCommitLine,
+            _countof(gridCommitLine),
+            L"[GRID] commit t14Idx=%zu t14Mode=%dx%d committedGrid=%dx%d\r\n",
+            gridSnapT14Idx,
+            gridSnapW,
+            gridSnapH,
+            gridSnapW,
+            gridSnapH);
+        OutputDebugStringW(gridCommitLine);
+    }
+
     const bool ok = Win32_RecreateMainWindowFromConfig(hwnd, cfg);
     s_t17LastWindowApplySuccess = ok;
+
+    if (!ok && gridCommittedPreRecreate)
+    {
+        s_lastCommittedGridSelectedPhysW = prevCommittedW;
+        s_lastCommittedGridSelectedPhysH = prevCommittedH;
+        OutputDebugStringW(L"[GRID] commit rolled back: recreate failed\r\n");
+    }
 
     HWND hwndAfter = s_mainWindowHwnd;
     int clientW = 0;
@@ -1875,8 +1975,27 @@ static void Win32_T17_ApplyCurrentPresentationMode(HWND hwnd)
         clientH = static_cast<int>(cr.bottom - cr.top);
     }
 
+    if (ok && hwndAfter && IsWindow(hwndAfter) && gridSnapOk)
+    {
+        WindowsRenderer_DebugGrid_ResetLogOnce();
+        InvalidateRect(hwndAfter, nullptr, FALSE);
+        OutputDebugStringW(L"[GRID] redraw requested after commit\r\n");
+        RedrawWindow(hwndAfter, nullptr, nullptr, RDW_INVALIDATE | RDW_UPDATENOW | RDW_NOERASE);
+    }
+
     if (ok)
     {
+        if (!gridSnapOk)
+        {
+            wchar_t gridSkipLine[224] = {};
+            swprintf_s(
+                gridSkipLine,
+                _countof(gridSkipLine),
+                L"[GRID] commit skip: invalid T14 snapshot idx=%zu applyOk=1\r\n",
+                gridSnapT14Idx);
+            OutputDebugStringW(gridSkipLine);
+        }
+
         const wchar_t* fillOuterPolicy = L"windowed";
         if (appliedMode == T17PresentationMode::Fullscreen && s_t17FullscreenDisplayAppliedNow)
         {
@@ -5461,6 +5580,7 @@ static void Win32_MainView_PaintFrame(HWND hWnd)
     PAINTSTRUCT ps;
     HDC hdc = BeginPaint(hWnd, &ps);
     // T26/T33: renderer（clear → D2D 1 行 → Present）→ 任意で GDI debug overlay
+    Win32_RefreshRendererGridDebugParams(hWnd);
     WindowsRenderer_Frame(&s_windowsRendererState, hWnd);
 #if !WIN32_MAIN_D3D_CLEAR_ONLY_PAINT && !WIN32_MAIN_T33_HIDE_GDI_OVERLAY
     Win32DebugOverlay_Paint(hWnd, hdc, Win32_T17_ModeLabel(s_t17LastAppliedPresentationMode));

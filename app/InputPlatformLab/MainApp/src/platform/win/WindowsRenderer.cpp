@@ -11,9 +11,13 @@
 #pragma comment(lib, "dxgi.lib")
 
 // ---------------------------------------------------------------------------
-// D3D11（T31）: Init / Resize / Frame。T33: clear → D2D/DWrite 1 行 → Present 1 回。
+// D3D11（T31）: Init / Resize / Frame。T33: clear →（任意）可変グリッド → D2D/DWrite 1 行 → Present 1 回。
+// グリッド: cell=(1280*64)/denomPhysW。denom は MainApp が毎フレーム設定（既定: T14/T16 選択幅。無ければ client 幅）。
 // GDI・BeginPaint/EndPaint は MainApp（Win32_MainView_PaintFrame）側。
 // ---------------------------------------------------------------------------
+
+// [GRID] mode=... の 1 回ログ用（MainApp の WindowsRenderer_DebugGrid_ResetLogOnce と共有）
+bool s_loggedGridOnce = false;
 
 namespace
 {
@@ -107,6 +111,21 @@ static void WindowsRenderer_InternalShutdownD2D(WindowsRendererState* s)
     if (!s)
     {
         return;
+    }
+    if (s->d2dGridBrushEm)
+    {
+        s->d2dGridBrushEm->Release();
+        s->d2dGridBrushEm = nullptr;
+    }
+    if (s->d2dGridBrush)
+    {
+        s->d2dGridBrush->Release();
+        s->d2dGridBrush = nullptr;
+    }
+    if (s->dwriteGridLabelFormat)
+    {
+        s->dwriteGridLabelFormat->Release();
+        s->dwriteGridLabelFormat = nullptr;
     }
     if (s->d2dTextBrush)
     {
@@ -211,8 +230,194 @@ static bool WindowsRenderer_InternalInitD2D(WindowsRendererState* s)
     }
     T33_LogInitOk(L"ID2D1DeviceContext::CreateSolidColorBrush", hr);
 
+#if WIN32_RENDERER_DEBUG_GRID_64PX
+    hr = s->d2dContext->CreateSolidColorBrush(D2D1::ColorF(0.40f, 0.44f, 0.52f, 0.50f), &s->d2dGridBrush);
+    if (FAILED(hr))
+    {
+        s->d2dGridBrush = nullptr;
+    }
+    hr = s->d2dContext->CreateSolidColorBrush(D2D1::ColorF(0.62f, 0.66f, 0.74f, 0.75f), &s->d2dGridBrushEm);
+    if (FAILED(hr))
+    {
+        s->d2dGridBrushEm = nullptr;
+    }
+    if (s->dwriteFactory)
+    {
+        hr = s->dwriteFactory->CreateTextFormat(
+            L"Segoe UI",
+            nullptr,
+            DWRITE_FONT_WEIGHT_NORMAL,
+            DWRITE_FONT_STYLE_NORMAL,
+            DWRITE_FONT_STRETCH_NORMAL,
+            10.0f,
+            L"ja-jp",
+            &s->dwriteGridLabelFormat);
+        if (FAILED(hr))
+        {
+            s->dwriteGridLabelFormat = nullptr;
+        }
+    }
+#endif
+
     return true;
 }
+
+#if WIN32_RENDERER_DEBUG_GRID_64PX
+// cell = (1280*64) / denomPhysW。denom は MainApp が設定: Enter 確定の T14 選択幅、Client = 未確定フォールバック。
+static UINT WindowsRenderer_ComputeDebugGridStepPx(const WindowsRendererState* s)
+{
+    const UINT cw = s->clientWidth;
+    if (cw < 1u)
+    {
+        return 4u;
+    }
+    static constexpr UINT kRefClientW = 1280u;
+    static constexpr UINT kRefCellPx = 64u;
+    UINT denom = s->gridDebugDenomPhysW;
+    if (denom < 1u)
+    {
+        denom = cw;
+    }
+    return (std::max)(4u, (kRefClientW * kRefCellPx) / (std::max)(1u, denom));
+}
+
+static const wchar_t* WindowsRenderer_GridBasisLabel(WindowsRendererGridDebugBasis b)
+{
+    switch (b)
+    {
+    case WindowsRendererGridDebugBasis::CommittedSelected:
+        return L"committedSelected";
+    case WindowsRendererGridDebugBasis::Client:
+    default:
+        return L"client";
+    }
+}
+
+static void WindowsRenderer_InternalDrawDebugGridLines(
+    WindowsRendererState* s,
+    UINT dpiSys,
+    float sx,
+    float sy,
+    float wDip,
+    float hDip,
+    UINT stepPx)
+{
+    if (!s->d2dContext || !s->d2dGridBrush || !s->d2dGridBrushEm)
+    {
+        return;
+    }
+    const UINT cw = s->clientWidth;
+    const UINT ch = s->clientHeight;
+    if (cw < 1u || ch < 1u || stepPx < 1u)
+    {
+        return;
+    }
+
+    s->d2dContext->SetAntialiasMode(D2D1_ANTIALIAS_MODE_ALIASED);
+
+    for (UINT x = 0; x <= cw; x += stepPx)
+    {
+        const int ix = static_cast<int>(x / stepPx);
+        ID2D1SolidColorBrush* br = ((ix % 8) == 0) ? s->d2dGridBrushEm : s->d2dGridBrush;
+        const float stroke = ((ix % 8) == 0) ? 1.5f : 1.0f;
+        const float xd = static_cast<float>(x) * sx;
+        s->d2dContext->DrawLine(
+            D2D1::Point2F(xd, 0.f),
+            D2D1::Point2F(xd, hDip),
+            br,
+            stroke,
+            nullptr);
+    }
+    for (UINT y = 0; y <= ch; y += stepPx)
+    {
+        const int iy = static_cast<int>(y / stepPx);
+        ID2D1SolidColorBrush* br = ((iy % 8) == 0) ? s->d2dGridBrushEm : s->d2dGridBrush;
+        const float stroke = ((iy % 8) == 0) ? 1.5f : 1.0f;
+        const float yd = static_cast<float>(y) * sy;
+        s->d2dContext->DrawLine(
+            D2D1::Point2F(0.f, yd),
+            D2D1::Point2F(wDip, yd),
+            br,
+            stroke,
+            nullptr);
+    }
+
+    s->d2dContext->SetAntialiasMode(D2D1_ANTIALIAS_MODE_PER_PRIMITIVE);
+
+    if (!s_loggedGridOnce)
+    {
+        s_loggedGridOnce = true;
+        const UINT denom = (s->gridDebugDenomPhysW >= 1u) ? s->gridDebugDenomPhysW : cw;
+        wchar_t line[384] = {};
+        swprintf_s(
+            line,
+            _countof(line),
+            L"[GRID] mode=scaleRef1280x64 basis=%s denomPhysW=%u cellPx=%u client=%ux%u dpi=%u\r\n",
+            WindowsRenderer_GridBasisLabel(s->gridDebugBasis),
+            static_cast<unsigned int>(denom),
+            static_cast<unsigned int>(stepPx),
+            static_cast<unsigned int>(cw),
+            static_cast<unsigned int>(ch),
+            static_cast<unsigned int>(dpiSys));
+        OutputDebugStringW(line);
+    }
+}
+
+static void WindowsRenderer_InternalDrawDebugGridLabels(
+    WindowsRendererState* s,
+    float wDip,
+    float hDip,
+    UINT stepPx)
+{
+    if (!s->d2dContext || !s->dwriteGridLabelFormat || !s->d2dGridBrushEm)
+    {
+        return;
+    }
+    wchar_t cap[512] = {};
+    if (s->gridDebugCommittedPhysW > 0u && s->gridDebugCommittedPhysH > 0u)
+    {
+        swprintf_s(
+            cap,
+            _countof(cap),
+            L"basis=%s\r\n"
+            L"committed=%ux%u\r\n"
+            L"client=%ux%u\r\n"
+            L"cellPx=%u",
+            WindowsRenderer_GridBasisLabel(s->gridDebugBasis),
+            static_cast<unsigned int>(s->gridDebugCommittedPhysW),
+            static_cast<unsigned int>(s->gridDebugCommittedPhysH),
+            static_cast<unsigned int>(s->gridDebugClientPhysW),
+            static_cast<unsigned int>(s->gridDebugClientPhysH),
+            static_cast<unsigned int>(stepPx));
+    }
+    else
+    {
+        swprintf_s(
+            cap,
+            _countof(cap),
+            L"basis=%s\r\n"
+            L"committed=(n/a)\r\n"
+            L"client=%ux%u\r\n"
+            L"cellPx=%u",
+            WindowsRenderer_GridBasisLabel(s->gridDebugBasis),
+            static_cast<unsigned int>(s->gridDebugClientPhysW),
+            static_cast<unsigned int>(s->gridDebugClientPhysH),
+            static_cast<unsigned int>(stepPx));
+    }
+
+    // 左上（4 行）。T33 はこの下にオフセットして描画する。
+    const float topH = 72.0f;
+    const D2D1_RECT_F layoutTop = D2D1::RectF(4.0f, 4.0f, wDip - 4.0f, (std::min)(topH, hDip - 4.0f));
+    s->d2dContext->DrawText(
+        cap,
+        static_cast<UINT32>(wcslen(cap)),
+        s->dwriteGridLabelFormat,
+        layoutTop,
+        s->d2dGridBrushEm,
+        D2D1_DRAW_TEXT_OPTIONS_NONE,
+        DWRITE_MEASURING_MODE_NATURAL);
+}
+#endif
 
 static void WindowsRenderer_InternalDrawD2DOneLine(WindowsRendererState* s)
 {
@@ -287,11 +492,30 @@ static void WindowsRenderer_InternalDrawD2DOneLine(WindowsRendererState* s)
     }
     s->d2dContext->SetTransform(D2D1::Matrix3x2F::Identity());
 
+    const float sx = 96.f / dpiX;
+    const float sy = 96.f / dpiY;
+    const float wDip = static_cast<float>(s->clientWidth) * sx;
+    const float hDip = static_cast<float>(s->clientHeight) * sy;
+#if WIN32_RENDERER_DEBUG_GRID_64PX
+    const UINT gridStepPx = WindowsRenderer_ComputeDebugGridStepPx(s);
+    WindowsRenderer_InternalDrawDebugGridLines(s, dpiSys, sx, sy, wDip, hDip, gridStepPx);
+    WindowsRenderer_InternalDrawDebugGridLabels(s, wDip, hDip, gridStepPx);
+#endif
+
     static const wchar_t kLine[] = L"T33: DirectWrite overlay (1 line)";
     const UINT32 kLen = static_cast<UINT32>(wcslen(kLine));
     const float w = static_cast<float>(s->clientWidth);
     const float h = static_cast<float>(s->clientHeight);
-    const D2D1_RECT_F layout = D2D1::RectF(8.0f, 8.0f, (std::max)(8.0f, w - 8.0f), (std::max)(8.0f, h - 8.0f));
+#if WIN32_RENDERER_DEBUG_GRID_64PX
+    const float t33Top = 80.0f;
+#else
+    const float t33Top = 8.0f;
+#endif
+    const D2D1_RECT_F layout = D2D1::RectF(
+        8.0f,
+        t33Top,
+        (std::max)(8.0f, w - 8.0f),
+        (std::max)(t33Top + 4.0f, h - 8.0f));
 
     s->d2dContext->DrawText(
         kLine,
@@ -533,6 +757,7 @@ void WindowsRenderer_Shutdown(WindowsRendererState* state)
     s_loggedPresentOk = false;
     s_loggedT33ResizeNote = false;
     s_t33FirstFrameDiagDone = false;
+    s_loggedGridOnce = false;
 }
 
 // Resize: WM_SIZE に合わせてバックバッファを ResizeBuffers し、RTV を作り直す。
