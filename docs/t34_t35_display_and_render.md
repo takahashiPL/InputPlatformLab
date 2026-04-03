@@ -1,6 +1,8 @@
 # T34 / T35 — 表示モードとレンダリング解像度
 
-本稿は **T34（完了した実験）** と **T35（今後の整理対象）** を分けて記録するための 1 枚です。T17 のウィンドウ再生成・ログ（`targetPhys` / `client` / `outer`）は **モード方針・枠サイズ**を表し、**T34 のオフスクリーン解像度**とは別軸として扱います。
+本稿は **T34（完了した実験）** の記録です。**T35（3 モードの方針・表・Fullscreen と CDS）** は **[t35_display_mode_policy.md](t35_display_mode_policy.md)** に集約しました。
+
+T17 のウィンドウ再生成・ログ（`targetPhys` / `client` / `outer`）は **モード方針・枠サイズ**を表し、**T34 のオフスクリーン解像度**とは別軸として扱います。
 
 ---
 
@@ -30,24 +32,9 @@
 
 ---
 
-## T35 — スコープ（未完了・設計整理）
+## T35 — 設計メモの所在
 
-**目的**: **Windowed / Borderless / Fullscreen** それぞれについて、次を **モード方針として一貫**させる（T17 のログとレンダラの挙動を矛盾なく説明できる状態にする）。
-
-整理する観点（各モードごとに「現状」「理想」「T34 との関係」を決める）:
-
-| 観点 | 決めることの例 |
-|------|----------------|
-| **window / client size** | 外枠・クライアントを誰が決めるか（T16/T17、`AdjustWindowRectExForDpi`、fill monitor 等） |
-| **swapchain size** | `ResizeBuffers` の幅・高さ＝クライアントに固定するか、別ルールにするか |
-| **offscreen render size** | committed を常に使うか、モード別に使い分けるか、T34 を Borderless 限定のままにするか拡張するか |
-| **present path** | 直接バックバッファ描画のみ / T34 合成のみ / モードで切替 |
-| **GDI overlay path** | 常にクライアント座標か、仮想解像度と揃えるか |
-
-**現時点の明示**:
-
-- **T34 は Borderless 実験段階**に留まる。Windowed / Fullscreen では **オフスクリーン合成は行わない**（従来のスワップチェーン直接描画）。
-- T17 の **apply ログ**（`targetPhys` / `client` / `outer`）は **ウィンドウ・デスクトップ方針**であり、**T34 の committed オフスクリーン解像度と一致しない**ことがある（意図した分離）。
+**[t35_display_mode_policy.md](t35_display_mode_policy.md)** に、現状の 3 モードの表、描画経路、Borderless で T34 を正式採用する場合の利点/欠点、Fullscreen の CDS とレンダリング解像度の関係をまとめています。
 
 ---
 

@@ -24,3 +24,10 @@
 | **確認できたこと** | T34 は Borderless + committed 有効時に `[T34][RT] offscreen create / draw / composite` が通る前提。T17 の `targetPhys`/`client` ログはモード方針用でありオフスクリーン解像度とは別軸。 |
 | **未解決事項** | T35 として Windowed/Borderless/Fullscreen の swapchain・offscreen・GDI の統一方針は未決定。 |
 
+---
+
+| **日付** | 2026-03-30 |
+| **実施内容** | T35 設計メモ `docs/t35_display_mode_policy.md` を追加（3 モードの経路・表・Borderless T34 採用の利欠・Fullscreen と CDS）。`t34_t35_display_and_render.md` は T34 中心にし T35 は同ファイルへリンク。`MainApp.cpp` T17 コメントにドキュメント参照を 1 行追加。 |
+| **確認できたこと** | 文書間のリンクを `architecture.md` / `roadmap.md` で更新。 |
+| **未解決事項** | T17 の `targetPhys` と T14 committed のログ整合、GDI と仮想解像度の扱いは T35 継続。 |
+
