@@ -387,6 +387,7 @@ static void Win32_WndProc_OnXInputPollTimer(HWND hWnd);
 static void Win32_WndProc_OnClientSize(HWND hWnd);
 static bool Win32_WndProc_OnVScroll(HWND hWnd, WPARAM wParam, LPARAM lParam, UINT message, LRESULT* outDefResult);
 static void Win32_WndProc_OnMouseWheel(HWND hWnd, WPARAM wParam);
+static void Win32_MainView_PaintFrame(HWND hWnd);
 static void Win32_WndProc_OnPaint(HWND hWnd);
 
 // Win32_FillMenuSamplePaintBuffers の分割（T14〜T17 本文 + T18 追記）
@@ -5248,6 +5249,7 @@ static void Win32_WndProc_OnXInputPollTimer(HWND hWnd)
     Win32_UnifiedInputConsumerMenuTick(hWnd);
 }
 
+// T30: WM_SIZE → GetClientRect → WindowsRenderer_OnResizePlaceholder（ResizeBuffers / RTV）
 static void Win32_WndProc_OnClientSize(HWND hWnd)
 {
     RECT cr{};
@@ -5386,7 +5388,8 @@ static void Win32_WndProc_OnMouseWheel(HWND hWnd, WPARAM wParam)
     }
 }
 
-static void Win32_WndProc_OnPaint(HWND hWnd)
+// T30: 1 フレーム — D3D clear/present →（オプション）GDI オーバーレイ
+static void Win32_MainView_PaintFrame(HWND hWnd)
 {
     PAINTSTRUCT ps;
     HDC hdc = BeginPaint(hWnd, &ps);
@@ -5396,6 +5399,11 @@ static void Win32_WndProc_OnPaint(HWND hWnd)
     Win32DebugOverlay_Paint(hWnd, hdc, Win32_T17_ModeLabel(s_t17LastAppliedPresentationMode));
 #endif
     EndPaint(hWnd, &ps);
+}
+
+static void Win32_WndProc_OnPaint(HWND hWnd)
+{
+    Win32_MainView_PaintFrame(hWnd);
 }
 
 //

@@ -1,4 +1,5 @@
 // T23/T24/T25: Windows 描画・DirectX 11 最小レンダラ
+// T30: OnResizePlaceholder（ResizeBuffers）と RenderPlaceholder（clear + Present）がメイン経路。
 //
 // MainApp の GDI デバッグ描画は WM_PAINT 内で D3D clear/present の後に実行（上書き合成）。
 // D3D は背景クリアのみ。長文テキスト・スクロールは Win32DebugOverlay（GDI）。

@@ -14,17 +14,23 @@ namespace
 {
 bool s_loggedPresentOk = false;
 
+static void WindowsRenderer_InternalReleaseRtv(WindowsRendererState* s)
+{
+    if (!s || !s->rtv)
+    {
+        return;
+    }
+    s->rtv->Release();
+    s->rtv = nullptr;
+}
+
 bool WindowsRenderer_InternalCreateRtv(WindowsRendererState* s)
 {
     if (!s || !s->swapChain || !s->device)
     {
         return false;
     }
-    if (s->rtv)
-    {
-        s->rtv->Release();
-        s->rtv = nullptr;
-    }
+    WindowsRenderer_InternalReleaseRtv(s);
     ID3D11Texture2D* backBuffer = nullptr;
     HRESULT hr = s->swapChain->GetBuffer(0, __uuidof(ID3D11Texture2D), reinterpret_cast<void**>(&backBuffer));
     if (FAILED(hr) || backBuffer == nullptr)
@@ -190,19 +196,11 @@ void WindowsRenderer_OnResizePlaceholder(WindowsRendererState* state, UINT32 cli
     state->clientHeight = clientH;
     if (clientW == 0 || clientH == 0)
     {
-        if (state->rtv)
-        {
-            state->rtv->Release();
-            state->rtv = nullptr;
-        }
+        WindowsRenderer_InternalReleaseRtv(state);
         return;
     }
 
-    if (state->rtv)
-    {
-        state->rtv->Release();
-        state->rtv = nullptr;
-    }
+    WindowsRenderer_InternalReleaseRtv(state);
     HRESULT hr = state->swapChain->ResizeBuffers(0, clientW, clientH, DXGI_FORMAT_UNKNOWN, 0);
     if (FAILED(hr))
     {
@@ -238,22 +236,9 @@ void WindowsRenderer_OnResizePlaceholder(WindowsRendererState* state, UINT32 cli
     }
 }
 
-// RTV をクリアして Present。直後に GDI が同じクライアント上に文字を重ねる想定。
-void WindowsRenderer_RenderPlaceholder(WindowsRendererState* state, HWND hwnd)
+// バックバッファへバインド → ビューポート → クリア → Present（T30: 描画ループの核）
+static void WindowsRenderer_Internal_ClearViewportAndPresent(WindowsRendererState* state)
 {
-    if (!state || !state->initialized || !state->context || !state->swapChain || !state->rtv)
-    {
-        return;
-    }
-    if (hwnd != state->targetHwnd)
-    {
-        return;
-    }
-    if (state->clientWidth == 0 || state->clientHeight == 0)
-    {
-        return;
-    }
-
     ID3D11RenderTargetView* rtv = state->rtv;
     state->context->OMSetRenderTargets(1, &rtv, nullptr);
 
@@ -286,4 +271,23 @@ void WindowsRenderer_RenderPlaceholder(WindowsRendererState* state, HWND hwnd)
             OutputDebugStringW(L"[D3D11] present ok (first)\r\n");
         }
     }
+}
+
+// RTV をクリアして Present。直後に GDI が同じクライアント上に文字を重ねる想定。
+void WindowsRenderer_RenderPlaceholder(WindowsRendererState* state, HWND hwnd)
+{
+    if (!state || !state->initialized || !state->context || !state->swapChain || !state->rtv)
+    {
+        return;
+    }
+    if (hwnd != state->targetHwnd)
+    {
+        return;
+    }
+    if (state->clientWidth == 0 || state->clientHeight == 0)
+    {
+        return;
+    }
+
+    WindowsRenderer_Internal_ClearViewportAndPresent(state);
 }
