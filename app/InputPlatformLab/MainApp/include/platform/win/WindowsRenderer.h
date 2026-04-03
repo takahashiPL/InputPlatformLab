@@ -60,6 +60,12 @@ struct WindowsRendererState
     bool borderlessOffscreenComposite = false;
     std::uint32_t borderlessOffscreenPhysW = 0;
     std::uint32_t borderlessOffscreenPhysH = 0;
+    // T36（Fullscreen 実験のみ）: committed 解像度のオフスクリーン RT → swapchain へ合成。T34 と別リソース。
+    ID3D11Texture2D* fullscreenOffscreenTexture = nullptr;
+    ID3D11RenderTargetView* fullscreenOffscreenRtv = nullptr;
+    bool fullscreenOffscreenComposite = false;
+    std::uint32_t fullscreenOffscreenPhysW = 0;
+    std::uint32_t fullscreenOffscreenPhysH = 0;
     // T33: D3D11 と共有（IDXGIDevice）。Resize ではデバイス再作成せず、Frame で都度 DXGI 表面からビットマップ生成。
     ID2D1Factory1* d2dFactory = nullptr;
     IDWriteFactory* dwriteFactory = nullptr;
@@ -92,5 +98,7 @@ void WindowsRenderer_Frame(
     WindowsRendererPresentationMode presentationMode);
 // T35: Borderless 以外へ遷移したときにオフスクリーン RT/フラグを確実に捨てる（MainApp の Refresh からも呼ぶ）
 void WindowsRenderer_ClearBorderlessOffscreen(WindowsRendererState* state);
+// T36: Fullscreen 以外へ遷移したときにオフスクリーン RT/フラグを捨てる（Refresh からも呼ぶ）
+void WindowsRenderer_ClearFullscreenOffscreen(WindowsRendererState* state);
 // デバッググリッド: [GRID] mode=... の 1 回ログをリセット（Enter 確定直後の再描画で再度出したいとき）
 void WindowsRenderer_DebugGrid_ResetLogOnce(void);

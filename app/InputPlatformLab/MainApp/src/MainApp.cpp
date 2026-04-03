@@ -1124,7 +1124,7 @@ static void Win32_RefreshRendererGridDebugParams(HWND hwnd)
     s_windowsRendererState.gridDebugCommittedPhysW = static_cast<std::uint32_t>((std::max)(0, gw));
     s_windowsRendererState.gridDebugCommittedPhysH = static_cast<std::uint32_t>((std::max)(0, gh));
 
-    // T34/T35: オフスクリーンは Borderless のみ。それ以外では毎フレームフラグと RT を捨てる
+    // T34/T35: Borderless のみ T34 オフスクリーン。それ以外では毎フレームフラグと RT を捨てる
     if (s_t17LastAppliedPresentationMode != T17PresentationMode::Borderless)
     {
         WindowsRenderer_ClearBorderlessOffscreen(&s_windowsRendererState);
@@ -1135,6 +1135,20 @@ static void Win32_RefreshRendererGridDebugParams(HWND hwnd)
         s_windowsRendererState.borderlessOffscreenPhysW =
             (gw > 0) ? static_cast<std::uint32_t>(gw) : 0u;
         s_windowsRendererState.borderlessOffscreenPhysH =
+            (gh > 0) ? static_cast<std::uint32_t>(gh) : 0u;
+    }
+
+    // T36（実験）: Fullscreen のみ committed オフスクリーン。Borderless の T34 と別リソース。
+    if (s_t17LastAppliedPresentationMode != T17PresentationMode::Fullscreen)
+    {
+        WindowsRenderer_ClearFullscreenOffscreen(&s_windowsRendererState);
+    }
+    else
+    {
+        s_windowsRendererState.fullscreenOffscreenComposite = (gw > 0 && gh > 0);
+        s_windowsRendererState.fullscreenOffscreenPhysW =
+            (gw > 0) ? static_cast<std::uint32_t>(gw) : 0u;
+        s_windowsRendererState.fullscreenOffscreenPhysH =
             (gh > 0) ? static_cast<std::uint32_t>(gh) : 0u;
     }
 

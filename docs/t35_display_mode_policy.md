@@ -9,7 +9,7 @@
 ## 0. T34 の位置づけ（完了・維持）
 
 - **Borderless** かつ **T14 Enter 確定の committed 幅・高さが有効**なとき、**committed W×H** のオフスクリーン RT に D3D/D2D 描画し、**スワップチェーンのバックバッファ（クライアント全面）へ線形拡大合成**してから Present する経路を **本プロジェクトの正式な Borderless レンダリング経路**とする（640×480 / 4096×2160 等で create / draw / composite を検証済み）。
-- **Windowed / Fullscreen** では **T34 オフスクリーンは使わない**（直接バックバッファ描画のみ）。
+- **Windowed** では **T34/T36 オフスクリーンは使わない**（直接バックバッファ描画のみ）。**Fullscreen** では **T36（実験）** が committed オフスクリーンを試す（T34 とは別）。
 
 ---
 
@@ -20,7 +20,7 @@
 | 順 | 処理 | 備考 |
 |----|------|------|
 | 1 | `Win32_RefreshRendererGridDebugParams` | `gridDebug*`、Borderless では T34 用フラグ |
-| 2 | `WindowsRenderer_Frame(..., presentationMode)` | T35: `presentationMode` が **Borderless** のときだけ T34 に入る。モード切替時に `[T35] offscreen enabled/disabled` を 1 回ログ。 |
+| 2 | `WindowsRenderer_Frame(..., presentationMode)` | T35: **Borderless** のみ T34。**Fullscreen** は T36 実験（committed オフスクリーン）を試行。モード切替時に `[T35] offscreen enabled/disabled` を 1 回ログ。 |
 | 3 | `Win32DebugOverlay_Paint`（GDI） | 同一クライアント HDC（D3D の上に重ねる） |
 
 **スワップチェーン**: `Init` / `Resize` で **クライアント幅×高さ**に `ResizeBuffers`。**Present** は `WindowsRenderer_Frame` 内。
@@ -55,8 +55,8 @@
 |------|----------------|
 | **Window / client** | **CDS 成功時**: `ChangeDisplaySettingsEx(..., CDS_FULLSCREEN)` で **T15 最近傍**のモードに合わせ、外枠をその **物理幅×高さ**でモニタ左上に配置。**CDS 失敗時**: Borderless と同様に **monitor_rect 全面** fill。 |
 | **Swapchain** | **常にその時点のクライアントと同寸法**（CDS 成功時は多くの環境で **CDS モードのピクセル数**と一致）。 |
-| **Offscreen** | **使用しない**（T34 は Borderless のみ）。 |
-| **Present** | 直接描画のあと **1 回** `Present`。 |
+| **Offscreen** | **T35 既定**: 直接描画。**T36（実験）**: committed 有効時のみ、T14 committed サイズのオフスクリーン RT に描きバックバッファへ合成（ログ `[T36][RT]`）。失敗時は直接描画。T34（Borderless）とは **別リソース**。 |
+| **Present** | 直接描画または T36 合成のあと **1 回** `Present`。 |
 | **GDI** | **クライアント座標系**（全面クライアント HDC）。 |
 
 ### 2.4 Fullscreen — CDS とレンダリング解像度（固定整理）
@@ -66,7 +66,7 @@
 | **CDS** | 指定モニタの **表示モード**（幅・高さ・bpp・Hz）を変える。 |
 | **クライアント** | 再生成後、**CDS に合わせた物理ピクセル**でクライアントを取る（`outerUsesCdsModeSize` 分岐）。 |
 | **スワップチェーン** | **クライアントにバインド** → **通常は CDS モードの解像度＝バックバッファのピクセル数**。 |
-| **T14 committed と CDS** | **別概念**。Fullscreen のウィンドウ寸法は **T15 最近傍 + CDS** が主；**T34 オフスクリーンは Fullscreen では使わない**。 |
+| **T14 committed と CDS** | **別概念**。ウィンドウ寸法は **T15 最近傍 + CDS** が主。レンダラ実験として **T36** が committed 解像度のオフスクリーンを試す（CDS/outer/client のロジックは変えない）。 |
 | **CDS 失敗時** | デスクトップは不変 → **Borderless 相当の全面クライアント**へ。レンダリングは **そのクライアント**への直接描画。 |
 
 ---
@@ -100,7 +100,7 @@
 次は **別タスク**で検討する（本稿の固定方針を変えるときは文書更新が前提）。
 
 - T17 ログを **T14 committed** などと **数値上揃える** UI/ログ改善。
-- Fullscreen での **committed ベースオフスクリーン**の要否。
+- **T36** を正式方針に昇格するか（現状は Fullscreen のみの **実験**、`[T36][RT]`）。
 - GDI を **仮想解像度に合わせてスケール**するか。
 
 ---

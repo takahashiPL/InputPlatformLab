@@ -14,6 +14,7 @@
 // D3D11（T31）: Init / Resize / Frame。T33: clear →（任意）可変グリッド → D2D/DWrite 1 行 → Present 1 回。
 // T34（完了）: Borderless のみ — committed 解像度のオフスクリーン RT にグリッド/T33 を描き、swapchain バックバッファへ拡大合成（ログ [T34][RT]）。
 // T35: 3 モードの window/client・swapchain・offscreen・Present・GDI の正式方針は docs/t35_display_mode_policy.md（T17 ログとは別軸）。
+// T36: Fullscreen のみ committed オフスクリーン実験（ログ [T36][RT]）。Borderless と T34 は別リソース。
 // グリッド: cell=(1280*64)/denomPhysW。denom は MainApp が毎フレーム設定（既定: T14 Enter 確定幅。無ければ client 幅）。
 // GDI・BeginPaint/EndPaint は MainApp（Win32_MainView_PaintFrame）側。
 // ---------------------------------------------------------------------------
@@ -50,6 +51,36 @@ void WindowsRenderer_ClearBorderlessOffscreen(WindowsRendererState* s)
     s->borderlessOffscreenComposite = false;
     s->borderlessOffscreenPhysW = 0;
     s->borderlessOffscreenPhysH = 0;
+}
+
+static void WindowsRenderer_ReleaseFullscreenOffscreen(WindowsRendererState* s)
+{
+    if (!s)
+    {
+        return;
+    }
+    if (s->fullscreenOffscreenRtv)
+    {
+        s->fullscreenOffscreenRtv->Release();
+        s->fullscreenOffscreenRtv = nullptr;
+    }
+    if (s->fullscreenOffscreenTexture)
+    {
+        s->fullscreenOffscreenTexture->Release();
+        s->fullscreenOffscreenTexture = nullptr;
+    }
+}
+
+void WindowsRenderer_ClearFullscreenOffscreen(WindowsRendererState* s)
+{
+    if (!s)
+    {
+        return;
+    }
+    WindowsRenderer_ReleaseFullscreenOffscreen(s);
+    s->fullscreenOffscreenComposite = false;
+    s->fullscreenOffscreenPhysW = 0;
+    s->fullscreenOffscreenPhysH = 0;
 }
 
 namespace
@@ -866,6 +897,261 @@ static bool WindowsRenderer_TryBorderlessOffscreenPresent(WindowsRendererState* 
     return true;
 }
 
+static bool WindowsRenderer_InternalEnsureFullscreenOffscreenRT(WindowsRendererState* s, UINT w, UINT h)
+{
+    if (!s || !s->device || w < 1u || h < 1u)
+    {
+        return false;
+    }
+    if (s->fullscreenOffscreenTexture != nullptr)
+    {
+        D3D11_TEXTURE2D_DESC td = {};
+        s->fullscreenOffscreenTexture->GetDesc(&td);
+        if (td.Width == w && td.Height == h)
+        {
+            return true;
+        }
+    }
+    WindowsRenderer_ReleaseFullscreenOffscreen(s);
+
+    D3D11_TEXTURE2D_DESC td = {};
+    td.Width = w;
+    td.Height = h;
+    td.MipLevels = 1;
+    td.ArraySize = 1;
+    td.Format = DXGI_FORMAT_R8G8B8A8_UNORM;
+    td.SampleDesc.Count = 1;
+    td.SampleDesc.Quality = 0;
+    td.Usage = D3D11_USAGE_DEFAULT;
+    td.BindFlags = D3D11_BIND_RENDER_TARGET | D3D11_BIND_SHADER_RESOURCE;
+    td.CPUAccessFlags = 0;
+    td.MiscFlags = 0;
+
+    HRESULT hr = s->device->CreateTexture2D(&td, nullptr, &s->fullscreenOffscreenTexture);
+    if (FAILED(hr) || s->fullscreenOffscreenTexture == nullptr)
+    {
+        wchar_t line[192] = {};
+        swprintf_s(
+            line,
+            L"[T36][RT] offscreen create FAILED hr=0x%08X\r\n",
+            static_cast<unsigned int>(hr));
+        OutputDebugStringW(line);
+        return false;
+    }
+    hr = s->device->CreateRenderTargetView(s->fullscreenOffscreenTexture, nullptr, &s->fullscreenOffscreenRtv);
+    if (FAILED(hr) || s->fullscreenOffscreenRtv == nullptr)
+    {
+        WindowsRenderer_ReleaseFullscreenOffscreen(s);
+        OutputDebugStringW(L"[T36][RT] offscreen create FAILED (CreateRenderTargetView)\r\n");
+        return false;
+    }
+    wchar_t line[192] = {};
+    swprintf_s(line, L"[T36][RT] offscreen create %ux%u\r\n", w, h);
+    OutputDebugStringW(line);
+    return true;
+}
+
+static bool WindowsRenderer_TryFullscreenOffscreenPresent(WindowsRendererState* state)
+{
+    const UINT cw = state->clientWidth;
+    const UINT ch = state->clientHeight;
+    const UINT ow = state->fullscreenOffscreenPhysW;
+    const UINT oh = state->fullscreenOffscreenPhysH;
+    if (ow < 1u || oh < 1u || cw < 1u || ch < 1u)
+    {
+        return false;
+    }
+    if (ow > 8192u || oh > 8192u)
+    {
+        OutputDebugStringW(L"[T36][RT] skip: dimension > 8192\r\n");
+        return false;
+    }
+
+    if (!WindowsRenderer_InternalEnsureFullscreenOffscreenRT(state, ow, oh))
+    {
+        return false;
+    }
+
+    const float clearColor[4] = { 0.12f, 0.14f, 0.18f, 1.0f };
+    ID3D11RenderTargetView* offRtv = state->fullscreenOffscreenRtv;
+    state->context->OMSetRenderTargets(1, &offRtv, nullptr);
+    D3D11_VIEWPORT vp = {};
+    vp.TopLeftX = 0.0f;
+    vp.TopLeftY = 0.0f;
+    vp.Width = static_cast<float>(ow);
+    vp.Height = static_cast<float>(oh);
+    vp.MinDepth = 0.0f;
+    vp.MaxDepth = 1.0f;
+    state->context->RSSetViewports(1, &vp);
+    state->context->ClearRenderTargetView(offRtv, clearColor);
+    state->context->Flush();
+
+    IDXGISurface* osurf = nullptr;
+    HRESULT hr = state->fullscreenOffscreenTexture->QueryInterface(
+        __uuidof(IDXGISurface), reinterpret_cast<void**>(&osurf));
+    if (FAILED(hr) || osurf == nullptr)
+    {
+        OutputDebugStringW(L"[T36][RT] fallback: QueryInterface(IDXGISurface) offscreen\r\n");
+        WindowsRenderer_InternalBindMainRtAndViewport(state);
+        return false;
+    }
+    {
+        wchar_t line[192] = {};
+        swprintf_s(line, L"[T36][RT] draw offscreen %ux%u\r\n", ow, oh);
+        OutputDebugStringW(line);
+    }
+    const bool firstDiag = !s_t33FirstFrameDiagDone;
+    struct T33FirstFrameDiagGuard
+    {
+        bool armed;
+        ~T33FirstFrameDiagGuard()
+        {
+            if (armed)
+            {
+                s_t33FirstFrameDiagDone = true;
+            }
+        }
+    } diagGuard{ firstDiag };
+
+    (void)WindowsRenderer_DrawD2DContentToSurface(state, osurf, ow, oh, firstDiag);
+    osurf->Release();
+    osurf = nullptr;
+    if (state->d2dContext != nullptr)
+    {
+        state->d2dContext->Flush();
+    }
+
+    IDXGISurface* osurf2 = nullptr;
+    hr = state->fullscreenOffscreenTexture->QueryInterface(
+        __uuidof(IDXGISurface), reinterpret_cast<void**>(&osurf2));
+    if (FAILED(hr) || osurf2 == nullptr)
+    {
+        OutputDebugStringW(L"[T36][RT] fallback: QueryInterface(IDXGISurface) for composite\r\n");
+        WindowsRenderer_InternalBindMainRtAndViewport(state);
+        return false;
+    }
+    UINT dpiSys = GetDpiForWindow(state->targetHwnd);
+    if (dpiSys == 0)
+    {
+        dpiSys = 96u;
+    }
+    const FLOAT dpiX = static_cast<FLOAT>(dpiSys);
+    const FLOAT dpiY = static_cast<FLOAT>(dpiSys);
+    const D2D1_BITMAP_PROPERTIES1 srcProps = D2D1::BitmapProperties1(
+        D2D1_BITMAP_OPTIONS_NONE,
+        D2D1::PixelFormat(DXGI_FORMAT_UNKNOWN, D2D1_ALPHA_MODE_PREMULTIPLIED),
+        dpiX,
+        dpiY);
+    ID2D1Bitmap1* srcBmp = nullptr;
+    hr = state->d2dContext->CreateBitmapFromDxgiSurface(osurf2, &srcProps, &srcBmp);
+    osurf2->Release();
+    if (FAILED(hr) || srcBmp == nullptr)
+    {
+        wchar_t line[192] = {};
+        swprintf_s(
+            line,
+            L"[T36][RT] composite source bitmap FAILED hr=0x%08X\r\n",
+            static_cast<unsigned int>(hr));
+        OutputDebugStringW(line);
+        WindowsRenderer_InternalBindMainRtAndViewport(state);
+        return false;
+    }
+
+    ID3D11RenderTargetView* rtv = state->rtv;
+    state->context->OMSetRenderTargets(1, &rtv, nullptr);
+    vp.Width = static_cast<float>(cw);
+    vp.Height = static_cast<float>(ch);
+    state->context->RSSetViewports(1, &vp);
+    state->context->ClearRenderTargetView(rtv, clearColor);
+    state->context->Flush();
+
+    {
+        wchar_t line[224] = {};
+        swprintf_s(line, L"[T36][RT] composite to backbuffer client=%ux%u\r\n", cw, ch);
+        OutputDebugStringW(line);
+    }
+
+    ID3D11Texture2D* backBuffer = nullptr;
+    hr = state->swapChain->GetBuffer(0, __uuidof(ID3D11Texture2D), reinterpret_cast<void**>(&backBuffer));
+    if (FAILED(hr) || backBuffer == nullptr)
+    {
+        srcBmp->Release();
+        OutputDebugStringW(L"[T36][RT] fallback: GetBuffer backbuffer\r\n");
+        return false;
+    }
+    IDXGISurface* bSurf = nullptr;
+    hr = backBuffer->QueryInterface(__uuidof(IDXGISurface), reinterpret_cast<void**>(&bSurf));
+    backBuffer->Release();
+    if (FAILED(hr) || bSurf == nullptr)
+    {
+        srcBmp->Release();
+        OutputDebugStringW(L"[T36][RT] fallback: backbuffer IDXGISurface\r\n");
+        return false;
+    }
+    const D2D1_BITMAP_PROPERTIES1 dstProps = D2D1::BitmapProperties1(
+        D2D1_BITMAP_OPTIONS_TARGET | D2D1_BITMAP_OPTIONS_CANNOT_DRAW,
+        D2D1::PixelFormat(DXGI_FORMAT_UNKNOWN, D2D1_ALPHA_MODE_PREMULTIPLIED),
+        dpiX,
+        dpiY);
+    ID2D1Bitmap1* dstBmp = nullptr;
+    hr = state->d2dContext->CreateBitmapFromDxgiSurface(bSurf, &dstProps, &dstBmp);
+    bSurf->Release();
+    if (FAILED(hr) || dstBmp == nullptr)
+    {
+        srcBmp->Release();
+        OutputDebugStringW(L"[T36][RT] fallback: CreateBitmapFromDxgiSurface dst\r\n");
+        return false;
+    }
+
+    const float sx = 96.f / dpiX;
+    const float sy = 96.f / dpiY;
+    const float wDipClient = static_cast<float>(cw) * sx;
+    const float hDipClient = static_cast<float>(ch) * sy;
+
+    state->d2dContext->SetTarget(dstBmp);
+    state->d2dContext->BeginDraw();
+    state->d2dContext->SetTransform(D2D1::Matrix3x2F::Identity());
+    state->d2dContext->DrawBitmap(
+        srcBmp,
+        D2D1::RectF(0.f, 0.f, wDipClient, hDipClient),
+        1.0f,
+        D2D1_INTERPOLATION_MODE_LINEAR,
+        nullptr,
+        nullptr);
+    hr = state->d2dContext->EndDraw();
+    dstBmp->Release();
+    srcBmp->Release();
+    state->d2dContext->SetTarget(nullptr);
+
+    if (FAILED(hr))
+    {
+        wchar_t line[160] = {};
+        swprintf_s(line, L"[T36][RT] composite EndDraw hr=0x%08X\r\n", static_cast<unsigned int>(hr));
+        OutputDebugStringW(line);
+        OutputDebugStringW(L"[T36][RT] fallback: EndDraw failed\r\n");
+    }
+
+    const HRESULT hrPresent = state->swapChain->Present(1, 0);
+    if (FAILED(hrPresent))
+    {
+        wchar_t line[128] = {};
+        swprintf_s(
+            line,
+            L"[D3D11] present fail hr=0x%08X\r\n",
+            static_cast<unsigned int>(hrPresent));
+        OutputDebugStringW(line);
+    }
+    else
+    {
+        if (!s_loggedPresentOk)
+        {
+            s_loggedPresentOk = true;
+            OutputDebugStringW(L"[D3D11] present ok (first)\r\n");
+        }
+    }
+    return true;
+}
+
 static void WindowsRenderer_InternalBindMainRtAndViewport(WindowsRendererState* state)
 {
     ID3D11RenderTargetView* rtv = state->rtv;
@@ -895,11 +1181,31 @@ static void WindowsRenderer_Internal_ClearD2DPresent(
         WindowsRenderer_ReleaseBorderlessOffscreen(state);
     }
 
+    // T36: Fullscreen 以外では実験用オフスクリーンを解放（T34 と別リソース）
+    if (presentationMode != WindowsRendererPresentationMode::Fullscreen)
+    {
+        WindowsRenderer_ClearFullscreenOffscreen(state);
+    }
+    else if (!state->fullscreenOffscreenComposite && state->fullscreenOffscreenTexture != nullptr)
+    {
+        WindowsRenderer_ReleaseFullscreenOffscreen(state);
+    }
+
     if (presentationMode == WindowsRendererPresentationMode::Borderless && state->borderlessOffscreenComposite &&
         state->borderlessOffscreenPhysW >= 1u && state->borderlessOffscreenPhysH >= 1u &&
         state->d2dContext != nullptr)
     {
         if (WindowsRenderer_TryBorderlessOffscreenPresent(state))
+        {
+            return;
+        }
+    }
+
+    if (presentationMode == WindowsRendererPresentationMode::Fullscreen && state->fullscreenOffscreenComposite &&
+        state->fullscreenOffscreenPhysW >= 1u && state->fullscreenOffscreenPhysH >= 1u &&
+        state->d2dContext != nullptr)
+    {
+        if (WindowsRenderer_TryFullscreenOffscreenPresent(state))
         {
             return;
         }
@@ -1071,6 +1377,10 @@ void WindowsRenderer_Shutdown(WindowsRendererState* state)
     state->borderlessOffscreenComposite = false;
     state->borderlessOffscreenPhysW = 0;
     state->borderlessOffscreenPhysH = 0;
+    WindowsRenderer_ReleaseFullscreenOffscreen(state);
+    state->fullscreenOffscreenComposite = false;
+    state->fullscreenOffscreenPhysW = 0;
+    state->fullscreenOffscreenPhysH = 0;
     WindowsRenderer_InternalShutdownD2D(state);
     if (state->context)
     {
