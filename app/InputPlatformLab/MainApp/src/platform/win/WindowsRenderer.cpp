@@ -358,6 +358,19 @@ static const wchar_t* WindowsRenderer_GridBasisLabel(WindowsRendererGridDebugBas
     }
 }
 
+// T37 有効時の左上グリッド短文化用（1 行帯）
+static const wchar_t* WindowsRenderer_GridBasisAbbrev(WindowsRendererGridDebugBasis b)
+{
+    switch (b)
+    {
+    case WindowsRendererGridDebugBasis::CommittedSelected:
+        return L"cmtSel";
+    case WindowsRendererGridDebugBasis::Client:
+    default:
+        return L"client";
+    }
+}
+
 static void WindowsRenderer_InternalDrawDebugGridLines(
     WindowsRendererState* s,
     UINT dpiSys,
@@ -438,6 +451,47 @@ static void WindowsRenderer_InternalDrawDebugGridLabels(
     {
         return;
     }
+    // T37 本文と T33 が重なりにくいよう、committed/client を 1 行で画面上部右寄せ帯に退避。
+    if (s->t37VirtualBodyOverlayRequested)
+    {
+        wchar_t cap[512] = {};
+        if (s->gridDebugCommittedPhysW > 0u && s->gridDebugCommittedPhysH > 0u)
+        {
+            swprintf_s(
+                cap,
+                _countof(cap),
+                L"b:%s  cmt=%ux%u  cl=%ux%u  cell=%u",
+                WindowsRenderer_GridBasisAbbrev(s->gridDebugBasis),
+                static_cast<unsigned int>(s->gridDebugCommittedPhysW),
+                static_cast<unsigned int>(s->gridDebugCommittedPhysH),
+                static_cast<unsigned int>(s->gridDebugClientPhysW),
+                static_cast<unsigned int>(s->gridDebugClientPhysH),
+                static_cast<unsigned int>(stepPx));
+        }
+        else
+        {
+            swprintf_s(
+                cap,
+                _countof(cap),
+                L"b:%s  cmt=n/a  cl=%ux%u  cell=%u",
+                WindowsRenderer_GridBasisAbbrev(s->gridDebugBasis),
+                static_cast<unsigned int>(s->gridDebugClientPhysW),
+                static_cast<unsigned int>(s->gridDebugClientPhysH),
+                static_cast<unsigned int>(stepPx));
+        }
+        const float splitX = (std::max)(80.f, wDip * 0.5f);
+        const D2D1_RECT_F layoutTop = D2D1::RectF(splitX, 4.f, wDip - 4.f, 28.f);
+        s->d2dContext->DrawText(
+            cap,
+            static_cast<UINT32>(wcslen(cap)),
+            s->dwriteGridLabelFormat,
+            layoutTop,
+            s->d2dGridBrushEm,
+            D2D1_DRAW_TEXT_OPTIONS_NONE,
+            DWRITE_MEASURING_MODE_NATURAL);
+        return;
+    }
+
     wchar_t cap[512] = {};
     if (s->gridDebugCommittedPhysW > 0u && s->gridDebugCommittedPhysH > 0u)
     {
@@ -555,15 +609,31 @@ static HRESULT WindowsRenderer_DrawD2DContentToSurface(
     const float w = static_cast<float>(pixelW);
     const float h = static_cast<float>(pixelH);
 #if WIN32_RENDERER_DEBUG_GRID_64PX
-    const float t33Top = 80.0f;
+    const bool t37 = s->t37VirtualBodyOverlayRequested;
+    const float t33Top = t37 ? 8.0f : 80.0f;
 #else
     const float t33Top = 8.0f;
 #endif
-    const D2D1_RECT_F layout = D2D1::RectF(
-        8.0f,
-        t33Top,
-        (std::max)(8.0f, w - 8.0f),
-        (std::max)(t33Top + 4.0f, h - 8.0f));
+    D2D1_RECT_F layout;
+#if WIN32_RENDERER_DEBUG_GRID_64PX
+    if (t37)
+    {
+        const float splitX = (std::max)(80.f, wDip * 0.5f);
+        layout = D2D1::RectF(
+            8.0f,
+            t33Top,
+            splitX - 8.f,
+            (std::max)(t33Top + 4.0f, hDip - 8.0f));
+    }
+    else
+#endif
+    {
+        layout = D2D1::RectF(
+            8.0f,
+            t33Top,
+            (std::max)(8.0f, w - 8.0f),
+            (std::max)(t33Top + 4.0f, h - 8.0f));
+    }
 
     s->d2dContext->DrawText(
         kLine,

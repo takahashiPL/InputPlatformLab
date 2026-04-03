@@ -404,7 +404,10 @@ static void Win32_MainView_PaintFrame(HWND hWnd);
 static void Win32_WndProc_OnPaint(HWND hWnd);
 
 // Win32_FillMenuSamplePaintBuffers の分割（T14〜T17 本文 + T18 追記）
-static void Win32_FillMenuSamplePaintBuffers_MenuColumn(wchar_t* menuBuf, size_t menuBufCount);
+static void Win32_FillMenuSamplePaintBuffers_MenuColumn(
+    wchar_t* menuBuf,
+    size_t menuBufCount,
+    bool compactT37);
 static void Win32_FillMenuSamplePaintBuffers_T14T15Column(wchar_t* t14Buf, size_t t14BufCount);
 static void Win32_FillMenuSamplePaintBuffers_AppendT16T18T17(
     HWND hwnd,
@@ -1133,7 +1136,14 @@ static void Win32_T37_PrepareVirtualBodyOverlay(HWND hwnd)
 
     wchar_t menuBuf[3072] = {};
     wchar_t t14Buf[8192] = {};
-    Win32_FillMenuSamplePaintBuffers(hwnd, rc, menuBuf, _countof(menuBuf), t14Buf, _countof(t14Buf));
+    Win32_FillMenuSamplePaintBuffers(
+        hwnd,
+        rc,
+        menuBuf,
+        _countof(menuBuf),
+        t14Buf,
+        _countof(t14Buf),
+        false);
     wcsncpy_s(st.t37BodyText, _countof(st.t37BodyText), t14Buf, _TRUNCATE);
 
     const int gh = s_lastCommittedGridSelectedPhysH;
@@ -3745,7 +3755,10 @@ static void Win32_MenuSample_ResetPaintTracking(HWND hwnd)
 }
 
 // 左列: メニュー試作の 2x2 と menuOpen 表示。
-static void Win32_FillMenuSamplePaintBuffers_MenuColumn(wchar_t* menuBuf, size_t menuBufCount)
+static void Win32_FillMenuSamplePaintBuffers_MenuColumn(
+    wchar_t* menuBuf,
+    size_t menuBufCount,
+    bool compactT37)
 {
     const VirtualInputMenuSampleState& s = s_virtualInputMenuSampleState;
     const wchar_t* evLabel = Win32_MenuSampleUiLastEventLabel(s_menuSampleUiLastEvent);
@@ -3769,6 +3782,24 @@ static void Win32_FillMenuSamplePaintBuffers_MenuColumn(wchar_t* menuBuf, size_t
     else if (s.selectionX == 1 && s.selectionY == 1)
     {
         wcscpy_s(c11, _countof(c11), L"@");
+    }
+
+    if (compactT37)
+    {
+        swprintf_s(
+            menuBuf,
+            menuBufCount,
+            L"[T37] Sample  mo=%d  (%d,%d)  %s\r\n"
+            L"2x2 [%s][%s] / [%s][%s]\r\n",
+            s.menuOpen ? 1 : 0,
+            static_cast<int>(s.selectionX),
+            static_cast<int>(s.selectionY),
+            evLabel,
+            c00,
+            c10,
+            c01,
+            c11);
+        return;
     }
 
     swprintf_s(menuBuf, menuBufCount,
@@ -3905,13 +3936,19 @@ void Win32_FillMenuSamplePaintBuffers(
     wchar_t* menuBuf,
     size_t menuBufCount,
     wchar_t* t14Buf,
-    size_t t14BufCount)
+    size_t t14BufCount,
+    bool compactMenuForT37Layout)
 {
     Win32_T18_RefreshControllerIdentifySnapshot();
 
-    Win32_FillMenuSamplePaintBuffers_MenuColumn(menuBuf, menuBufCount);
+    Win32_FillMenuSamplePaintBuffers_MenuColumn(menuBuf, menuBufCount, compactMenuForT37Layout);
     Win32_FillMenuSamplePaintBuffers_T14T15Column(t14Buf, t14BufCount);
     Win32_FillMenuSamplePaintBuffers_AppendT16T18T17(hwnd, rcClient, t14Buf, t14BufCount);
+}
+
+bool Win32_IsT37VirtualBodyOverlayActiveForLayout(void)
+{
+    return s_windowsRendererState.t37VirtualBodyOverlayRequested;
 }
 
 // menuOpen 中は T14 行スクロールを動かさない前提。キャッシュされたレイアウトで選択行が見えるよう scroll を補正。

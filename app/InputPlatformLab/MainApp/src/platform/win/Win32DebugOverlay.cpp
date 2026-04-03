@@ -7,6 +7,11 @@
 #define WIN32_MAIN_T17_JUMP_TOP_MARGIN 160
 #endif
 
+// T37 有効時: D2D の T33 1 行帯の下に compact GDI を置く（上端の縦重なり回避）
+#ifndef WIN32_OVERLAY_T37_MENU_TOP_GAP_PX
+#define WIN32_OVERLAY_T37_MENU_TOP_GAP_PX 52
+#endif
+
 // ---------------------------------------------------------------------------
 // GDI: D3D で塗ったクライアント上にデバッグ文字を載せる。縦スクロール・[scroll] オーバーレイ・T14/T17 行位置の計測。
 // ---------------------------------------------------------------------------
@@ -278,12 +283,21 @@ void Win32DebugOverlay_Paint(
 
     wchar_t menuBuf[3072] = {};
     wchar_t t14Buf[8192] = {};
-    Win32_FillMenuSamplePaintBuffers(hwnd, rcClient, menuBuf, _countof(menuBuf), t14Buf, _countof(t14Buf));
+    Win32_FillMenuSamplePaintBuffers(
+        hwnd,
+        rcClient,
+        menuBuf,
+        _countof(menuBuf),
+        t14Buf,
+        _countof(t14Buf),
+        Win32_IsT37VirtualBodyOverlayActiveForLayout());
 
     RECT rcMenuDoc{};
     RECT rcT14Doc{};
     Win32_MenuSampleMeasurePaintLayout(hdc, clientW, menuBuf, t14Buf, rcMenuDoc, rcT14Doc);
-    const int baseContentH = static_cast<int>(rcT14Doc.bottom);
+    const int t37TopGap =
+        Win32_IsT37VirtualBodyOverlayActiveForLayout() ? WIN32_OVERLAY_T37_MENU_TOP_GAP_PX : 0;
+    const int baseContentH = static_cast<int>(rcT14Doc.bottom) + t37TopGap;
 
     s_paintDbgT14LayoutValid = false;
     const wchar_t* visMarkerT14 = wcsstr(t14Buf, L"visible modes:\r\n");
@@ -293,7 +307,7 @@ void Win32DebugOverlay_Paint(
         const int prefixLenVm = static_cast<int>(firstVmLine - t14Buf);
         if (prefixLenVm > 0)
         {
-            const int t14BaseY = static_cast<int>(rcMenuDoc.bottom) + 8;
+            const int t14BaseY = static_cast<int>(rcT14Doc.top) + t37TopGap;
             RECT rcVm{};
             rcVm.left = 0;
             rcVm.top = t14BaseY;
@@ -322,7 +336,7 @@ void Win32DebugOverlay_Paint(
             prefixBuf[prefixChars] = L'\0';
             RECT rcPre{};
             rcPre.left = 0;
-            rcPre.top = rcMenuDoc.bottom + 8;
+            rcPre.top = static_cast<int>(rcT14Doc.top) + t37TopGap;
             rcPre.right = clientW;
             rcPre.bottom = rcPre.top + 1000000;
             DrawTextW(
@@ -427,14 +441,21 @@ void Win32DebugOverlay_Paint(
         rcClipMain.bottom);
     OffsetViewportOrgEx(hdc, 0, -s_paintScrollY, nullptr);
 
-    DrawTextW(hdc, menuBuf, -1, &rcMenuDoc, DT_LEFT | DT_TOP | DT_NOPREFIX);
+    RECT rcMenuDraw = rcMenuDoc;
+    RECT rcT14Draw = rcT14Doc;
+    if (t37TopGap != 0)
+    {
+        ::OffsetRect(&rcMenuDraw, 0, t37TopGap);
+        ::OffsetRect(&rcT14Draw, 0, t37TopGap);
+    }
+    DrawTextW(hdc, menuBuf, -1, &rcMenuDraw, DT_LEFT | DT_TOP | DT_NOPREFIX);
     if (!suppressT14BodyGdi)
     {
         DrawTextW(
             hdc,
             t14Buf,
             -1,
-            &rcT14Doc,
+            &rcT14Draw,
             DT_LEFT | DT_TOP | DT_NOPREFIX | DT_WORDBREAK);
     }
 
