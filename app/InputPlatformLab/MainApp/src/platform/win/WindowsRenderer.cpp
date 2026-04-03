@@ -604,8 +604,10 @@ static HRESULT WindowsRenderer_DrawD2DContentToSurface(
     WindowsRenderer_InternalDrawDebugGridLabels(s, wDip, hDip, gridStepPx);
 #endif
 
-    static const wchar_t kLine[] = L"T33: DirectWrite overlay (1 line)";
-    const UINT32 kLen = static_cast<UINT32>(wcslen(kLine));
+    static const wchar_t kFallbackT33Line[] = L"T33: DirectWrite overlay (1 line)";
+    const wchar_t* const t33LinePtr =
+        (s->t17HudLine[0] != L'\0') ? s->t17HudLine : kFallbackT33Line;
+    const UINT32 t33LineLen = static_cast<UINT32>(wcslen(t33LinePtr));
     const float w = static_cast<float>(pixelW);
     const float h = static_cast<float>(pixelH);
 #if WIN32_RENDERER_DEBUG_GRID_64PX
@@ -636,8 +638,8 @@ static HRESULT WindowsRenderer_DrawD2DContentToSurface(
     }
 
     s->d2dContext->DrawText(
-        kLine,
-        kLen,
+        t33LinePtr,
+        t33LineLen,
         s->dwriteTextFormat,
         layout,
         s->d2dTextBrush,

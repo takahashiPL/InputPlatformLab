@@ -88,6 +88,8 @@ struct WindowsRendererState
     bool t37VirtualBodyOverlayRenderedOk = false;
     int t37ScrollVirtualPx = 0;
     wchar_t t37BodyText[8192]{};
+    // T17: F6 候補と Enter 適用を D2D 上段 1 行に表示（MainApp が毎フレーム更新）
+    wchar_t t17HudLine[128]{};
 };
 
 // --- T31 公開面（3 入口 + Shutdown）---

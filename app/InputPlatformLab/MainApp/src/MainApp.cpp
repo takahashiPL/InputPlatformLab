@@ -5708,6 +5708,12 @@ static void Win32_MainView_PaintFrame(HWND hWnd)
     // T26/T33: renderer（clear → D2D 1 行 → Present）→ 任意で GDI debug overlay
     Win32_RefreshRendererGridDebugParams(hWnd);
     Win32_T37_PrepareVirtualBodyOverlay(hWnd);
+    swprintf_s(
+        s_windowsRendererState.t17HudLine,
+        _countof(s_windowsRendererState.t17HudLine),
+        L"cand=%s act=%s",
+        Win32_T17_ModeLabel(s_t17CurrentPresentationMode),
+        Win32_T17_ModeLabel(s_t17LastAppliedPresentationMode));
     WindowsRenderer_Frame(
         &s_windowsRendererState,
         hWnd,
