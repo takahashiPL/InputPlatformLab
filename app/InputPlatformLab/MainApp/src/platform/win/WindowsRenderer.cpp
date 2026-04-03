@@ -19,6 +19,44 @@ namespace
 {
 bool s_loggedPresentOk = false;
 bool s_loggedT33ResizeNote = false;
+bool s_t33FirstFrameDiagDone = false;
+
+static void WindowsRenderer_InternalShutdownD2D(WindowsRendererState* s);
+
+static void T33_LogInitOk(const wchar_t* stepName, HRESULT hr)
+{
+    wchar_t line[192] = {};
+    swprintf_s(
+        line,
+        L"[T33] init: %s hr=0x%08X\r\n",
+        stepName,
+        static_cast<unsigned int>(hr));
+    OutputDebugStringW(line);
+}
+
+static bool T33_LogInitFail(const wchar_t* apiName, HRESULT hr, WindowsRendererState* s)
+{
+    wchar_t line[224] = {};
+    swprintf_s(
+        line,
+        L"[T33] fail: %s hr=0x%08X -> D3D clear+Present only\r\n",
+        apiName,
+        static_cast<unsigned int>(hr));
+    OutputDebugStringW(line);
+    WindowsRenderer_InternalShutdownD2D(s);
+    return false;
+}
+
+static void T33_LogFrameStep(const wchar_t* stepName, HRESULT hr)
+{
+    wchar_t line[192] = {};
+    swprintf_s(
+        line,
+        L"[T33] frame: %s hr=0x%08X\r\n",
+        stepName,
+        static_cast<unsigned int>(hr));
+    OutputDebugStringW(line);
+}
 
 static void WindowsRenderer_InternalReleaseRtv(WindowsRendererState* s)
 {
@@ -116,34 +154,41 @@ static bool WindowsRenderer_InternalInitD2D(WindowsRendererState* s)
         reinterpret_cast<void**>(&s->d2dFactory));
     if (FAILED(hr) || s->d2dFactory == nullptr)
     {
-        return false;
+        return T33_LogInitFail(L"D2D1CreateFactory(ID2D1Factory1)", hr, s);
     }
-    hr = DWriteCreateFactory(DWRITE_FACTORY_TYPE_SHARED, __uuidof(IDWriteFactory), reinterpret_cast<IUnknown**>(&s->dwriteFactory));
-    if (FAILED(hr) || s->dwriteFactory == nullptr)
-    {
-        WindowsRenderer_InternalShutdownD2D(s);
-        return false;
-    }
+    T33_LogInitOk(L"D2D1CreateFactory", hr);
+
     IDXGIDevice* dxgiDevice = nullptr;
     hr = s->device->QueryInterface(__uuidof(IDXGIDevice), reinterpret_cast<void**>(&dxgiDevice));
     if (FAILED(hr) || dxgiDevice == nullptr)
     {
-        WindowsRenderer_InternalShutdownD2D(s);
-        return false;
+        return T33_LogInitFail(L"IUnknown::QueryInterface(IDXGIDevice)", hr, s);
     }
+    T33_LogInitOk(L"QueryInterface(IDXGIDevice)", hr);
+
     hr = s->d2dFactory->CreateDevice(dxgiDevice, &s->d2dDevice);
     dxgiDevice->Release();
+    dxgiDevice = nullptr;
     if (FAILED(hr) || s->d2dDevice == nullptr)
     {
-        WindowsRenderer_InternalShutdownD2D(s);
-        return false;
+        return T33_LogInitFail(L"ID2D1Factory1::CreateDevice", hr, s);
     }
+    T33_LogInitOk(L"ID2D1Factory1::CreateDevice", hr);
+
     hr = s->d2dDevice->CreateDeviceContext(D2D1_DEVICE_CONTEXT_OPTIONS_NONE, &s->d2dContext);
     if (FAILED(hr) || s->d2dContext == nullptr)
     {
-        WindowsRenderer_InternalShutdownD2D(s);
-        return false;
+        return T33_LogInitFail(L"ID2D1Device::CreateDeviceContext", hr, s);
     }
+    T33_LogInitOk(L"ID2D1Device::CreateDeviceContext", hr);
+
+    hr = DWriteCreateFactory(DWRITE_FACTORY_TYPE_SHARED, __uuidof(IDWriteFactory), reinterpret_cast<IUnknown**>(&s->dwriteFactory));
+    if (FAILED(hr) || s->dwriteFactory == nullptr)
+    {
+        return T33_LogInitFail(L"DWriteCreateFactory", hr, s);
+    }
+    T33_LogInitOk(L"DWriteCreateFactory", hr);
+
     hr = s->dwriteFactory->CreateTextFormat(
         L"Segoe UI",
         nullptr,
@@ -155,15 +200,17 @@ static bool WindowsRenderer_InternalInitD2D(WindowsRendererState* s)
         &s->dwriteTextFormat);
     if (FAILED(hr) || s->dwriteTextFormat == nullptr)
     {
-        WindowsRenderer_InternalShutdownD2D(s);
-        return false;
+        return T33_LogInitFail(L"IDWriteFactory::CreateTextFormat", hr, s);
     }
+    T33_LogInitOk(L"IDWriteFactory::CreateTextFormat", hr);
+
     hr = s->d2dContext->CreateSolidColorBrush(D2D1::ColorF(1.0f, 1.0f, 1.0f, 1.0f), &s->d2dTextBrush);
     if (FAILED(hr) || s->d2dTextBrush == nullptr)
     {
-        WindowsRenderer_InternalShutdownD2D(s);
-        return false;
+        return T33_LogInitFail(L"ID2D1DeviceContext::CreateSolidColorBrush", hr, s);
     }
+    T33_LogInitOk(L"ID2D1DeviceContext::CreateSolidColorBrush", hr);
+
     return true;
 }
 
@@ -173,8 +220,29 @@ static void WindowsRenderer_InternalDrawD2DOneLine(WindowsRendererState* s)
     {
         return;
     }
+    const bool firstDiag = !s_t33FirstFrameDiagDone;
+    struct T33FirstFrameDiagGuard
+    {
+        bool armed;
+        ~T33FirstFrameDiagGuard()
+        {
+            if (armed)
+            {
+                s_t33FirstFrameDiagDone = true;
+            }
+        }
+    } diagGuard{ firstDiag };
+
+    auto logFrame = [&](const wchar_t* step, HRESULT stepHr) {
+        if (firstDiag)
+        {
+            T33_LogFrameStep(step, stepHr);
+        }
+    };
+
     ID3D11Texture2D* backBuffer = nullptr;
     HRESULT hr = s->swapChain->GetBuffer(0, __uuidof(ID3D11Texture2D), reinterpret_cast<void**>(&backBuffer));
+    logFrame(L"IDXGISwapChain::GetBuffer(0)", hr);
     if (FAILED(hr) || backBuffer == nullptr)
     {
         return;
@@ -182,6 +250,7 @@ static void WindowsRenderer_InternalDrawD2DOneLine(WindowsRendererState* s)
     IDXGISurface* surface = nullptr;
     hr = backBuffer->QueryInterface(__uuidof(IDXGISurface), reinterpret_cast<void**>(&surface));
     backBuffer->Release();
+    logFrame(L"ID3D11Texture2D::QueryInterface(IDXGISurface)", hr);
     if (FAILED(hr) || surface == nullptr)
     {
         return;
@@ -204,6 +273,7 @@ static void WindowsRenderer_InternalDrawD2DOneLine(WindowsRendererState* s)
     ID2D1Bitmap1* target = nullptr;
     hr = s->d2dContext->CreateBitmapFromDxgiSurface(surface, &bmpProps, &target);
     surface->Release();
+    logFrame(L"ID2D1DeviceContext::CreateBitmapFromDxgiSurface", hr);
     if (FAILED(hr) || target == nullptr)
     {
         return;
@@ -211,6 +281,10 @@ static void WindowsRenderer_InternalDrawD2DOneLine(WindowsRendererState* s)
 
     s->d2dContext->SetTarget(target);
     s->d2dContext->BeginDraw();
+    if (firstDiag)
+    {
+        T33_LogFrameStep(L"ID2D1DeviceContext::BeginDraw", S_OK);
+    }
     s->d2dContext->SetTransform(D2D1::Matrix3x2F::Identity());
 
     static const wchar_t kLine[] = L"T33: DirectWrite overlay (1 line)";
@@ -227,8 +301,13 @@ static void WindowsRenderer_InternalDrawD2DOneLine(WindowsRendererState* s)
         s->d2dTextBrush,
         D2D1_DRAW_TEXT_OPTIONS_NONE,
         DWRITE_MEASURING_MODE_NATURAL);
+    if (firstDiag)
+    {
+        T33_LogFrameStep(L"ID2D1DeviceContext::DrawText", S_OK);
+    }
 
     hr = s->d2dContext->EndDraw();
+    logFrame(L"ID2D1DeviceContext::EndDraw", hr);
     target->Release();
     s->d2dContext->SetTarget(nullptr);
 
@@ -236,9 +315,9 @@ static void WindowsRenderer_InternalDrawD2DOneLine(WindowsRendererState* s)
     if (SUCCEEDED(hr) && !s_loggedFirstEndDrawOk)
     {
         s_loggedFirstEndDrawOk = true;
-        OutputDebugStringW(L"[T33] first EndDraw ok (D2D on DXGI surface)\r\n");
+        OutputDebugStringW(L"[T33] first EndDraw ok\r\n");
     }
-    else if (FAILED(hr) && hr != D2DERR_RECREATE_TARGET)
+    else if (FAILED(hr) && hr != D2DERR_RECREATE_TARGET && !firstDiag)
     {
         wchar_t line[128] = {};
         swprintf_s(line, L"[T33] EndDraw hr=0x%08X\r\n", static_cast<unsigned int>(hr));
@@ -326,7 +405,7 @@ bool WindowsRenderer_Init(HWND hwnd, const WindowsRendererConfig& cfg, WindowsRe
         D3D_FEATURE_LEVEL_10_0,
     };
     D3D_FEATURE_LEVEL obtained = D3D_FEATURE_LEVEL_11_0;
-    UINT createFlags = 0;
+    const UINT createFlags = D3D11_CREATE_DEVICE_BGRA_SUPPORT;
 
     HRESULT hr = D3D11CreateDeviceAndSwapChain(
         nullptr,
@@ -357,6 +436,37 @@ bool WindowsRenderer_Init(HWND hwnd, const WindowsRendererConfig& cfg, WindowsRe
     outState->clientWidth = w;
     outState->clientHeight = h;
 
+    {
+        wchar_t line[224] = {};
+        swprintf_s(
+            line,
+            L"[D3D11] D3D11CreateDeviceAndSwapChain flags=0x%08X BGRA_SUPPORT=%d\r\n",
+            static_cast<unsigned int>(createFlags),
+            (createFlags & D3D11_CREATE_DEVICE_BGRA_SUPPORT) != 0 ? 1 : 0);
+        OutputDebugStringW(line);
+    }
+    {
+        DXGI_SWAP_CHAIN_DESC scDesc = {};
+        if (SUCCEEDED(outState->swapChain->GetDesc(&scDesc)))
+        {
+            const DXGI_FORMAT fmt = scDesc.BufferDesc.Format;
+            const bool fmtOkForD2D =
+                (fmt == DXGI_FORMAT_R8G8B8A8_UNORM || fmt == DXGI_FORMAT_B8G8R8A8_UNORM);
+            wchar_t line[288] = {};
+            swprintf_s(
+                line,
+                L"[D3D11] swapchain BufferDesc.Format=%u (R8G8B8A8_UNORM=%u; typical D2D DXGI interop)\r\n",
+                static_cast<unsigned int>(fmt),
+                static_cast<unsigned int>(DXGI_FORMAT_R8G8B8A8_UNORM));
+            OutputDebugStringW(line);
+            if (!fmtOkForD2D)
+            {
+                OutputDebugStringW(
+                    L"[D3D11] warn: backbuffer format is not R8G8B8A8/B8G8R8A8 UNORM; D2D DXGI surface may fail\r\n");
+            }
+        }
+    }
+
     if (!WindowsRenderer_InternalCreateRtv(outState))
     {
         OutputDebugStringW(L"[D3D11] init fail (CreateRtv)\r\n");
@@ -364,13 +474,9 @@ bool WindowsRenderer_Init(HWND hwnd, const WindowsRendererConfig& cfg, WindowsRe
         return false;
     }
 
-    if (!WindowsRenderer_InternalInitD2D(outState))
+    if (WindowsRenderer_InternalInitD2D(outState))
     {
-        OutputDebugStringW(L"[T33] D2D/DWrite init failed; using D3D clear + Present only\r\n");
-    }
-    else
-    {
-        OutputDebugStringW(L"[T33] D2D/DWrite ok (1-line overlay path)\r\n");
+        OutputDebugStringW(L"[T33] D2D/DWrite ok\r\n");
     }
 
     outState->initialized = true;
@@ -426,6 +532,7 @@ void WindowsRenderer_Shutdown(WindowsRendererState* state)
     state->clientHeight = 0;
     s_loggedPresentOk = false;
     s_loggedT33ResizeNote = false;
+    s_t33FirstFrameDiagDone = false;
 }
 
 // Resize: WM_SIZE に合わせてバックバッファを ResizeBuffers し、RTV を作り直す。
