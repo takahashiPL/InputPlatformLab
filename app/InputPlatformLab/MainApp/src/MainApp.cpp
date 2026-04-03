@@ -1144,7 +1144,8 @@ static void Win32_T37_PrepareVirtualBodyOverlay(HWND hwnd)
         t14Buf,
         _countof(t14Buf),
         false);
-    wcsncpy_s(st.t37BodyText, _countof(st.t37BodyText), t14Buf, _TRUNCATE);
+    // T14 本文は final backbuffer の D2D HUD（左列）に描く。composite 上のスケール本文は出さない。
+    st.t37BodyText[0] = L'\0';
 
     const int gh = s_lastCommittedGridSelectedPhysH;
     if (ch > 0 && gh > 0)
@@ -1165,6 +1166,14 @@ static void Win32_RefreshRendererGridDebugParams(HWND hwnd)
     GetClientRect(hwnd, &rc);
     const UINT cw = static_cast<UINT>((std::max)(0, static_cast<int>(rc.right - rc.left)));
     const UINT ch = static_cast<UINT>((std::max)(0, static_cast<int>(rc.bottom - rc.top)));
+
+    // WM_PAINT が WM_SIZE より先に来ると swapchain/backbuffer の client が実クライアントより古いままになる。
+    // composite の viewport と GetClientRect を毎フレーム一致させる。
+    if (s_windowsRendererState.initialized && cw >= 1u && ch >= 1u &&
+        (cw != s_windowsRendererState.clientWidth || ch != s_windowsRendererState.clientHeight))
+    {
+        WindowsRenderer_Resize(&s_windowsRendererState, cw, ch);
+    }
 
     const int gw = s_lastCommittedGridSelectedPhysW;
     const int gh = s_lastCommittedGridSelectedPhysH;
@@ -3951,6 +3960,14 @@ bool Win32_IsT37VirtualBodyOverlayActiveForLayout(void)
     return s_windowsRendererState.t37VirtualBodyOverlayRequested;
 }
 
+void Win32_FillMenuSamplePaintBuffers_MenuColumnOnly(wchar_t* menuBuf, size_t menuBufCount)
+{
+    Win32_FillMenuSamplePaintBuffers_MenuColumn(
+        menuBuf,
+        menuBufCount,
+        Win32_IsT37VirtualBodyOverlayActiveForLayout());
+}
+
 // menuOpen 中は T14 行スクロールを動かさない前提。キャッシュされたレイアウトで選択行が見えるよう scroll を補正。
 static void Win32_T14_TryAutoScrollSelectionIntoView(HWND hwnd)
 {
@@ -5714,19 +5731,29 @@ static void Win32_MainView_PaintFrame(HWND hWnd)
         L"cand=%s act=%s",
         Win32_T17_ModeLabel(s_t17CurrentPresentationMode),
         Win32_T17_ModeLabel(s_t17LastAppliedPresentationMode));
+#if !WIN32_MAIN_D3D_CLEAR_ONLY_PAINT && !WIN32_MAIN_T33_HIDE_GDI_OVERLAY
+    Win32_DebugOverlay_PrefillHudLeftColumnForD2d(
+        hWnd,
+        hdc,
+        &s_windowsRendererState,
+        Win32_T17_ModeLabel(s_t17LastAppliedPresentationMode));
+#endif
     WindowsRenderer_Frame(
         &s_windowsRendererState,
         hWnd,
         Win32_MapT17ToRendererPresentationMode(s_t17LastAppliedPresentationMode));
 #if !WIN32_MAIN_D3D_CLEAR_ONLY_PAINT && !WIN32_MAIN_T33_HIDE_GDI_OVERLAY
     {
-        const bool suppressT14BodyGdi = s_windowsRendererState.t37VirtualBodyOverlayRequested &&
-            s_windowsRendererState.t37VirtualBodyOverlayRenderedOk;
+        const bool suppressT14BodyGdi =
+            s_windowsRendererState.dbgHudLeftColumnSkipGdi ||
+            (s_windowsRendererState.t37VirtualBodyOverlayRequested &&
+             s_windowsRendererState.t37VirtualBodyOverlayRenderedOk);
         Win32DebugOverlay_Paint(
             hWnd,
             hdc,
             Win32_T17_ModeLabel(s_t17LastAppliedPresentationMode),
-            suppressT14BodyGdi);
+            suppressT14BodyGdi,
+            s_windowsRendererState.dbgHudLeftColumnSkipGdi);
     }
 #endif
     EndPaint(hWnd, &ps);
@@ -5780,6 +5807,16 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam)
     case WM_SIZE:
         Win32_WndProc_OnClientSize(hWnd);
         Win32DebugOverlay_ScrollLog(L"WM_SIZE", hWnd, s_paintScrollY, s_paintScrollY, -1, -1, -1, -1);
+        InvalidateRect(hWnd, nullptr, FALSE);
+        break;
+    // タイトルバー移動などのあと GDI オーバーレイだけ欠けることがあるため、再描画を強制（D3D 経路は WM_PAINT 内の従来処理）。
+    case WM_EXITSIZEMOVE:
+        RedrawWindow(hWnd, nullptr, nullptr, RDW_INVALIDATE | RDW_NOERASE);
+        break;
+    case WM_MOVE:
+        InvalidateRect(hWnd, nullptr, FALSE);
+        break;
+    case WM_WINDOWPOSCHANGED:
         InvalidateRect(hWnd, nullptr, FALSE);
         break;
     // デバッグ本文の縦スクロール（行・ページ・ホーム／エンド・サムトラック）。

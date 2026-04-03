@@ -1,5 +1,6 @@
 #include "framework.h"
 #include "Win32DebugOverlay.h"
+#include "WindowsRenderer.h"
 
 #include <algorithm>
 
@@ -31,6 +32,20 @@ extern int s_paintDbgActualOverlayHeight;
 extern int s_paintDbgClientW;
 extern int s_paintDbgClientH;
 extern int s_paintDbgMaxScroll;
+
+// メニュー列のみ CALCRECT（左列 D2D 用。幅は committed / client のレイアウト幅に合わせる）
+static void Win32_MenuSampleMeasureMenuColumnOnly(
+    HDC hdc,
+    int layoutW,
+    const wchar_t* menuBuf,
+    RECT& outMenuDoc)
+{
+    outMenuDoc.left = 0;
+    outMenuDoc.top = 0;
+    outMenuDoc.right = layoutW;
+    outMenuDoc.bottom = 0;
+    DrawTextW(hdc, menuBuf, -1, &outMenuDoc, DT_LEFT | DT_TOP | DT_NOPREFIX | DT_CALCRECT);
+}
 
 // メニューと T14 本文のドキュメント高さを CALCRECT で求める（スクロール範囲・T17 行 Y の計測用）。
 static void Win32_MenuSampleMeasurePaintLayout(
@@ -269,12 +284,14 @@ static int Win32_MainView_MeasureScrollOverlayTextHeight(HDC hdc, int clientW, c
     return static_cast<int>(rc.bottom - rc.top);
 }
 
-// 本文（メニュー + T14〜T18 テキスト）をスクロール付きで描画し、下端に [scroll] サマリを載せる。
-void Win32DebugOverlay_Paint(
+// Prefill / WM_PAINT 共通: スクロール・[scroll] 帯の高さ・T17 行位置などを計測。
+// outHud 非 null のときは D2D final HUD 用に左列全文（menu+t14）とスクロール値を書き込む。
+static void Win32_DebugOverlay_ComputeLayoutMetrics(
     HWND hwnd,
     HDC hdc,
     const wchar_t* t17ModeLabelForOverlay,
-    bool suppressT14BodyGdi)
+    WindowsRendererState* outHud,
+    bool logScroll)
 {
     RECT rcClient{};
     GetClientRect(hwnd, &rcClient);
@@ -390,20 +407,18 @@ void Win32DebugOverlay_Paint(
     si.nPos = s_paintScrollY;
     SetScrollInfo(hwnd, SB_VERT, &si, TRUE);
 
-    Win32DebugOverlay_ScrollLog(
-        L"WM_PAINT after SetScrollInfo",
-        hwnd,
-        scrollYBeforePaint,
-        s_paintScrollY,
-        contentHeight,
-        s_paintDbgT17DocY,
-        baseContentH,
-        extraBottomPadding);
-
-    // D3D が既にクライアントを塗っているため、ここでは白で全面上書きしない
-    SetBkMode(hdc, TRANSPARENT);
-    // Dark gray RTV clear (~RGB 31,36,46); light text reads over it without a full-client GDI fill.
-    const COLORREF prevTextColor = SetTextColor(hdc, RGB(235, 238, 242));
+    if (logScroll)
+    {
+        Win32DebugOverlay_ScrollLog(
+            L"WM_PAINT after SetScrollInfo",
+            hwnd,
+            scrollYBeforePaint,
+            s_paintScrollY,
+            contentHeight,
+            s_paintDbgT17DocY,
+            baseContentH,
+            extraBottomPadding);
+    }
 
     const int jumpF7 = Win32DebugOverlay_ScrollTargetT17WithTopMargin();
     const int jumpF8 = Win32DebugOverlay_ScrollTargetT17Centered(hwnd);
@@ -424,6 +439,75 @@ void Win32DebugOverlay_Paint(
     const int actualOverlayHeight =
         Win32_MainView_MeasureScrollOverlayTextHeight(hdc, clientW, overlay);
     s_paintDbgActualOverlayHeight = actualOverlayHeight;
+
+    if (outHud)
+    {
+        outHud->dbgHudLeftColumnText[0] = L'\0';
+        wcscpy_s(outHud->dbgHudLeftColumnText, _countof(outHud->dbgHudLeftColumnText), menuBuf);
+        wcscat_s(outHud->dbgHudLeftColumnText, _countof(outHud->dbgHudLeftColumnText), L"\r\n");
+        wcscat_s(outHud->dbgHudLeftColumnText, _countof(outHud->dbgHudLeftColumnText), t14Buf);
+        outHud->dbgHudLeftColumnTopPx = t37TopGap;
+        outHud->dbgHudLeftColumnScrollYPx = s_paintScrollY;
+        outHud->dbgHudLeftColumnClipBottomPadPx = (std::min)(actualOverlayHeight, clientH);
+        outHud->dbgHudLeftColumnPrefillClientW = static_cast<std::uint32_t>(clientW);
+        outHud->dbgHudLeftColumnPrefillClientH = static_cast<std::uint32_t>(clientH);
+    }
+}
+
+// 本文（メニュー + T14〜T18 テキスト）をスクロール付きで描画し、下端に [scroll] サマリを載せる。
+void Win32DebugOverlay_Paint(
+    HWND hwnd,
+    HDC hdc,
+    const wchar_t* t17ModeLabelForOverlay,
+    bool suppressT14BodyGdi,
+    bool skipMenuColumnGdi)
+{
+    RECT rcClient{};
+    GetClientRect(hwnd, &rcClient);
+    const int clientW = static_cast<int>(rcClient.right - rcClient.left);
+    const int clientH = static_cast<int>(rcClient.bottom - rcClient.top);
+
+    wchar_t menuBuf[3072] = {};
+    wchar_t t14Buf[8192] = {};
+    Win32_DebugOverlay_ComputeLayoutMetrics(hwnd, hdc, t17ModeLabelForOverlay, nullptr, true);
+
+    Win32_FillMenuSamplePaintBuffers(
+        hwnd,
+        rcClient,
+        menuBuf,
+        _countof(menuBuf),
+        t14Buf,
+        _countof(t14Buf),
+        Win32_IsT37VirtualBodyOverlayActiveForLayout());
+    RECT rcMenuDoc{};
+    RECT rcT14Doc{};
+    Win32_MenuSampleMeasurePaintLayout(hdc, clientW, menuBuf, t14Buf, rcMenuDoc, rcT14Doc);
+    const int t37TopGap =
+        Win32_IsT37VirtualBodyOverlayActiveForLayout() ? WIN32_OVERLAY_T37_MENU_TOP_GAP_PX : 0;
+
+    const int actualOverlayHeight = s_paintDbgActualOverlayHeight;
+
+    wchar_t overlay[1024] = {};
+    const int jumpF7 = Win32DebugOverlay_ScrollTargetT17WithTopMargin();
+    const int jumpF8 = Win32DebugOverlay_ScrollTargetT17Centered(hwnd);
+    Win32_MainView_FormatScrollDebugOverlay(
+        overlay,
+        _countof(overlay),
+        t17ModeLabelForOverlay,
+        s_paintDbgContentHeightBase,
+        s_paintDbgExtraBottomPadding,
+        s_paintDbgContentHeight,
+        s_paintDbgMaxScroll,
+        s_paintDbgT17DocY,
+        s_paintScrollY,
+        s_paintDbgClientHeight,
+        jumpF7,
+        jumpF8);
+
+    // D3D が既にクライアントを塗っているため、ここでは白で全面上書きしない
+    SetBkMode(hdc, TRANSPARENT);
+    // Dark gray RTV clear (~RGB 31,36,46); light text reads over it without a full-client GDI fill.
+    const COLORREF prevTextColor = SetTextColor(hdc, RGB(235, 238, 242));
 
     RECT rcClipMain = rcClient;
     {
@@ -448,8 +532,11 @@ void Win32DebugOverlay_Paint(
         ::OffsetRect(&rcMenuDraw, 0, t37TopGap);
         ::OffsetRect(&rcT14Draw, 0, t37TopGap);
     }
-    DrawTextW(hdc, menuBuf, -1, &rcMenuDraw, DT_LEFT | DT_TOP | DT_NOPREFIX);
-    if (!suppressT14BodyGdi)
+    if (!skipMenuColumnGdi)
+    {
+        DrawTextW(hdc, menuBuf, -1, &rcMenuDraw, DT_LEFT | DT_TOP | DT_NOPREFIX);
+    }
+    if (!suppressT14BodyGdi && !skipMenuColumnGdi)
     {
         DrawTextW(
             hdc,
@@ -466,4 +553,38 @@ void Win32DebugOverlay_Paint(
     DrawTextW(hdc, overlay, -1, &rcOv, DT_LEFT | DT_TOP | DT_NOPREFIX | DT_WORDBREAK);
 
     SetTextColor(hdc, prevTextColor);
+}
+
+void Win32_DebugOverlay_PrefillHudLeftColumnForD2d(
+    HWND hwnd,
+    HDC hdc,
+    WindowsRendererState* st,
+    const wchar_t* t17ModeLabelForOverlay)
+{
+    if (!st || !hwnd || !hdc)
+    {
+        return;
+    }
+    st->dbgHudLeftColumnText[0] = L'\0';
+    st->dbgHudLeftColumnTopPx = 0;
+    st->dbgHudLeftColumnScrollYPx = 0;
+    st->dbgHudLeftColumnClipBottomPadPx = 0;
+    st->dbgHudLeftColumnPrefillClientW = 0;
+    st->dbgHudLeftColumnPrefillClientH = 0;
+
+    RECT rcActual{};
+    GetClientRect(hwnd, &rcActual);
+    const int actualW = static_cast<int>(rcActual.right - rcActual.left);
+    const int actualH = static_cast<int>(rcActual.bottom - rcActual.top);
+    if (actualW < 1 || actualH < 1)
+    {
+        return;
+    }
+
+    Win32_DebugOverlay_ComputeLayoutMetrics(
+        hwnd,
+        hdc,
+        t17ModeLabelForOverlay != nullptr ? t17ModeLabelForOverlay : L"?",
+        st,
+        false);
 }

@@ -287,6 +287,7 @@ static bool WindowsRenderer_InternalInitD2D(WindowsRendererState* s)
         return T33_LogInitFail(L"IDWriteFactory::CreateTextFormat", hr, s);
     }
     T33_LogInitOk(L"IDWriteFactory::CreateTextFormat", hr);
+    (void)s->dwriteTextFormat->SetWordWrapping(DWRITE_WORD_WRAPPING_WRAP);
 
     hr = s->d2dContext->CreateSolidColorBrush(D2D1::ColorF(1.0f, 1.0f, 1.0f, 1.0f), &s->d2dTextBrush);
     if (FAILED(hr) || s->d2dTextBrush == nullptr)
@@ -603,13 +604,89 @@ static HRESULT WindowsRenderer_DrawD2DContentToSurface(
     WindowsRenderer_InternalDrawDebugGridLines(s, dpiSys, sx, sy, wDip, hDip, gridStepPx);
     WindowsRenderer_InternalDrawDebugGridLabels(s, wDip, hDip, gridStepPx);
 #endif
+    // cand/act・左列メニューは committed に乗せず、最終 backbuffer 専用の DrawHudD2DOnFinalBackbuffer で描画。
+
+    hr = s->d2dContext->EndDraw();
+    if (firstDiag)
+    {
+        T33_LogFrameStep(L"ID2D1DeviceContext::EndDraw", hr);
+    }
+    target->Release();
+    s->d2dContext->SetTarget(nullptr);
+
+    s->clientWidth = saveW;
+    s->clientHeight = saveH;
+
+    static bool s_loggedFirstEndDrawOk = false;
+    if (SUCCEEDED(hr) && !s_loggedFirstEndDrawOk)
+    {
+        s_loggedFirstEndDrawOk = true;
+        OutputDebugStringW(L"[T33] first EndDraw ok\r\n");
+    }
+    else if (FAILED(hr) && hr != D2DERR_RECREATE_TARGET && !firstDiag)
+    {
+        wchar_t line[128] = {};
+        swprintf_s(line, L"[T33] EndDraw hr=0x%08X\r\n", static_cast<unsigned int>(hr));
+        OutputDebugStringW(line);
+    }
+    return hr;
+}
+
+// 最終 swapchain backbuffer: 左列 HUD 全文（menu+t14）スクロール → cand/act（committed に乗せない）
+static HRESULT WindowsRenderer_DrawHudD2DOnFinalBackbuffer(
+    WindowsRendererState* s,
+    UINT cw,
+    UINT ch,
+    bool firstDiag)
+{
+    if (!s->d2dContext || !s->dwriteTextFormat || !s->d2dTextBrush || !s->swapChain || cw < 1u || ch < 1u)
+    {
+        return E_INVALIDARG;
+    }
+    s->dbgHudLeftColumnSkipGdi = false;
+
+    UINT dpiSys = GetDpiForWindow(s->targetHwnd);
+    if (dpiSys == 0)
+    {
+        dpiSys = 96u;
+    }
+    const FLOAT dpiX = static_cast<FLOAT>(dpiSys);
+    const FLOAT dpiY = static_cast<FLOAT>(dpiSys);
+    const float sx = 96.f / dpiX;
+    const float sy = 96.f / dpiY;
+    const float wDip = static_cast<float>(cw) * sx;
+    const float hDip = static_cast<float>(ch) * sy;
+
+    ID3D11Texture2D* backBuffer = nullptr;
+    HRESULT hr = s->swapChain->GetBuffer(0, __uuidof(ID3D11Texture2D), reinterpret_cast<void**>(&backBuffer));
+    if (FAILED(hr) || backBuffer == nullptr)
+    {
+        return hr;
+    }
+    IDXGISurface* bSurf = nullptr;
+    hr = backBuffer->QueryInterface(__uuidof(IDXGISurface), reinterpret_cast<void**>(&bSurf));
+    backBuffer->Release();
+    if (FAILED(hr) || bSurf == nullptr)
+    {
+        return hr;
+    }
+    const D2D1_BITMAP_PROPERTIES1 dstProps = D2D1::BitmapProperties1(
+        D2D1_BITMAP_OPTIONS_TARGET | D2D1_BITMAP_OPTIONS_CANNOT_DRAW,
+        D2D1::PixelFormat(DXGI_FORMAT_UNKNOWN, D2D1_ALPHA_MODE_PREMULTIPLIED),
+        dpiX,
+        dpiY);
+    ID2D1Bitmap1* dstBmp = nullptr;
+    hr = s->d2dContext->CreateBitmapFromDxgiSurface(bSurf, &dstProps, &dstBmp);
+    bSurf->Release();
+    if (FAILED(hr) || dstBmp == nullptr)
+    {
+        return hr;
+    }
 
     static const wchar_t kFallbackT33Line[] = L"T33: DirectWrite overlay (1 line)";
     const wchar_t* const t33LinePtr =
         (s->t17HudLine[0] != L'\0') ? s->t17HudLine : kFallbackT33Line;
     const UINT32 t33LineLen = static_cast<UINT32>(wcslen(t33LinePtr));
-    const float w = static_cast<float>(pixelW);
-    const float h = static_cast<float>(pixelH);
 #if WIN32_RENDERER_DEBUG_GRID_64PX
     const bool t37 = s->t37VirtualBodyOverlayRequested;
     const float t33Top = t37 ? 8.0f : 80.0f;
@@ -633,8 +710,49 @@ static HRESULT WindowsRenderer_DrawD2DContentToSurface(
         layout = D2D1::RectF(
             8.0f,
             t33Top,
-            (std::max)(8.0f, w - 8.0f),
-            (std::max)(t33Top + 4.0f, h - 8.0f));
+            (std::max)(8.0f, wDip - 8.0f),
+            (std::max)(t33Top + 4.0f, hDip - 8.0f));
+    }
+
+    s->d2dContext->SetTarget(dstBmp);
+    s->d2dContext->BeginDraw();
+    s->d2dContext->SetTransform(D2D1::Matrix3x2F::Identity());
+
+    bool drewLeftHudToD2d = false;
+    if (s->dbgHudLeftColumnText[0] != L'\0' && cw == s->dbgHudLeftColumnPrefillClientW &&
+        ch == s->dbgHudLeftColumnPrefillClientH && s->dbgHudLeftColumnClipBottomPadPx >= 0)
+    {
+        const float scrollDip =
+            static_cast<float>(s->dbgHudLeftColumnScrollYPx) * (96.f / dpiY);
+        const float menuTopDip = static_cast<float>(s->dbgHudLeftColumnTopPx) * (96.f / dpiY);
+        const float bottomPadDip =
+            static_cast<float>(s->dbgHudLeftColumnClipBottomPadPx) * (96.f / dpiY);
+        const float clipBottomDip = (std::max)(0.f, hDip - bottomPadDip);
+        const D2D1_RECT_F clipHud = D2D1::RectF(0.f, 0.f, wDip, clipBottomDip);
+        s->d2dContext->PushAxisAlignedClip(clipHud, D2D1_ANTIALIAS_MODE_ALIASED);
+        s->d2dContext->SetTransform(D2D1::Matrix3x2F::Translation(0.f, -scrollDip));
+        const UINT32 hudLen =
+            static_cast<UINT32>((std::min)(wcslen(s->dbgHudLeftColumnText), size_t{16383}));
+        const D2D1_RECT_F docRect = D2D1::RectF(
+            0.f,
+            menuTopDip,
+            wDip,
+            menuTopDip + 2000000.f);
+        s->d2dContext->DrawText(
+            s->dbgHudLeftColumnText,
+            hudLen,
+            s->dwriteTextFormat,
+            docRect,
+            s->d2dTextBrush,
+            D2D1_DRAW_TEXT_OPTIONS_NONE,
+            DWRITE_MEASURING_MODE_NATURAL);
+        s->d2dContext->SetTransform(D2D1::Matrix3x2F::Identity());
+        s->d2dContext->PopAxisAlignedClip();
+        drewLeftHudToD2d = true;
+        if (firstDiag)
+        {
+            T33_LogFrameStep(L"[HUD] DrawText left column (menu+t14)", S_OK);
+        }
     }
 
     s->d2dContext->DrawText(
@@ -647,30 +765,20 @@ static HRESULT WindowsRenderer_DrawD2DContentToSurface(
         DWRITE_MEASURING_MODE_NATURAL);
     if (firstDiag)
     {
-        T33_LogFrameStep(L"ID2D1DeviceContext::DrawText", S_OK);
+        T33_LogFrameStep(L"[HUD] DrawText cand/act", S_OK);
     }
 
     hr = s->d2dContext->EndDraw();
-    if (firstDiag)
+    if (SUCCEEDED(hr) && drewLeftHudToD2d)
     {
-        T33_LogFrameStep(L"ID2D1DeviceContext::EndDraw", hr);
+        s->dbgHudLeftColumnSkipGdi = true;
     }
-    target->Release();
+    dstBmp->Release();
     s->d2dContext->SetTarget(nullptr);
-
-    s->clientWidth = saveW;
-    s->clientHeight = saveH;
-
-    static bool s_loggedFirstEndDrawOk = false;
-    if (SUCCEEDED(hr) && !s_loggedFirstEndDrawOk)
+    if (FAILED(hr) && hr != D2DERR_RECREATE_TARGET && !firstDiag)
     {
-        s_loggedFirstEndDrawOk = true;
-        OutputDebugStringW(L"[T33] first EndDraw ok\r\n");
-    }
-    else if (FAILED(hr) && hr != D2DERR_RECREATE_TARGET && !firstDiag)
-    {
-        wchar_t line[128] = {};
-        swprintf_s(line, L"[T33] EndDraw hr=0x%08X\r\n", static_cast<unsigned int>(hr));
+        wchar_t line[160] = {};
+        swprintf_s(line, L"[HUD] EndDraw hr=0x%08X\r\n", static_cast<unsigned int>(hr));
         OutputDebugStringW(line);
     }
     return hr;
@@ -718,6 +826,7 @@ static void WindowsRenderer_InternalDrawD2DOneLine(WindowsRendererState* s)
     }
 
     (void)WindowsRenderer_DrawD2DContentToSurface(s, surface, s->clientWidth, s->clientHeight, firstDiag);
+    (void)WindowsRenderer_DrawHudD2DOnFinalBackbuffer(s, s->clientWidth, s->clientHeight, firstDiag);
 }
 
 static bool WindowsRenderer_InternalEnsureBorderlessOffscreenRT(WindowsRendererState* s, UINT w, UINT h)
@@ -1112,6 +1221,8 @@ static bool WindowsRenderer_TryBorderlessOffscreenPresent(WindowsRendererState* 
         OutputDebugStringW(line);
     }
 
+    (void)WindowsRenderer_DrawHudD2DOnFinalBackbuffer(state, cw, ch, firstDiag);
+
     const HRESULT hrPresent = state->swapChain->Present(1, 0);
     if (FAILED(hrPresent))
     {
@@ -1373,6 +1484,8 @@ static bool WindowsRenderer_TryFullscreenOffscreenPresent(WindowsRendererState* 
         OutputDebugStringW(line);
         OutputDebugStringW(L"[T36][RT] fallback: EndDraw failed\r\n");
     }
+
+    (void)WindowsRenderer_DrawHudD2DOnFinalBackbuffer(state, cw, ch, firstDiag);
 
     const HRESULT hrPresent = state->swapChain->Present(1, 0);
     if (FAILED(hrPresent))

@@ -90,6 +90,14 @@ struct WindowsRendererState
     wchar_t t37BodyText[8192]{};
     // T17: F6 候補と Enter 適用を D2D 上段 1 行に表示（MainApp が毎フレーム更新）
     wchar_t t17HudLine[128]{};
+    // GDI 左列 HUD（メニュー+t14 列）を D2D で描いたフレームでは GDI で重ねない（下端 [scroll] 帯は GDI のまま）
+    bool dbgHudLeftColumnSkipGdi = false;
+    wchar_t dbgHudLeftColumnText[16384]{};
+    int dbgHudLeftColumnTopPx = 0;
+    int dbgHudLeftColumnScrollYPx = 0;
+    int dbgHudLeftColumnClipBottomPadPx = 0;
+    std::uint32_t dbgHudLeftColumnPrefillClientW = 0;
+    std::uint32_t dbgHudLeftColumnPrefillClientH = 0;
 };
 
 // --- T31 公開面（3 入口 + Shutdown）---
