@@ -703,7 +703,8 @@ static bool WindowsRenderer_InternalEnsureBorderlessOffscreenRT(WindowsRendererS
 
 static void WindowsRenderer_InternalBindMainRtAndViewport(WindowsRendererState* state);
 
-// T37 / T37-1: オフスクリーン合成済みバックバッファ上に本文を DWrite で重ねる。グリッド+T33 下・GDI scroll 帯を避け、スケールは上下限で補正。
+// T37 / T37-1 / T37-2: オフスクリーン合成済みバックバッファ上に本文を DWrite で重ねる。
+// committed 幅に応じた段階的スケール + グリッド+T33 下・GDI scroll 帯を避けた本文専用矩形でクリップ。
 static bool WindowsRenderer_TryDrawT37VirtualBodyOnCompositeTarget(
     WindowsRendererState* state,
     float wDipClient,
@@ -734,17 +735,16 @@ static bool WindowsRenderer_TryDrawT37VirtualBodyOnCompositeTarget(
         return false;
     }
 
-#if WIN32_RENDERER_DEBUG_GRID_64PX
-    // グリッドラベル(~72) + T33 行(~80) より下から本文（DrawD2DContentToSurface と整合）
-    static constexpr float kT37TopReserveDip = 108.f;
-#else
-    static constexpr float kT37TopReserveDip = 32.f;
-#endif
     static constexpr float kT37BottomReserveDip = 96.f;
     static constexpr float kT37SideMarginDip = 8.f;
-    // フィットに対する倍率の上下限（640 全面拡大で巨大化しすぎない / 4096 で極小化しすぎない）
-    static constexpr float kT37ScaleMin = 0.42f;
-    static constexpr float kT37ScaleMax = 1.85f;
+#if WIN32_RENDERER_DEBUG_GRID_64PX
+    static constexpr float kT37TopReserveDipDefault = 108.f;
+#else
+    static constexpr float kT37TopReserveDipDefault = 32.f;
+#endif
+    // 低 committed 幅では上段（グリッド+T33）と干渉しにくいよう上余白を追加（本文開始 Y を下げる）
+    const float kT37TopReserveDip =
+        (vw <= 800u) ? (kT37TopReserveDipDefault + 20.f) : kT37TopReserveDipDefault;
 
     const float bodyLeft = kT37SideMarginDip;
     const float bodyTop = kT37TopReserveDip;
@@ -752,14 +752,36 @@ static bool WindowsRenderer_TryDrawT37VirtualBodyOnCompositeTarget(
     const float bodyH = (std::max)(1.f, hDipClient - kT37TopReserveDip - kT37BottomReserveDip);
 
     const float scaleFit = (std::min)(bodyW / vWdip, bodyH / vHdip);
-    float scaleEff = scaleFit;
-    if (scaleEff < kT37ScaleMin)
+    // committed 物理幅に応じた段階ルール（640 帯は抑える / 1280 前後は従来に近い / 4K 帯はやや持ち上げ）
+    float scalePreMul = 1.f;
+    float scaleMinBand = 0.42f;
+    float scaleMaxBand = 1.85f;
+    if (vw <= 800u)
     {
-        scaleEff = kT37ScaleMin;
+        scalePreMul = 0.70f;
+        scaleMinBand = 0.30f;
+        scaleMaxBand = 1.10f;
     }
-    if (scaleEff > kT37ScaleMax)
+    else if (vw < 3840u)
     {
-        scaleEff = kT37ScaleMax;
+        scalePreMul = 1.f;
+        scaleMinBand = 0.42f;
+        scaleMaxBand = 1.85f;
+    }
+    else
+    {
+        scalePreMul = 1.10f;
+        scaleMinBand = 0.50f;
+        scaleMaxBand = 2.05f;
+    }
+    float scaleEff = scaleFit * scalePreMul;
+    if (scaleEff < scaleMinBand)
+    {
+        scaleEff = scaleMinBand;
+    }
+    if (scaleEff > scaleMaxBand)
+    {
+        scaleEff = scaleMaxBand;
     }
 
     const float scrollVirtDip = static_cast<float>(state->t37ScrollVirtualPx) * (96.f / dpiY);
@@ -822,14 +844,7 @@ static bool WindowsRenderer_TryDrawT37VirtualBodyOnCompositeTarget(
         s_lastClipW = clipWi;
         s_lastClipH = clipHi;
         wchar_t line[192] = {};
-        swprintf_s(
-            line,
-            _countof(line),
-            L"[T37] layout scale=%.4f (fit=%.4f min=%.2f max=%.2f)\r\n",
-            static_cast<double>(scaleEff),
-            static_cast<double>(scaleFit),
-            static_cast<double>(kT37ScaleMin),
-            static_cast<double>(kT37ScaleMax));
+        swprintf_s(line, _countof(line), L"[T37] layout scale=%.4f\r\n", static_cast<double>(scaleEff));
         OutputDebugStringW(line);
         swprintf_s(
             line,
