@@ -260,6 +260,10 @@ int s_paintDbgMaxScroll = 0;
 #ifndef WIN32_MAIN_D3D_CLEAR_ONLY_PAINT
 #define WIN32_MAIN_D3D_CLEAR_ONLY_PAINT 0
 #endif
+// T33: 1 にすると GDI debug overlay を抑止し、D3D+D2D の 1 行のみ比較しやすくする。
+#ifndef WIN32_MAIN_T33_HIDE_GDI_OVERLAY
+#define WIN32_MAIN_T33_HIDE_GDI_OVERLAY 0
+#endif
 // F7: T17 行を画面上端付近へ（ピッタリだと窮屈なので上余白）
 #ifndef WIN32_MAIN_T17_JUMP_TOP_MARGIN
 #define WIN32_MAIN_T17_JUMP_TOP_MARGIN 160
@@ -5388,14 +5392,14 @@ static void Win32_WndProc_OnMouseWheel(HWND hWnd, WPARAM wParam)
     }
 }
 
-// T30: 1 フレーム — D3D clear/present →（オプション）GDI オーバーレイ
+// T30/T33: 1 フレーム — D3D clear → D2D 1 行（renderer）→ Present →（オプション）GDI オーバーレイ
 static void Win32_MainView_PaintFrame(HWND hWnd)
 {
     PAINTSTRUCT ps;
     HDC hdc = BeginPaint(hWnd, &ps);
-    // T26: renderer (D3D clear/present) → GDI debug overlay（TRANSPARENT テキスト）
+    // T26/T33: renderer（clear → D2D 1 行 → Present）→ 任意で GDI debug overlay
     WindowsRenderer_Frame(&s_windowsRendererState, hWnd);
-#if !WIN32_MAIN_D3D_CLEAR_ONLY_PAINT
+#if !WIN32_MAIN_D3D_CLEAR_ONLY_PAINT && !WIN32_MAIN_T33_HIDE_GDI_OVERLAY
     Win32DebugOverlay_Paint(hWnd, hdc, Win32_T17_ModeLabel(s_t17LastAppliedPresentationMode));
 #endif
     EndPaint(hWnd, &ps);
