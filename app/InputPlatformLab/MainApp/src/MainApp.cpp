@@ -1527,6 +1527,15 @@ static void Win32_T16_RecreateMainWindowFromCurrentSelection(HWND oldHwnd)
 
 // ---------------------------------------------------------------------------
 // T17: プレゼンテーション（Windowed / Borderless / Fullscreen）
+//
+// 方針（T16 再生成・高解像度モニタ含む）
+// - Windowed: T14 選択モード（なければ T15 最近傍）をクライアント物理サイズに解決し、AdjustWindowRectExForDpi で外枠。
+//   fillMonitorPhysical は使わない。
+// - Borderless: デスクトップ解像度は CDS で変えない。選択モニタの monitor_rect 全面に WS_POPUP（fillMonitorPhysical）。
+//   キャッシュ上のモニタ矩形＝現在のデスクトップ作業領域の想定。
+// - Fullscreen: ChangeDisplaySettingsEx(..., CDS_FULLSCREEN) で T15 最近傍モードに合わせた後、再生成の外枠は
+//   「キャッシュの monitor_rect 全幅」ではなく、CDS と同一の物理ピクセル（×幅×高さ）をモニタ左上に配置する。
+//   CDS 失敗時は Borderless と同じ fullMonitor_rect 再生成。
 // ---------------------------------------------------------------------------
 
 static const wchar_t* Win32_T17_ModeLabel(T17PresentationMode m)
@@ -1604,7 +1613,8 @@ static LONG Win32_T17_TryFullscreenDisplayNearestMode()
     return r;
 }
 
-static bool Win32_T17_BuildFillMonitorConfig(HWND hwnd, MainWindowConfig& out)
+// outerUsesCdsModeSize: true のとき、CDS で適用したモードと同じ物理サイズで outer を作る（キャッシュ monitor_rect の大きさは使わない）。
+static bool Win32_T17_BuildFillMonitorConfig(HWND hwnd, MainWindowConfig& out, bool outerUsesCdsModeSize)
 {
     if (s_displayMonitorsCache.empty() || kT14SelectedMonitorIndex >= s_displayMonitorsCache.size())
     {
@@ -1629,8 +1639,6 @@ static bool Win32_T17_BuildFillMonitorConfig(HWND hwnd, MainWindowConfig& out)
     s_t16LastDpiY = dpiY;
 
     const RECT& mr = s_displayMonitorsCache[kT14SelectedMonitorIndex].monitor_rect;
-    out.clientWidth = static_cast<int>(mr.right - mr.left);
-    out.clientHeight = static_cast<int>(mr.bottom - mr.top);
     out.windowStyle = WS_POPUP | WS_VSCROLL;
     out.windowExStyle = WS_EX_APPWINDOW;
     out.useAdjustWindowRect = FALSE;
@@ -1639,8 +1647,40 @@ static bool Win32_T17_BuildFillMonitorConfig(HWND hwnd, MainWindowConfig& out)
     out.fillMonitorPhysical = TRUE;
     out.createPhysicalX = static_cast<int>(mr.left);
     out.createPhysicalY = static_cast<int>(mr.top);
-    out.createPhysicalW = out.clientWidth;
-    out.createPhysicalH = out.clientHeight;
+    if (outerUsesCdsModeSize)
+    {
+        out.clientWidth = physW;
+        out.clientHeight = physH;
+        out.createPhysicalW = physW;
+        out.createPhysicalH = physH;
+        wchar_t line[224] = {};
+        swprintf_s(
+            line,
+            _countof(line),
+            L"[T17] fill config: outer=cdsModePhys %dx%d at (%d,%d) (not cached monitor_rect size)\r\n",
+            physW,
+            physH,
+            out.createPhysicalX,
+            out.createPhysicalY);
+        OutputDebugStringW(line);
+    }
+    else
+    {
+        out.clientWidth = static_cast<int>(mr.right - mr.left);
+        out.clientHeight = static_cast<int>(mr.bottom - mr.top);
+        out.createPhysicalW = out.clientWidth;
+        out.createPhysicalH = out.clientHeight;
+        wchar_t line[224] = {};
+        swprintf_s(
+            line,
+            _countof(line),
+            L"[T17] fill config: outer=fullMonitor cached rect %dx%d at (%d,%d)\r\n",
+            out.createPhysicalW,
+            out.createPhysicalH,
+            out.createPhysicalX,
+            out.createPhysicalY);
+        OutputDebugStringW(line);
+    }
     return true;
 }
 
@@ -1656,17 +1696,24 @@ static void Win32_T17_LogStateVisibleMode(HWND hwnd, T17PresentationMode visible
     GetWindowRect(hwnd, &wr);
     const int ow = static_cast<int>(wr.right - wr.left);
     const int oh = static_cast<int>(wr.bottom - wr.top);
-    wchar_t line[384] = {};
+    RECT cr{};
+    GetClientRect(hwnd, &cr);
+    const int cw = static_cast<int>(cr.right - cr.left);
+    const int ch = static_cast<int>(cr.bottom - cr.top);
+    wchar_t line[448] = {};
     swprintf_s(
         line,
         _countof(line),
-        L"[T17] STATE visibleMode=%s windowStyle=0x%08lX exStyle=0x%08lX cdsApplied=%d outer=%dx%d\r\n",
+        L"[T17] STATE visibleMode=%s cdsApplied=%d outerPhys=%dx%d clientPhys=%dx%d "
+        L"style=0x%08lX exStyle=0x%08lX\r\n",
         Win32_T17_ModeLabel(visibleMode),
-        static_cast<unsigned long>(style),
-        static_cast<unsigned long>(exStyle),
         cdsApplied01,
         ow,
-        oh);
+        oh,
+        cw,
+        ch,
+        static_cast<unsigned long>(style),
+        static_cast<unsigned long>(exStyle));
     OutputDebugStringW(line);
 }
 
@@ -1746,7 +1793,7 @@ static void Win32_T17_ApplyCurrentPresentationMode(HWND hwnd)
     }
     else if (candidate == T17PresentationMode::Borderless)
     {
-        built = Win32_T17_BuildFillMonitorConfig(hwnd, cfg);
+        built = Win32_T17_BuildFillMonitorConfig(hwnd, cfg, false);
     }
     else
     {
@@ -1784,13 +1831,13 @@ static void Win32_T17_ApplyCurrentPresentationMode(HWND hwnd)
         if (r == DISP_CHANGE_SUCCESSFUL)
         {
             s_t17FullscreenDisplayAppliedNow = true;
-            built = Win32_T17_BuildFillMonitorConfig(hwnd, cfg);
+            built = Win32_T17_BuildFillMonitorConfig(hwnd, cfg, true);
         }
         else
         {
             OutputDebugStringW(L"[T17] APPLY CDS failed; fallback Borderless (recreate fill monitor, no CDS)\r\n");
             appliedMode = T17PresentationMode::Borderless;
-            built = Win32_T17_BuildFillMonitorConfig(hwnd, cfg);
+            built = Win32_T17_BuildFillMonitorConfig(hwnd, cfg, false);
         }
     }
 
@@ -1830,11 +1877,27 @@ static void Win32_T17_ApplyCurrentPresentationMode(HWND hwnd)
 
     if (ok)
     {
-        wchar_t recLog[320] = {};
+        const wchar_t* fillOuterPolicy = L"windowed";
+        if (appliedMode == T17PresentationMode::Fullscreen && s_t17FullscreenDisplayAppliedNow)
+        {
+            fillOuterPolicy = L"cdsMode";
+        }
+        else if (appliedMode == T17PresentationMode::Borderless)
+        {
+            fillOuterPolicy = L"fullMonitor";
+        }
+
+        wchar_t recLog[448] = {};
         swprintf_s(
             recLog,
             _countof(recLog),
-            L"[T17] APPLY RECREATE result=ok client=%dx%d outer=%dx%d\r\n",
+            L"[T17] APPLY RECREATE result=ok candidate=%s applied=%s fillOuter=%s "
+            L"targetPhys=%dx%d client=%dx%d outer=%dx%d\r\n",
+            Win32_T17_ModeLabel(candidate),
+            Win32_T17_ModeLabel(appliedMode),
+            fillOuterPolicy,
+            s_t16LastTargetPhysicalW,
+            s_t16LastTargetPhysicalH,
             clientW,
             clientH,
             s_t16LastActualOuterW,
