@@ -31,3 +31,10 @@
 | **確認できたこと** | 文書間のリンクを `architecture.md` / `roadmap.md` で更新。 |
 | **未解決事項** | T17 の `targetPhys` と T14 committed のログ整合、GDI と仮想解像度の扱いは T35 継続。 |
 
+---
+
+| **日付** | 2026-03-30 |
+| **実施内容** | T34 を完了として `t34_t35_display_and_render.md` に根拠を明記。T35 を `t35_display_mode_policy.md` で **正式方針固定**（3 モード表・T17 別軸・Fullscreen/CDS）。`decisions.md` に判断を追記。`WindowsRenderer.cpp` / `MainApp.cpp` のヘッダコメントを T35 固定に合わせて更新。 |
+| **確認できたこと** | 方針は「Windowed/Fullscreen はオフスクリーンなし」「Borderless は committed 時 T34」「GDI は実クライアント」のまま文書化。 |
+| **未解決事項** | t35 §5 の将来項目（ログ整合・Fullscreen オフスクリーン・GDI スケール）は未実装。 |
+

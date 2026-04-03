@@ -25,4 +25,10 @@
 
 ---
 
+| **判断** | **T34** を Borderless の **正式レンダリング経路**とする（T14 committed のオフスクリーン → 全面バックバッファへ合成 → Present）。**T35** で Windowed / Borderless / Fullscreen ごとの window·client / swapchain / offscreen / present / GDI を文書上固定する。 |
+| **理由** | 実機で committed 640×480 / 4096×2160 の create/draw/composite を確認済み。T17 のウィンドウログ（targetPhys 等）とレンダラ解像度は **別軸**のまま説明可能。 |
+| **影響範囲** | `WindowsRenderer.cpp`（T34）、`MainApp.cpp`（T17・フラグ）、`docs/t35_display_mode_policy.md` / `t34_t35_display_and_render.md`。Windowed・Fullscreen はオフスクリーン不使用を方針として明記。 |
+
+---
+
 （以下にエントリを追記してください。）

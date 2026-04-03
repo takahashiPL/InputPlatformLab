@@ -12,8 +12,8 @@
 
 // ---------------------------------------------------------------------------
 // D3D11（T31）: Init / Resize / Frame。T33: clear →（任意）可変グリッド → D2D/DWrite 1 行 → Present 1 回。
-// T34: Borderless のみ — committed 解像度のオフスクリーン RT にグリッド/T33 を描き、swapchain バックバッファへ拡大合成（ログ [T34][RT]）。
-// T35: Windowed/Borderless/Fullscreen のウィンドウ・swapchain・offscreen・Present・GDI の統一方針は未整理（docs/t34_t35_display_and_render.md）。
+// T34（完了）: Borderless のみ — committed 解像度のオフスクリーン RT にグリッド/T33 を描き、swapchain バックバッファへ拡大合成（ログ [T34][RT]）。
+// T35: 3 モードの window/client・swapchain・offscreen・Present・GDI の正式方針は docs/t35_display_mode_policy.md（T17 ログとは別軸）。
 // グリッド: cell=(1280*64)/denomPhysW。denom は MainApp が毎フレーム設定（既定: T14 Enter 確定幅。無ければ client 幅）。
 // GDI・BeginPaint/EndPaint は MainApp（Win32_MainView_PaintFrame）側。
 // ---------------------------------------------------------------------------

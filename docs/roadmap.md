@@ -25,8 +25,8 @@
 
 ---
 
-| **目的** | 表示モード（Windowed / Borderless / Fullscreen）ごとに、ウィンドウサイズ・スワップチェーン・オフスクリーン・Present・GDI の責務を一貫させる（**T35**）。 |
-| **想定順序** | **T34**（Borderless の committed オフスクリーン実験）の文書化・位置づけ固定 → **T35** でモード別方針の決定と実装整理。 |
-| **前提条件** | T17/T16 の再生成・ログは「枠・クライアント」、T34 は「レンダラ実験」として分離して読む（[t34_t35_display_and_render.md](t34_t35_display_and_render.md)）。モード別の表と論点は [t35_display_mode_policy.md](t35_display_mode_policy.md)。 |
-| **保留事項** | Fullscreen の CDS とオフスクリーンの関係、GDI を仮想解像度に揃えるかは T35 で扱う。 |
+| **目的** | **T34 完了**。**T35** で表示モードごとの window/client・swapchain・offscreen・Present・GDI を文書・コメント上 **固定**（[t35_display_mode_policy.md](t35_display_mode_policy.md)）。 |
+| **想定順序** | T34 完了の明文化 → T35 方針固定 → （任意）ログ/UI の数値整合や GDI スケールは別タスク。 |
+| **前提条件** | T17 ログは枠・クライアント、T34 committed はレンダラ解像度として **別軸**（[t34_t35_display_and_render.md](t34_t35_display_and_render.md)、[decisions.md](decisions.md)）。 |
+| **保留事項** | T17 と committed のログ上の揃え、Fullscreen での committed オフスクリーン、GDI の仮想解像度対応は **将来**（t35 §5）。 |
 
