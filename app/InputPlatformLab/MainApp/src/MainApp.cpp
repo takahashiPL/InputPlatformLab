@@ -1109,7 +1109,7 @@ static void Win32_RefreshRendererGridDebugParams(HWND hwnd)
     s_windowsRendererState.gridDebugCommittedPhysW = static_cast<std::uint32_t>((std::max)(0, gw));
     s_windowsRendererState.gridDebugCommittedPhysH = static_cast<std::uint32_t>((std::max)(0, gh));
 
-    // Borderless のみ: T14 確定解像度でオフスクリーン描画 → スワップチェーンへ拡大合成（実験）
+    // T34: Borderless のみ — committed をオフスクリーン解像度に。T17 apply ログの targetPhys/client とは別（T35 でモード方針整理）
     s_windowsRendererState.borderlessOffscreenComposite =
         (s_t17LastAppliedPresentationMode == T17PresentationMode::Borderless) && (gw > 0 && gh > 0);
     s_windowsRendererState.borderlessOffscreenPhysW =

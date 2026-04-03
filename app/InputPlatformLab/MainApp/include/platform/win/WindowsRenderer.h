@@ -46,7 +46,7 @@ struct WindowsRendererState
     ID3D11DeviceContext* context = nullptr;
     IDXGISwapChain* swapChain = nullptr;
     ID3D11RenderTargetView* rtv = nullptr;
-    // Borderless 実験: T14 確定解像度へオフスクリーン描画し、スワップチェーンへ拡大合成（Windowed は未使用）
+    // T34（Borderless のみ）: committed 解像度のオフスクリーン RT → swapchain へ合成。T17 のウィンドウサイズとは別軸（T35 で全モード整理予定）。
     ID3D11Texture2D* borderlessOffscreenTexture = nullptr;
     ID3D11RenderTargetView* borderlessOffscreenRtv = nullptr;
     bool borderlessOffscreenComposite = false;

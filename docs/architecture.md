@@ -111,4 +111,5 @@ src/
 ## 関連ドキュメント
 
 - [API リファレンス（ファイル別・実行フロー）](api_reference.md)
+- [T34 / T35 — 表示モードとレンダリング解像度](t34_t35_display_and_render.md)（Borderless オフスクリーン実験と今後のモード方針）
 - ルートの [README.md](../README.md) にビルドパスと実機メモの一部があります。

@@ -12,13 +12,16 @@
 
 // ---------------------------------------------------------------------------
 // D3D11（T31）: Init / Resize / Frame。T33: clear →（任意）可変グリッド → D2D/DWrite 1 行 → Present 1 回。
-// グリッド: cell=(1280*64)/denomPhysW。denom は MainApp が毎フレーム設定（既定: T14/T16 選択幅。無ければ client 幅）。
+// T34: Borderless のみ — committed 解像度のオフスクリーン RT にグリッド/T33 を描き、swapchain バックバッファへ拡大合成（ログ [T34][RT]）。
+// T35: Windowed/Borderless/Fullscreen のウィンドウ・swapchain・offscreen・Present・GDI の統一方針は未整理（docs/t34_t35_display_and_render.md）。
+// グリッド: cell=(1280*64)/denomPhysW。denom は MainApp が毎フレーム設定（既定: T14 Enter 確定幅。無ければ client 幅）。
 // GDI・BeginPaint/EndPaint は MainApp（Win32_MainView_PaintFrame）側。
 // ---------------------------------------------------------------------------
 
 // [GRID] mode=... の 1 回ログ用（MainApp の WindowsRenderer_DebugGrid_ResetLogOnce と共有）
 bool s_loggedGridOnce = false;
 
+// T34: Borderless 実験用オフスクリーン（T17 のウィンドウサイズログとは別軸）
 static void WindowsRenderer_ReleaseBorderlessOffscreen(WindowsRendererState* s)
 {
     if (!s)
@@ -637,7 +640,7 @@ static bool WindowsRenderer_InternalEnsureBorderlessOffscreenRT(WindowsRendererS
         wchar_t line[192] = {};
         swprintf_s(
             line,
-            L"[RT] offscreen create FAILED hr=0x%08X\r\n",
+            L"[T34][RT] offscreen create FAILED hr=0x%08X\r\n",
             static_cast<unsigned int>(hr));
         OutputDebugStringW(line);
         return false;
@@ -649,7 +652,7 @@ static bool WindowsRenderer_InternalEnsureBorderlessOffscreenRT(WindowsRendererS
         return false;
     }
     wchar_t line[192] = {};
-    swprintf_s(line, L"[RT] offscreen create %ux%u\r\n", w, h);
+    swprintf_s(line, L"[T34][RT] offscreen create %ux%u\r\n", w, h);
     OutputDebugStringW(line);
     return true;
 }
@@ -669,7 +672,7 @@ static bool WindowsRenderer_TryBorderlessOffscreenPresent(WindowsRendererState* 
     // 安全上限（実験用）。超える場合はフォールバック。
     if (ow > 8192u || oh > 8192u)
     {
-        OutputDebugStringW(L"[RT] offscreen skip: dimension > 8192\r\n");
+        OutputDebugStringW(L"[T34][RT] offscreen skip: dimension > 8192\r\n");
         return false;
     }
 
@@ -702,7 +705,7 @@ static bool WindowsRenderer_TryBorderlessOffscreenPresent(WindowsRendererState* 
     }
     {
         wchar_t line[192] = {};
-        swprintf_s(line, L"[RT] draw offscreen %ux%u\r\n", ow, oh);
+        swprintf_s(line, L"[T34][RT] draw offscreen %ux%u\r\n", ow, oh);
         OutputDebugStringW(line);
     }
     const bool firstDiag = !s_t33FirstFrameDiagDone;
@@ -752,7 +755,7 @@ static bool WindowsRenderer_TryBorderlessOffscreenPresent(WindowsRendererState* 
         wchar_t line[192] = {};
         swprintf_s(
             line,
-            L"[RT] composite source bitmap FAILED hr=0x%08X\r\n",
+            L"[T34][RT] composite source bitmap FAILED hr=0x%08X\r\n",
             static_cast<unsigned int>(hr));
         OutputDebugStringW(line);
         srcBmp = nullptr;
@@ -770,7 +773,7 @@ static bool WindowsRenderer_TryBorderlessOffscreenPresent(WindowsRendererState* 
 
     {
         wchar_t line[224] = {};
-        swprintf_s(line, L"[RT] composite to backbuffer client=%ux%u\r\n", cw, ch);
+        swprintf_s(line, L"[T34][RT] composite to backbuffer client=%ux%u\r\n", cw, ch);
         OutputDebugStringW(line);
     }
 
@@ -826,7 +829,7 @@ static bool WindowsRenderer_TryBorderlessOffscreenPresent(WindowsRendererState* 
     if (FAILED(hr))
     {
         wchar_t line[160] = {};
-        swprintf_s(line, L"[RT] composite EndDraw hr=0x%08X\r\n", static_cast<unsigned int>(hr));
+        swprintf_s(line, L"[T34][RT] composite EndDraw hr=0x%08X\r\n", static_cast<unsigned int>(hr));
         OutputDebugStringW(line);
     }
 
