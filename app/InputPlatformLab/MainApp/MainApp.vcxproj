@@ -73,6 +73,8 @@
   <ItemDefinitionGroup>
     <ClCompile>
       <AdditionalIncludeDirectories>$(ProjectDir)include;$(ProjectDir)include\platform\win;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+      <!-- T29: ソースを UTF-8 として解釈し C4819（コードページ不一致）を切り分け -->
+      <AdditionalOptions>/utf-8 %(AdditionalOptions)</AdditionalOptions>
     </ClCompile>
     <ResourceCompile>
       <AdditionalIncludeDirectories>$(ProjectDir)include;$(ProjectDir)include\platform\win;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
