@@ -83,6 +83,11 @@ struct WindowsRendererState
     std::uint32_t gridDebugCommittedPhysH = 0;
     std::uint32_t gridDebugClientPhysW = 0;
     std::uint32_t gridDebugClientPhysH = 0;
+    // T37: Borderless(T34)/Fullscreen(T36) オフスクリーン有効時、本文を仮想 committed 解像度基準で DWrite 描画（GDI はフォールバック可）
+    bool t37VirtualBodyOverlayRequested = false;
+    bool t37VirtualBodyOverlayRenderedOk = false;
+    int t37ScrollVirtualPx = 0;
+    wchar_t t37BodyText[8192]{};
 };
 
 // --- T31 公開面（3 入口 + Shutdown）---

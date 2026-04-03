@@ -702,6 +702,86 @@ static bool WindowsRenderer_InternalEnsureBorderlessOffscreenRT(WindowsRendererS
 
 static void WindowsRenderer_InternalBindMainRtAndViewport(WindowsRendererState* state);
 
+// T37: オフスクリーン合成済みバックバッファ（dst）上に、committed 仮想幅でラップした本文を DWrite で重ねる（BeginDraw セッション内）
+static bool WindowsRenderer_TryDrawT37VirtualBodyOnCompositeTarget(
+    WindowsRendererState* state,
+    float wDipClient,
+    float hDipClient,
+    FLOAT dpiX,
+    FLOAT dpiY)
+{
+    if (!state->t37VirtualBodyOverlayRequested || state->t37BodyText[0] == L'\0')
+    {
+        return false;
+    }
+    if (!state->dwriteFactory || !state->d2dContext || !state->dwriteTextFormat || !state->d2dTextBrush)
+    {
+        OutputDebugStringW(L"[T37] fallback: DWrite/D2D not ready\r\n");
+        return false;
+    }
+    const UINT vw = state->gridDebugCommittedPhysW;
+    const UINT vh = state->gridDebugCommittedPhysH;
+    if (vw < 1u || vh < 1u)
+    {
+        OutputDebugStringW(L"[T37] fallback: invalid committed virtual size\r\n");
+        return false;
+    }
+    const float vWdip = static_cast<float>(vw) * (96.f / dpiX);
+    const float vHdip = static_cast<float>(vh) * (96.f / dpiY);
+    if (vWdip < 1.f || vHdip < 1.f)
+    {
+        return false;
+    }
+    const size_t rawLen = wcslen(state->t37BodyText);
+    const UINT textLen = static_cast<UINT>((std::min)(static_cast<size_t>(8191), rawLen));
+    IDWriteTextLayout* layout = nullptr;
+    HRESULT hr = state->dwriteFactory->CreateTextLayout(
+        state->t37BodyText,
+        textLen,
+        state->dwriteTextFormat,
+        vWdip,
+        1048576.0f,
+        &layout);
+    if (FAILED(hr) || layout == nullptr)
+    {
+        wchar_t line[128] = {};
+        swprintf_s(line, L"[T37] fallback: CreateTextLayout hr=0x%08X\r\n", static_cast<unsigned int>(hr));
+        OutputDebugStringW(line);
+        return false;
+    }
+    hr = layout->SetWordWrapping(DWRITE_WORD_WRAPPING_WRAP);
+    if (FAILED(hr))
+    {
+        layout->Release();
+        return false;
+    }
+    const float scrollVirtDip = static_cast<float>(state->t37ScrollVirtualPx) * (96.f / dpiY);
+    state->d2dContext->SetTransform(D2D1::Matrix3x2F::Scale(wDipClient / vWdip, hDipClient / vHdip));
+    state->d2dContext->DrawTextLayout(
+        D2D1::Point2F(0.f, -scrollVirtDip),
+        layout,
+        state->d2dTextBrush,
+        D2D1_DRAW_TEXT_OPTIONS_NONE);
+    state->d2dContext->SetTransform(D2D1::Matrix3x2F::Identity());
+    layout->Release();
+    static bool s_loggedT37Once = false;
+    if (!s_loggedT37Once)
+    {
+        s_loggedT37Once = true;
+        wchar_t line[224] = {};
+        swprintf_s(
+            line,
+            _countof(line),
+            L"[T37] overlay body DWrite virtual=%ux%u clientDip=%.0fx%.0f\r\n",
+            vw,
+            vh,
+            static_cast<double>(wDipClient),
+            static_cast<double>(hDipClient));
+        OutputDebugStringW(line);
+    }
+    return true;
+}
+
 static bool WindowsRenderer_TryBorderlessOffscreenPresent(WindowsRendererState* state)
 {
     const UINT cw = state->clientWidth;
@@ -864,7 +944,14 @@ static bool WindowsRenderer_TryBorderlessOffscreenPresent(WindowsRendererState* 
         D2D1_INTERPOLATION_MODE_LINEAR,
         nullptr,
         nullptr);
+    bool t37Drawn = false;
+    if (state->t37VirtualBodyOverlayRequested)
+    {
+        t37Drawn = WindowsRenderer_TryDrawT37VirtualBodyOnCompositeTarget(
+            state, wDipClient, hDipClient, dpiX, dpiY);
+    }
     hr = state->d2dContext->EndDraw();
+    state->t37VirtualBodyOverlayRenderedOk = t37Drawn && SUCCEEDED(hr);
     dstBmp->Release();
     srcBmp->Release();
     state->d2dContext->SetTarget(nullptr);
@@ -1118,7 +1205,14 @@ static bool WindowsRenderer_TryFullscreenOffscreenPresent(WindowsRendererState* 
         D2D1_INTERPOLATION_MODE_LINEAR,
         nullptr,
         nullptr);
+    bool t37DrawnFs = false;
+    if (state->t37VirtualBodyOverlayRequested)
+    {
+        t37DrawnFs = WindowsRenderer_TryDrawT37VirtualBodyOnCompositeTarget(
+            state, wDipClient, hDipClient, dpiX, dpiY);
+    }
     hr = state->d2dContext->EndDraw();
+    state->t37VirtualBodyOverlayRenderedOk = t37DrawnFs && SUCCEEDED(hr);
     dstBmp->Release();
     srcBmp->Release();
     state->d2dContext->SetTarget(nullptr);
@@ -1381,6 +1475,10 @@ void WindowsRenderer_Shutdown(WindowsRendererState* state)
     state->fullscreenOffscreenComposite = false;
     state->fullscreenOffscreenPhysW = 0;
     state->fullscreenOffscreenPhysH = 0;
+    state->t37VirtualBodyOverlayRequested = false;
+    state->t37VirtualBodyOverlayRenderedOk = false;
+    state->t37ScrollVirtualPx = 0;
+    state->t37BodyText[0] = L'\0';
     WindowsRenderer_InternalShutdownD2D(state);
     if (state->context)
     {

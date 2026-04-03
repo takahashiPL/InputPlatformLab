@@ -113,4 +113,5 @@ src/
 - [API リファレンス（ファイル別・実行フロー）](api_reference.md)
 - [T34 — Borderless オフスクリーン（完了）](t34_t35_display_and_render.md)
 - [T35 — 表示モード方針（Windowed / Borderless / Fullscreen）](t35_display_mode_policy.md)
+- [T37 — 仮想解像度とデバッグオーバーレイ実験](t37_virtual_overlay_experiment.md)
 - ルートの [README.md](../README.md) にビルドパスと実機メモの一部があります。

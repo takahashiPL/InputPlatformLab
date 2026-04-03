@@ -265,7 +265,11 @@ static int Win32_MainView_MeasureScrollOverlayTextHeight(HDC hdc, int clientW, c
 }
 
 // 本文（メニュー + T14〜T18 テキスト）をスクロール付きで描画し、下端に [scroll] サマリを載せる。
-void Win32DebugOverlay_Paint(HWND hwnd, HDC hdc, const wchar_t* t17ModeLabelForOverlay)
+void Win32DebugOverlay_Paint(
+    HWND hwnd,
+    HDC hdc,
+    const wchar_t* t17ModeLabelForOverlay,
+    bool suppressT14BodyGdi)
 {
     RECT rcClient{};
     GetClientRect(hwnd, &rcClient);
@@ -424,12 +428,15 @@ void Win32DebugOverlay_Paint(HWND hwnd, HDC hdc, const wchar_t* t17ModeLabelForO
     OffsetViewportOrgEx(hdc, 0, -s_paintScrollY, nullptr);
 
     DrawTextW(hdc, menuBuf, -1, &rcMenuDoc, DT_LEFT | DT_TOP | DT_NOPREFIX);
-    DrawTextW(
-        hdc,
-        t14Buf,
-        -1,
-        &rcT14Doc,
-        DT_LEFT | DT_TOP | DT_NOPREFIX | DT_WORDBREAK);
+    if (!suppressT14BodyGdi)
+    {
+        DrawTextW(
+            hdc,
+            t14Buf,
+            -1,
+            &rcT14Doc,
+            DT_LEFT | DT_TOP | DT_NOPREFIX | DT_WORDBREAK);
+    }
 
     RestoreDC(hdc, saved);
 

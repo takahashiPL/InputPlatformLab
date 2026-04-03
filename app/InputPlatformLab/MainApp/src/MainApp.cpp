@@ -1109,6 +1109,46 @@ static WindowsRendererPresentationMode Win32_MapT17ToRendererPresentationMode(T1
     }
 }
 
+// T37: T34/T36 オフスクリーン有効時、本文を committed 仮想解像度基準で DWrite 描画（失敗時は GDI 本文にフォールバック）
+static void Win32_T37_PrepareVirtualBodyOverlay(HWND hwnd)
+{
+    WindowsRendererState& st = s_windowsRendererState;
+    st.t37VirtualBodyOverlayRequested = false;
+    st.t37VirtualBodyOverlayRenderedOk = false;
+    st.t37BodyText[0] = L'\0';
+    st.t37ScrollVirtualPx = 0;
+
+    const bool borderlessPath =
+        (s_t17LastAppliedPresentationMode == T17PresentationMode::Borderless) && st.borderlessOffscreenComposite;
+    const bool fullscreenPath =
+        (s_t17LastAppliedPresentationMode == T17PresentationMode::Fullscreen) && st.fullscreenOffscreenComposite;
+    if (!borderlessPath && !fullscreenPath)
+    {
+        return;
+    }
+
+    RECT rc{};
+    GetClientRect(hwnd, &rc);
+    const int ch = static_cast<int>(rc.bottom - rc.top);
+
+    wchar_t menuBuf[3072] = {};
+    wchar_t t14Buf[8192] = {};
+    Win32_FillMenuSamplePaintBuffers(hwnd, rc, menuBuf, _countof(menuBuf), t14Buf, _countof(t14Buf));
+    wcsncpy_s(st.t37BodyText, _countof(st.t37BodyText), t14Buf, _TRUNCATE);
+
+    const int gh = s_lastCommittedGridSelectedPhysH;
+    if (ch > 0 && gh > 0)
+    {
+        st.t37ScrollVirtualPx = static_cast<int>(
+            static_cast<double>(s_paintScrollY) * static_cast<double>(gh) / static_cast<double>(ch));
+    }
+    else
+    {
+        st.t37ScrollVirtualPx = 0;
+    }
+    st.t37VirtualBodyOverlayRequested = true;
+}
+
 static void Win32_RefreshRendererGridDebugParams(HWND hwnd)
 {
     RECT rc{};
@@ -5630,12 +5670,21 @@ static void Win32_MainView_PaintFrame(HWND hWnd)
     HDC hdc = BeginPaint(hWnd, &ps);
     // T26/T33: renderer（clear → D2D 1 行 → Present）→ 任意で GDI debug overlay
     Win32_RefreshRendererGridDebugParams(hWnd);
+    Win32_T37_PrepareVirtualBodyOverlay(hWnd);
     WindowsRenderer_Frame(
         &s_windowsRendererState,
         hWnd,
         Win32_MapT17ToRendererPresentationMode(s_t17LastAppliedPresentationMode));
 #if !WIN32_MAIN_D3D_CLEAR_ONLY_PAINT && !WIN32_MAIN_T33_HIDE_GDI_OVERLAY
-    Win32DebugOverlay_Paint(hWnd, hdc, Win32_T17_ModeLabel(s_t17LastAppliedPresentationMode));
+    {
+        const bool suppressT14BodyGdi = s_windowsRendererState.t37VirtualBodyOverlayRequested &&
+            s_windowsRendererState.t37VirtualBodyOverlayRenderedOk;
+        Win32DebugOverlay_Paint(
+            hWnd,
+            hdc,
+            Win32_T17_ModeLabel(s_t17LastAppliedPresentationMode),
+            suppressT14BodyGdi);
+    }
 #endif
     EndPaint(hWnd, &ps);
 }

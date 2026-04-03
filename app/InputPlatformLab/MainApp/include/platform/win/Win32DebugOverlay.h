@@ -14,7 +14,12 @@ void Win32_FillMenuSamplePaintBuffers(
     size_t t14BufCount);
 
 // T26: D3D クリア後の GDI デバッグ描画（TRANSPARENT 背景・スクロールオーバーレイ含む）
-void Win32DebugOverlay_Paint(HWND hwnd, HDC hdc, const wchar_t* t17ModeLabelForOverlay);
+// T37: suppressT14BodyGdi=true のとき T14 本文の GDI 描画を省略（DWrite 仮想解像度本文と二重表示しない）
+void Win32DebugOverlay_Paint(
+    HWND hwnd,
+    HDC hdc,
+    const wchar_t* t17ModeLabelForOverlay,
+    bool suppressT14BodyGdi);
 
 void Win32DebugOverlay_ScrollLog(
     const wchar_t* where,
