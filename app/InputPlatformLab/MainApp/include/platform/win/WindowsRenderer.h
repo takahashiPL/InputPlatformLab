@@ -46,6 +46,12 @@ struct WindowsRendererState
     ID3D11DeviceContext* context = nullptr;
     IDXGISwapChain* swapChain = nullptr;
     ID3D11RenderTargetView* rtv = nullptr;
+    // Borderless 実験: T14 確定解像度へオフスクリーン描画し、スワップチェーンへ拡大合成（Windowed は未使用）
+    ID3D11Texture2D* borderlessOffscreenTexture = nullptr;
+    ID3D11RenderTargetView* borderlessOffscreenRtv = nullptr;
+    bool borderlessOffscreenComposite = false;
+    std::uint32_t borderlessOffscreenPhysW = 0;
+    std::uint32_t borderlessOffscreenPhysH = 0;
     // T33: D3D11 と共有（IDXGIDevice）。Resize ではデバイス再作成せず、Frame で都度 DXGI 表面からビットマップ生成。
     ID2D1Factory1* d2dFactory = nullptr;
     IDWriteFactory* dwriteFactory = nullptr;

@@ -19,6 +19,24 @@
 // [GRID] mode=... の 1 回ログ用（MainApp の WindowsRenderer_DebugGrid_ResetLogOnce と共有）
 bool s_loggedGridOnce = false;
 
+static void WindowsRenderer_ReleaseBorderlessOffscreen(WindowsRendererState* s)
+{
+    if (!s)
+    {
+        return;
+    }
+    if (s->borderlessOffscreenRtv)
+    {
+        s->borderlessOffscreenRtv->Release();
+        s->borderlessOffscreenRtv = nullptr;
+    }
+    if (s->borderlessOffscreenTexture)
+    {
+        s->borderlessOffscreenTexture->Release();
+        s->borderlessOffscreenTexture = nullptr;
+    }
+}
+
 namespace
 {
 bool s_loggedPresentOk = false;
@@ -419,46 +437,21 @@ static void WindowsRenderer_InternalDrawDebugGridLabels(
 }
 #endif
 
-static void WindowsRenderer_InternalDrawD2DOneLine(WindowsRendererState* s)
+// surface は参照を 1 つ消費する（CreateBitmapFromDxgiSurface 成功後に Release）
+static HRESULT WindowsRenderer_DrawD2DContentToSurface(
+    WindowsRendererState* s,
+    IDXGISurface* surface,
+    UINT pixelW,
+    UINT pixelH,
+    bool firstDiag)
 {
-    if (!s->d2dContext || !s->dwriteTextFormat || !s->d2dTextBrush || !s->swapChain || !s->d2dFactory)
+    if (!s->d2dContext || !surface || pixelW < 1u || pixelH < 1u)
     {
-        return;
-    }
-    const bool firstDiag = !s_t33FirstFrameDiagDone;
-    struct T33FirstFrameDiagGuard
-    {
-        bool armed;
-        ~T33FirstFrameDiagGuard()
+        if (surface)
         {
-            if (armed)
-            {
-                s_t33FirstFrameDiagDone = true;
-            }
+            surface->Release();
         }
-    } diagGuard{ firstDiag };
-
-    auto logFrame = [&](const wchar_t* step, HRESULT stepHr) {
-        if (firstDiag)
-        {
-            T33_LogFrameStep(step, stepHr);
-        }
-    };
-
-    ID3D11Texture2D* backBuffer = nullptr;
-    HRESULT hr = s->swapChain->GetBuffer(0, __uuidof(ID3D11Texture2D), reinterpret_cast<void**>(&backBuffer));
-    logFrame(L"IDXGISwapChain::GetBuffer(0)", hr);
-    if (FAILED(hr) || backBuffer == nullptr)
-    {
-        return;
-    }
-    IDXGISurface* surface = nullptr;
-    hr = backBuffer->QueryInterface(__uuidof(IDXGISurface), reinterpret_cast<void**>(&surface));
-    backBuffer->Release();
-    logFrame(L"ID3D11Texture2D::QueryInterface(IDXGISurface)", hr);
-    if (FAILED(hr) || surface == nullptr)
-    {
-        return;
+        return E_INVALIDARG;
     }
 
     UINT dpiSys = GetDpiForWindow(s->targetHwnd);
@@ -476,13 +469,21 @@ static void WindowsRenderer_InternalDrawD2DOneLine(WindowsRendererState* s)
         dpiY);
 
     ID2D1Bitmap1* target = nullptr;
-    hr = s->d2dContext->CreateBitmapFromDxgiSurface(surface, &bmpProps, &target);
+    HRESULT hr = s->d2dContext->CreateBitmapFromDxgiSurface(surface, &bmpProps, &target);
     surface->Release();
-    logFrame(L"ID2D1DeviceContext::CreateBitmapFromDxgiSurface", hr);
+    if (firstDiag)
+    {
+        T33_LogFrameStep(L"ID2D1DeviceContext::CreateBitmapFromDxgiSurface", hr);
+    }
     if (FAILED(hr) || target == nullptr)
     {
-        return;
+        return hr;
     }
+
+    const UINT saveW = s->clientWidth;
+    const UINT saveH = s->clientHeight;
+    s->clientWidth = pixelW;
+    s->clientHeight = pixelH;
 
     s->d2dContext->SetTarget(target);
     s->d2dContext->BeginDraw();
@@ -494,8 +495,8 @@ static void WindowsRenderer_InternalDrawD2DOneLine(WindowsRendererState* s)
 
     const float sx = 96.f / dpiX;
     const float sy = 96.f / dpiY;
-    const float wDip = static_cast<float>(s->clientWidth) * sx;
-    const float hDip = static_cast<float>(s->clientHeight) * sy;
+    const float wDip = static_cast<float>(pixelW) * sx;
+    const float hDip = static_cast<float>(pixelH) * sy;
 #if WIN32_RENDERER_DEBUG_GRID_64PX
     const UINT gridStepPx = WindowsRenderer_ComputeDebugGridStepPx(s);
     WindowsRenderer_InternalDrawDebugGridLines(s, dpiSys, sx, sy, wDip, hDip, gridStepPx);
@@ -504,8 +505,8 @@ static void WindowsRenderer_InternalDrawD2DOneLine(WindowsRendererState* s)
 
     static const wchar_t kLine[] = L"T33: DirectWrite overlay (1 line)";
     const UINT32 kLen = static_cast<UINT32>(wcslen(kLine));
-    const float w = static_cast<float>(s->clientWidth);
-    const float h = static_cast<float>(s->clientHeight);
+    const float w = static_cast<float>(pixelW);
+    const float h = static_cast<float>(pixelH);
 #if WIN32_RENDERER_DEBUG_GRID_64PX
     const float t33Top = 80.0f;
 #else
@@ -531,9 +532,15 @@ static void WindowsRenderer_InternalDrawD2DOneLine(WindowsRendererState* s)
     }
 
     hr = s->d2dContext->EndDraw();
-    logFrame(L"ID2D1DeviceContext::EndDraw", hr);
+    if (firstDiag)
+    {
+        T33_LogFrameStep(L"ID2D1DeviceContext::EndDraw", hr);
+    }
     target->Release();
     s->d2dContext->SetTarget(nullptr);
+
+    s->clientWidth = saveW;
+    s->clientHeight = saveH;
 
     static bool s_loggedFirstEndDrawOk = false;
     if (SUCCEEDED(hr) && !s_loggedFirstEndDrawOk)
@@ -547,14 +554,307 @@ static void WindowsRenderer_InternalDrawD2DOneLine(WindowsRendererState* s)
         swprintf_s(line, L"[T33] EndDraw hr=0x%08X\r\n", static_cast<unsigned int>(hr));
         OutputDebugStringW(line);
     }
+    return hr;
 }
 
-// clear（D3D）→ flush → D2D 1 行（任意）→ Present 1 回
-static void WindowsRenderer_Internal_ClearD2DPresent(WindowsRendererState* state)
+static void WindowsRenderer_InternalDrawD2DOneLine(WindowsRendererState* s)
+{
+    if (!s->d2dContext || !s->dwriteTextFormat || !s->d2dTextBrush || !s->swapChain || !s->d2dFactory)
+    {
+        return;
+    }
+    const bool firstDiag = !s_t33FirstFrameDiagDone;
+    struct T33FirstFrameDiagGuard
+    {
+        bool armed;
+        ~T33FirstFrameDiagGuard()
+        {
+            if (armed)
+            {
+                s_t33FirstFrameDiagDone = true;
+            }
+        }
+    } diagGuard{ firstDiag };
+
+    ID3D11Texture2D* backBuffer = nullptr;
+    HRESULT hr = s->swapChain->GetBuffer(0, __uuidof(ID3D11Texture2D), reinterpret_cast<void**>(&backBuffer));
+    if (firstDiag)
+    {
+        T33_LogFrameStep(L"IDXGISwapChain::GetBuffer(0)", hr);
+    }
+    if (FAILED(hr) || backBuffer == nullptr)
+    {
+        return;
+    }
+    IDXGISurface* surface = nullptr;
+    hr = backBuffer->QueryInterface(__uuidof(IDXGISurface), reinterpret_cast<void**>(&surface));
+    backBuffer->Release();
+    if (firstDiag)
+    {
+        T33_LogFrameStep(L"ID3D11Texture2D::QueryInterface(IDXGISurface)", hr);
+    }
+    if (FAILED(hr) || surface == nullptr)
+    {
+        return;
+    }
+
+    (void)WindowsRenderer_DrawD2DContentToSurface(s, surface, s->clientWidth, s->clientHeight, firstDiag);
+}
+
+static bool WindowsRenderer_InternalEnsureBorderlessOffscreenRT(WindowsRendererState* s, UINT w, UINT h)
+{
+    if (!s || !s->device || w < 1u || h < 1u)
+    {
+        return false;
+    }
+    if (s->borderlessOffscreenTexture != nullptr)
+    {
+        D3D11_TEXTURE2D_DESC td = {};
+        s->borderlessOffscreenTexture->GetDesc(&td);
+        if (td.Width == w && td.Height == h)
+        {
+            return true;
+        }
+    }
+    WindowsRenderer_ReleaseBorderlessOffscreen(s);
+
+    D3D11_TEXTURE2D_DESC td = {};
+    td.Width = w;
+    td.Height = h;
+    td.MipLevels = 1;
+    td.ArraySize = 1;
+    td.Format = DXGI_FORMAT_R8G8B8A8_UNORM;
+    td.SampleDesc.Count = 1;
+    td.SampleDesc.Quality = 0;
+    td.Usage = D3D11_USAGE_DEFAULT;
+    td.BindFlags = D3D11_BIND_RENDER_TARGET | D3D11_BIND_SHADER_RESOURCE;
+    td.CPUAccessFlags = 0;
+    td.MiscFlags = 0;
+
+    HRESULT hr = s->device->CreateTexture2D(&td, nullptr, &s->borderlessOffscreenTexture);
+    if (FAILED(hr) || s->borderlessOffscreenTexture == nullptr)
+    {
+        wchar_t line[192] = {};
+        swprintf_s(
+            line,
+            L"[RT] offscreen create FAILED hr=0x%08X\r\n",
+            static_cast<unsigned int>(hr));
+        OutputDebugStringW(line);
+        return false;
+    }
+    hr = s->device->CreateRenderTargetView(s->borderlessOffscreenTexture, nullptr, &s->borderlessOffscreenRtv);
+    if (FAILED(hr) || s->borderlessOffscreenRtv == nullptr)
+    {
+        WindowsRenderer_ReleaseBorderlessOffscreen(s);
+        return false;
+    }
+    wchar_t line[192] = {};
+    swprintf_s(line, L"[RT] offscreen create %ux%u\r\n", w, h);
+    OutputDebugStringW(line);
+    return true;
+}
+
+static void WindowsRenderer_InternalBindMainRtAndViewport(WindowsRendererState* state);
+
+static bool WindowsRenderer_TryBorderlessOffscreenPresent(WindowsRendererState* state)
+{
+    const UINT cw = state->clientWidth;
+    const UINT ch = state->clientHeight;
+    const UINT ow = state->borderlessOffscreenPhysW;
+    const UINT oh = state->borderlessOffscreenPhysH;
+    if (ow < 1u || oh < 1u || cw < 1u || ch < 1u)
+    {
+        return false;
+    }
+    // 安全上限（実験用）。超える場合はフォールバック。
+    if (ow > 8192u || oh > 8192u)
+    {
+        OutputDebugStringW(L"[RT] offscreen skip: dimension > 8192\r\n");
+        return false;
+    }
+
+    if (!WindowsRenderer_InternalEnsureBorderlessOffscreenRT(state, ow, oh))
+    {
+        return false;
+    }
+
+    const float clearColor[4] = { 0.12f, 0.14f, 0.18f, 1.0f };
+    ID3D11RenderTargetView* offRtv = state->borderlessOffscreenRtv;
+    state->context->OMSetRenderTargets(1, &offRtv, nullptr);
+    D3D11_VIEWPORT vp = {};
+    vp.TopLeftX = 0.0f;
+    vp.TopLeftY = 0.0f;
+    vp.Width = static_cast<float>(ow);
+    vp.Height = static_cast<float>(oh);
+    vp.MinDepth = 0.0f;
+    vp.MaxDepth = 1.0f;
+    state->context->RSSetViewports(1, &vp);
+    state->context->ClearRenderTargetView(offRtv, clearColor);
+    state->context->Flush();
+
+    IDXGISurface* osurf = nullptr;
+    HRESULT hr = state->borderlessOffscreenTexture->QueryInterface(
+        __uuidof(IDXGISurface), reinterpret_cast<void**>(&osurf));
+    if (FAILED(hr) || osurf == nullptr)
+    {
+        WindowsRenderer_InternalBindMainRtAndViewport(state);
+        return false;
+    }
+    {
+        wchar_t line[192] = {};
+        swprintf_s(line, L"[RT] draw offscreen %ux%u\r\n", ow, oh);
+        OutputDebugStringW(line);
+    }
+    const bool firstDiag = !s_t33FirstFrameDiagDone;
+    struct T33FirstFrameDiagGuard
+    {
+        bool armed;
+        ~T33FirstFrameDiagGuard()
+        {
+            if (armed)
+            {
+                s_t33FirstFrameDiagDone = true;
+            }
+        }
+    } diagGuard{ firstDiag };
+
+    (void)WindowsRenderer_DrawD2DContentToSurface(state, osurf, ow, oh, firstDiag);
+    if (state->d2dContext != nullptr)
+    {
+        state->d2dContext->Flush();
+    }
+
+    IDXGISurface* osurf2 = nullptr;
+    hr = state->borderlessOffscreenTexture->QueryInterface(
+        __uuidof(IDXGISurface), reinterpret_cast<void**>(&osurf2));
+    if (FAILED(hr) || osurf2 == nullptr)
+    {
+        WindowsRenderer_InternalBindMainRtAndViewport(state);
+        return false;
+    }
+    UINT dpiSys = GetDpiForWindow(state->targetHwnd);
+    if (dpiSys == 0)
+    {
+        dpiSys = 96u;
+    }
+    const FLOAT dpiX = static_cast<FLOAT>(dpiSys);
+    const FLOAT dpiY = static_cast<FLOAT>(dpiSys);
+    const D2D1_BITMAP_PROPERTIES1 srcProps = D2D1::BitmapProperties1(
+        D2D1_BITMAP_OPTIONS_NONE,
+        D2D1::PixelFormat(DXGI_FORMAT_UNKNOWN, D2D1_ALPHA_MODE_PREMULTIPLIED),
+        dpiX,
+        dpiY);
+    ID2D1Bitmap1* srcBmp = nullptr;
+    hr = state->d2dContext->CreateBitmapFromDxgiSurface(osurf2, &srcProps, &srcBmp);
+    osurf2->Release();
+    if (FAILED(hr) || srcBmp == nullptr)
+    {
+        wchar_t line[192] = {};
+        swprintf_s(
+            line,
+            L"[RT] composite source bitmap FAILED hr=0x%08X\r\n",
+            static_cast<unsigned int>(hr));
+        OutputDebugStringW(line);
+        srcBmp = nullptr;
+        WindowsRenderer_InternalBindMainRtAndViewport(state);
+        return false;
+    }
+
+    ID3D11RenderTargetView* rtv = state->rtv;
+    state->context->OMSetRenderTargets(1, &rtv, nullptr);
+    vp.Width = static_cast<float>(cw);
+    vp.Height = static_cast<float>(ch);
+    state->context->RSSetViewports(1, &vp);
+    state->context->ClearRenderTargetView(rtv, clearColor);
+    state->context->Flush();
+
+    {
+        wchar_t line[224] = {};
+        swprintf_s(line, L"[RT] composite to backbuffer client=%ux%u\r\n", cw, ch);
+        OutputDebugStringW(line);
+    }
+
+    ID3D11Texture2D* backBuffer = nullptr;
+    hr = state->swapChain->GetBuffer(0, __uuidof(ID3D11Texture2D), reinterpret_cast<void**>(&backBuffer));
+    if (FAILED(hr) || backBuffer == nullptr)
+    {
+        srcBmp->Release();
+        return false;
+    }
+    IDXGISurface* bSurf = nullptr;
+    hr = backBuffer->QueryInterface(__uuidof(IDXGISurface), reinterpret_cast<void**>(&bSurf));
+    backBuffer->Release();
+    if (FAILED(hr) || bSurf == nullptr)
+    {
+        srcBmp->Release();
+        return false;
+    }
+    const D2D1_BITMAP_PROPERTIES1 dstProps = D2D1::BitmapProperties1(
+        D2D1_BITMAP_OPTIONS_TARGET | D2D1_BITMAP_OPTIONS_CANNOT_DRAW,
+        D2D1::PixelFormat(DXGI_FORMAT_UNKNOWN, D2D1_ALPHA_MODE_PREMULTIPLIED),
+        dpiX,
+        dpiY);
+    ID2D1Bitmap1* dstBmp = nullptr;
+    hr = state->d2dContext->CreateBitmapFromDxgiSurface(bSurf, &dstProps, &dstBmp);
+    bSurf->Release();
+    if (FAILED(hr) || dstBmp == nullptr)
+    {
+        srcBmp->Release();
+        return false;
+    }
+
+    const float sx = 96.f / dpiX;
+    const float sy = 96.f / dpiY;
+    const float wDipClient = static_cast<float>(cw) * sx;
+    const float hDipClient = static_cast<float>(ch) * sy;
+
+    state->d2dContext->SetTarget(dstBmp);
+    state->d2dContext->BeginDraw();
+    state->d2dContext->SetTransform(D2D1::Matrix3x2F::Identity());
+    state->d2dContext->DrawBitmap(
+        srcBmp,
+        D2D1::RectF(0.f, 0.f, wDipClient, hDipClient),
+        1.0f,
+        D2D1_INTERPOLATION_MODE_LINEAR,
+        nullptr,
+        nullptr);
+    hr = state->d2dContext->EndDraw();
+    dstBmp->Release();
+    srcBmp->Release();
+    state->d2dContext->SetTarget(nullptr);
+
+    if (FAILED(hr))
+    {
+        wchar_t line[160] = {};
+        swprintf_s(line, L"[RT] composite EndDraw hr=0x%08X\r\n", static_cast<unsigned int>(hr));
+        OutputDebugStringW(line);
+    }
+
+    const HRESULT hrPresent = state->swapChain->Present(1, 0);
+    if (FAILED(hrPresent))
+    {
+        wchar_t line[128] = {};
+        swprintf_s(
+            line,
+            L"[D3D11] present fail hr=0x%08X\r\n",
+            static_cast<unsigned int>(hrPresent));
+        OutputDebugStringW(line);
+    }
+    else
+    {
+        if (!s_loggedPresentOk)
+        {
+            s_loggedPresentOk = true;
+            OutputDebugStringW(L"[D3D11] present ok (first)\r\n");
+        }
+    }
+    return true;
+}
+
+static void WindowsRenderer_InternalBindMainRtAndViewport(WindowsRendererState* state)
 {
     ID3D11RenderTargetView* rtv = state->rtv;
     state->context->OMSetRenderTargets(1, &rtv, nullptr);
-
     D3D11_VIEWPORT vp = {};
     vp.TopLeftX = 0.0f;
     vp.TopLeftY = 0.0f;
@@ -563,6 +863,26 @@ static void WindowsRenderer_Internal_ClearD2DPresent(WindowsRendererState* state
     vp.MinDepth = 0.0f;
     vp.MaxDepth = 1.0f;
     state->context->RSSetViewports(1, &vp);
+}
+
+// clear（D3D）→ flush → D2D 1 行（任意）→ Present 1 回
+static void WindowsRenderer_Internal_ClearD2DPresent(WindowsRendererState* state)
+{
+    if (!state->borderlessOffscreenComposite && state->borderlessOffscreenTexture != nullptr)
+    {
+        WindowsRenderer_ReleaseBorderlessOffscreen(state);
+    }
+
+    if (state->borderlessOffscreenComposite && state->borderlessOffscreenPhysW >= 1u &&
+        state->borderlessOffscreenPhysH >= 1u && state->d2dContext != nullptr)
+    {
+        if (WindowsRenderer_TryBorderlessOffscreenPresent(state))
+        {
+            return;
+        }
+    }
+
+    WindowsRenderer_InternalBindMainRtAndViewport(state);
 
     const float clearColor[4] = { 0.12f, 0.14f, 0.18f, 1.0f };
     state->context->ClearRenderTargetView(state->rtv, clearColor);
@@ -724,6 +1044,7 @@ void WindowsRenderer_Shutdown(WindowsRendererState* state)
     {
         return;
     }
+    WindowsRenderer_ReleaseBorderlessOffscreen(state);
     WindowsRenderer_InternalShutdownD2D(state);
     if (state->context)
     {
