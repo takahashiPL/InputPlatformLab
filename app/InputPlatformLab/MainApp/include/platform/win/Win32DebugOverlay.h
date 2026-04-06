@@ -36,6 +36,19 @@ void Win32_DebugOverlay_FormatScrollDebugOverlay(
 #ifndef WIN32_OVERLAY_T50_TINY_CLIENT_H
 #define WIN32_OVERLAY_T50_TINY_CLIENT_H 280
 #endif
+// T51: vmSplit 後の実効 restVp が小さいときも compact/tiny 表示へ（rawClientH だけに依存しない）
+#ifndef WIN32_OVERLAY_T51_REFILL_RESTVP_PX
+#define WIN32_OVERLAY_T51_REFILL_RESTVP_PX 120
+#endif
+#ifndef WIN32_OVERLAY_T51_COMPACT_SCROLL_RESTVP_PX
+#define WIN32_OVERLAY_T51_COMPACT_SCROLL_RESTVP_PX 120
+#endif
+#ifndef WIN32_OVERLAY_T51_SCROLL_ULTRA_RESTVP_PX
+#define WIN32_OVERLAY_T51_SCROLL_ULTRA_RESTVP_PX 120
+#endif
+#ifndef WIN32_OVERLAY_T51_OMIT_T16_RESTVP_PX
+#define WIN32_OVERLAY_T51_OMIT_T16_RESTVP_PX 120
+#endif
 
 // MainApp が WM_PAINT 用に組み立てたバッファを、GDI で描画するモジュール（D3D とは役割分担）。
 // compactMenuForT37Layout: T37 有効時のみ左列メニューを短文化（T14 本文バッファは変えない）。
@@ -46,7 +59,8 @@ void Win32_FillMenuSamplePaintBuffers(
     size_t menuBufCount,
     wchar_t* t14Buf,
     size_t t14BufCount,
-    bool compactMenuForT37Layout);
+    bool compactMenuForT37Layout,
+    int restVpBudgetHint = -1);
 
 // T37 仮想本文オーバーレイ要求中（オフスクリーン経路）。GDI 左列のレイアウト分岐用。
 bool Win32_IsT37VirtualBodyOverlayActiveForLayout(void);

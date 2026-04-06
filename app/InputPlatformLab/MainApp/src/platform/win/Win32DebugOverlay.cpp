@@ -62,6 +62,7 @@ extern int s_paintDbgT14VisibleModesDocStartY;
 extern int s_paintDbgLineHeight;
 extern int s_paintDbgActualOverlayHeight;
 extern int s_paintDbgScrollBandReservePx;
+extern int s_paintDbgLayoutRestVpBudgetHint;
 extern int s_paintDbgClientW;
 extern int s_paintDbgClientH;
 extern int s_paintDbgMaxScroll;
@@ -446,8 +447,11 @@ void Win32_DebugOverlay_FormatScrollDebugOverlay(
     const int maxScrollLogical = (std::max)(0, contentHeight - scrollVpH);
     if (compactScrollBand)
     {
-        // T50: 極小時は 1 行固定（SI や補足は出さず計測高さを抑える）
-        if (rawClientH > 0 && rawClientH < WIN32_OVERLAY_T50_TINY_CLIENT_H)
+        // T50/T51: rawClientH が極小、または実効 scrollVpH が小さいとき 1 行固定
+        const bool scrollUltraOneLine =
+            (rawClientH > 0 && rawClientH < WIN32_OVERLAY_T50_TINY_CLIENT_H) ||
+            (scrollVpH > 0 && scrollVpH < WIN32_OVERLAY_T51_SCROLL_ULTRA_RESTVP_PX);
+        if (scrollUltraOneLine)
         {
             if (provisionalNoSi)
             {
@@ -618,11 +622,16 @@ static void Win32_DebugOverlay_ComputeLayoutMetrics(
     const int clientW = static_cast<int>(rcClient.right - rcClient.left);
     const int clientH = static_cast<int>(rcClient.bottom - rcClient.top);
 
-    s_paintDbgScrollBandReservePx = 0;
-    s_paintDbgRestViewportTopPx = 0;
+    int restVpBudgetHint = -1;
+    bool layoutRefilledForBudget = false;
 
     wchar_t menuBuf[3072] = {};
     wchar_t t14Buf[8192] = {};
+
+refill_budget:
+    s_paintDbgScrollBandReservePx = 0;
+    s_paintDbgRestViewportTopPx = 0;
+
     Win32_FillMenuSamplePaintBuffers(
         hwnd,
         rcClient,
@@ -630,7 +639,8 @@ static void Win32_DebugOverlay_ComputeLayoutMetrics(
         _countof(menuBuf),
         t14Buf,
         _countof(t14Buf),
-        Win32_IsT37VirtualBodyOverlayActiveForLayout());
+        Win32_IsT37VirtualBodyOverlayActiveForLayout(),
+        restVpBudgetHint);
 
     RECT rcMenuDoc{};
     RECT rcT14Doc{};
@@ -903,7 +913,9 @@ static void Win32_DebugOverlay_ComputeLayoutMetrics(
     int jumpF8 = Win32DebugOverlay_ScrollTargetT17Centered(hwnd);
     wchar_t overlay[2048] = {};
     int actualOverlayHeight = 0;
-    const bool compactScrollBand = (clientH < WIN32_OVERLAY_T49_SCROLL_COMPACT_CLIENT_H);
+    const bool compactScrollBand =
+        (clientH < WIN32_OVERLAY_T49_SCROLL_COMPACT_CLIENT_H) ||
+        (vmSplitActive && splitRestVp > 0 && splitRestVp < WIN32_OVERLAY_T51_COMPACT_SCROLL_RESTVP_PX);
 
     if (vmSplitActive)
     {
@@ -969,6 +981,13 @@ static void Win32_DebugOverlay_ComputeLayoutMetrics(
             extraBottomPadding = extra2;
         }
         s_paintDbgRestViewportClientH = restVp2;
+
+        if (!layoutRefilledForBudget && restVp2 < WIN32_OVERLAY_T51_REFILL_RESTVP_PX)
+        {
+            restVpBudgetHint = restVp2;
+            layoutRefilledForBudget = true;
+            goto refill_budget;
+        }
     }
 
     {
@@ -1081,6 +1100,8 @@ static void Win32_DebugOverlay_ComputeLayoutMetrics(
             wcscpy_s(outHud->dbgHudBodyBandText, _countof(outHud->dbgHudBodyBandText), t14Buf);
         }
     }
+
+    s_paintDbgLayoutRestVpBudgetHint = restVpBudgetHint;
 }
 
 // 本文（メニュー + T14〜T18 テキスト）をスクロール付きで描画し、下端に [scroll] サマリを載せる。
@@ -1111,7 +1132,8 @@ void Win32DebugOverlay_Paint(
         _countof(menuBuf),
         t14Buf,
         _countof(t14Buf),
-        Win32_IsT37VirtualBodyOverlayActiveForLayout());
+        Win32_IsT37VirtualBodyOverlayActiveForLayout(),
+        s_paintDbgLayoutRestVpBudgetHint);
     RECT rcMenuDoc{};
     RECT rcT14Doc{};
     Win32_MenuSampleMeasurePaintLayout(hdc, clientW, menuBuf, t14Buf, rcMenuDoc, rcT14Doc);
@@ -1121,7 +1143,10 @@ void Win32DebugOverlay_Paint(
     wchar_t overlay[2048] = {};
     const int jumpF7 = Win32DebugOverlay_ScrollTargetT17WithTopMargin();
     const int jumpF8 = Win32DebugOverlay_ScrollTargetT17Centered(hwnd);
-    const bool compactScrollBandPaint = (clientH < WIN32_OVERLAY_T49_SCROLL_COMPACT_CLIENT_H);
+    const bool compactScrollBandPaint =
+        (clientH < WIN32_OVERLAY_T49_SCROLL_COMPACT_CLIENT_H) ||
+        (s_paintDbgT14VmSplitActive && s_paintDbgRestViewportClientH > 0 &&
+         s_paintDbgRestViewportClientH < WIN32_OVERLAY_T51_COMPACT_SCROLL_RESTVP_PX);
     Win32_DebugOverlay_FormatScrollDebugOverlay(
         overlay,
         _countof(overlay),

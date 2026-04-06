@@ -250,6 +250,7 @@ int s_paintDbgT14VisibleModesDocStartY = 0;
 int s_paintDbgLineHeight = 16;
 int s_paintDbgActualOverlayHeight = 0;
 int s_paintDbgScrollBandReservePx = 0; // T48: [scroll] 帯に割り当てた実効高さ（本文 min 保証で圧縮可）
+int s_paintDbgLayoutRestVpBudgetHint = -1; // T51: 最後の Fill に渡した restVp 予算（-1=clientH のみ）
 int s_paintDbgClientW = 0;
 int s_paintDbgClientH = 0;
 int s_paintDbgMaxScroll = 0;
@@ -409,12 +410,17 @@ static void Win32_FillMenuSamplePaintBuffers_MenuColumn(
     wchar_t* menuBuf,
     size_t menuBufCount,
     bool compactT37);
-static void Win32_FillMenuSamplePaintBuffers_T14T15Column(wchar_t* t14Buf, size_t t14BufCount, int clientH);
+static void Win32_FillMenuSamplePaintBuffers_T14T15Column(
+    wchar_t* t14Buf,
+    size_t t14BufCount,
+    int clientH,
+    int restVpBudgetHint);
 static void Win32_FillMenuSamplePaintBuffers_AppendT16T18T17(
     HWND hwnd,
     const RECT& rcClient,
     wchar_t* t14Buf,
-    size_t t14BufCount);
+    size_t t14BufCount,
+    int restVpBudgetHint);
 
 // menuOpen / 統合 Consumer の境界
 static void Win32_UnifiedInputMenuTick_ClearPendingT17IfMenuOpen(void);
@@ -2380,12 +2386,19 @@ static void Win32_T16_AppendPaintSection(
     wchar_t* buf,
     size_t bufCount,
     HWND hwnd,
-    const RECT& rcClient)
+    const RECT& rcClient,
+    int restVpBudgetHint)
 {
     // Per-Monitor DPI Aware V2: GetClientRect はクライアント領域を物理ピクセルで返す。
     // target の logical（MulDiv(mode,96,dpi)）と比較するには current も同じ式で論理化する。
     const int cw = static_cast<int>(rcClient.right - rcClient.left);
     const int ch = static_cast<int>(rcClient.bottom - rcClient.top);
+    const int budgetPx = (restVpBudgetHint >= 0) ? restVpBudgetHint : ch;
+    // T51: 実効 restVp が小さいときも T16 を省略（T50 の rawClientH 極小に加える）
+    if (budgetPx > 0 && budgetPx < WIN32_OVERLAY_T51_OMIT_T16_RESTVP_PX)
+    {
+        return;
+    }
     // T50: 極小 Windowed では T16 ブロックを生成しない（文字列生成で予算を節約）
     if (ch > 0 && ch < WIN32_OVERLAY_T50_TINY_CLIENT_H)
     {
@@ -3944,31 +3957,31 @@ static void Win32_FillMenuSamplePaintBuffers_MenuColumn(
         c00, c10, c01, c11);
 }
 
-// T49/T50: clientH に応じて表示行数を抑える（論理の kT14VisibleModeCount は据え置き）
-// T50 極小: 1～3 行。それ以外は T49 の段階。
-static size_t Win32_T14_VisibleModeRowsForClientH(int clientH)
+// T49/T50/T51: 表示予算 budgetPx（通常は clientH、T51 では実効 restVp）で行数を抑える
+// T50 極小帯: 1～3 行。それ以外は T49 の段階。
+static size_t Win32_T14_VisibleModeRowsForBudgetPx(int budgetPx)
 {
-    if (clientH < WIN32_OVERLAY_T50_TINY_CLIENT_H)
+    if (budgetPx < WIN32_OVERLAY_T50_TINY_CLIENT_H)
     {
-        if (clientH < 200)
+        if (budgetPx < 200)
         {
             return 1;
         }
-        if (clientH < 240)
+        if (budgetPx < 240)
         {
             return 2;
         }
         return 3;
     }
-    if (clientH < 240)
+    if (budgetPx < 240)
     {
         return 2;
     }
-    if (clientH < 340)
+    if (budgetPx < 340)
     {
         return 4;
     }
-    if (clientH < 480)
+    if (budgetPx < 480)
     {
         return 6;
     }
@@ -3976,17 +3989,23 @@ static size_t Win32_T14_VisibleModeRowsForClientH(int clientH)
 }
 
 // T14 可視行 + T15 最近傍ブロック（モニタ無し時はプレースホルダ）。
-static void Win32_FillMenuSamplePaintBuffers_T14T15Column(wchar_t* t14Buf, size_t t14BufCount, int clientH)
+static void Win32_FillMenuSamplePaintBuffers_T14T15Column(
+    wchar_t* t14Buf,
+    size_t t14BufCount,
+    int clientH,
+    int restVpBudgetHint)
 {
+    const int budgetPx = (restVpBudgetHint >= 0) ? restVpBudgetHint : clientH;
+
     if (!s_displayMonitorsCache.empty() && kT14SelectedMonitorIndex < s_displayMonitorsCache.size())
     {
         const DisplayMonitorInfo& mon = s_displayMonitorsCache[kT14SelectedMonitorIndex];
         const size_t rowsToPaint =
-            (std::min)(Win32_T14_VisibleModeRowsForClientH(clientH), kT14VisibleModeCount);
+            (std::min)(Win32_T14_VisibleModeRowsForBudgetPx(budgetPx), kT14VisibleModeCount);
         const bool tinyBudget =
-            (clientH > 0 && clientH < WIN32_OVERLAY_T50_TINY_CLIENT_H);
+            (budgetPx > 0 && budgetPx < WIN32_OVERLAY_T50_TINY_CLIENT_H);
         const bool minimalHeader =
-            (clientH > 0 && clientH < WIN32_OVERLAY_T49_T14_MINIMAL_HEADER_CLIENT_H);
+            (budgetPx > 0 && budgetPx < WIN32_OVERLAY_T49_T14_MINIMAL_HEADER_CLIENT_H);
 
         if (tinyBudget)
         {
@@ -4168,9 +4187,10 @@ static void Win32_FillMenuSamplePaintBuffers_AppendT16T18T17(
     HWND hwnd,
     const RECT& rcClient,
     wchar_t* t14Buf,
-    size_t t14BufCount)
+    size_t t14BufCount,
+    int restVpBudgetHint)
 {
-    Win32_T16_AppendPaintSection(t14Buf, t14BufCount, hwnd, rcClient);
+    Win32_T16_AppendPaintSection(t14Buf, t14BufCount, hwnd, rcClient, restVpBudgetHint);
     Win32_T18_AppendPaintSection(t14Buf, t14BufCount);
     Win32_T17_AppendPaintSection(t14Buf, t14BufCount);
 }
@@ -4183,7 +4203,8 @@ void Win32_FillMenuSamplePaintBuffers(
     size_t menuBufCount,
     wchar_t* t14Buf,
     size_t t14BufCount,
-    bool compactMenuForT37Layout)
+    bool compactMenuForT37Layout,
+    int restVpBudgetHint)
 {
     Win32_T18_RefreshControllerIdentifySnapshot();
 
@@ -4191,8 +4212,9 @@ void Win32_FillMenuSamplePaintBuffers(
     Win32_FillMenuSamplePaintBuffers_T14T15Column(
         t14Buf,
         t14BufCount,
-        static_cast<int>(rcClient.bottom - rcClient.top));
-    Win32_FillMenuSamplePaintBuffers_AppendT16T18T17(hwnd, rcClient, t14Buf, t14BufCount);
+        static_cast<int>(rcClient.bottom - rcClient.top),
+        restVpBudgetHint);
+    Win32_FillMenuSamplePaintBuffers_AppendT16T18T17(hwnd, rcClient, t14Buf, t14BufCount, restVpBudgetHint);
 }
 
 bool Win32_IsT37VirtualBodyOverlayActiveForLayout(void)
