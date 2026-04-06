@@ -2374,6 +2374,22 @@ static const wchar_t* Win32_T16_ShowCmdLabel(UINT sc)
     }
 }
 
+// T55: fill-monitor + オフスクリーン時、HUD の T14/T15/T16 用 budget を client だけに直結させない（committed 仮想高で tiny 縮退を抑制）
+static int Win32_T55_HudBudgetPxForFill(HWND hwnd, int clientH, int restVpBudgetHint)
+{
+    const int base = (restVpBudgetHint >= 0) ? restVpBudgetHint : clientH;
+    if (!hwnd || !IsWindow(hwnd) || !Win32_MainWindow_IsFillMonitorPresentationMode(hwnd))
+    {
+        return base;
+    }
+    const int gh = s_lastCommittedGridSelectedPhysH;
+    if (gh > 0)
+    {
+        return (std::max)(base, gh);
+    }
+    return base;
+}
+
 // WM_PAINT 用テキスト: T16（ウィンドウド時の目標／実測・再生成結果）を buf に追記。
 static void Win32_T16_AppendPaintSection(
     wchar_t* buf,
@@ -2386,14 +2402,15 @@ static void Win32_T16_AppendPaintSection(
     // target の logical（MulDiv(mode,96,dpi)）と比較するには current も同じ式で論理化する。
     const int cw = static_cast<int>(rcClient.right - rcClient.left);
     const int ch = static_cast<int>(rcClient.bottom - rcClient.top);
-    const int budgetPx = (restVpBudgetHint >= 0) ? restVpBudgetHint : ch;
+    const int budgetPx = Win32_T55_HudBudgetPxForFill(hwnd, ch, restVpBudgetHint);
     // T51: 実効 restVp が小さいときも T16 を省略（T50 の rawClientH 極小に加える）
     if (budgetPx > 0 && budgetPx < WIN32_OVERLAY_T51_OMIT_T16_RESTVP_PX)
     {
         return;
     }
     // T50: 極小 Windowed では T16 ブロックを生成しない（文字列生成で予算を節約）
-    if (ch > 0 && ch < WIN32_OVERLAY_T50_TINY_CLIENT_H)
+    // T55: fill-monitor では budgetPx が committed 仮想高を含むため、client だけの極小判定を避ける
+    if (budgetPx > 0 && budgetPx < WIN32_OVERLAY_T50_TINY_CLIENT_H)
     {
         return;
     }
@@ -3989,7 +4006,7 @@ static void Win32_FillMenuSamplePaintBuffers_T14T15Column(
     int clientH,
     int restVpBudgetHint)
 {
-    const int budgetPx = (restVpBudgetHint >= 0) ? restVpBudgetHint : clientH;
+    const int budgetPx = Win32_T55_HudBudgetPxForFill(hwnd, clientH, restVpBudgetHint);
     const bool t53Windowed =
         hwnd && IsWindow(hwnd) && !Win32_MainWindow_IsFillMonitorPresentationMode(hwnd);
     const bool t53OneRow =
@@ -4228,7 +4245,7 @@ static void Win32_FillMenuSamplePaintBuffers_AppendT16T18T17(
     int restVpBudgetHint)
 {
     const int ch = static_cast<int>(rcClient.bottom - rcClient.top);
-    const int budgetPx = (restVpBudgetHint >= 0) ? restVpBudgetHint : ch;
+    const int budgetPx = Win32_T55_HudBudgetPxForFill(hwnd, ch, restVpBudgetHint);
     if (hwnd && IsWindow(hwnd) && !Win32_MainWindow_IsFillMonitorPresentationMode(hwnd) &&
         budgetPx >= 0 && budgetPx < WIN32_OVERLAY_T53_OMIT_T16_BUDGET_PX)
     {

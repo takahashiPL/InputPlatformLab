@@ -1031,9 +1031,13 @@ refill_budget:
 
         if (!layoutRefilledForBudget && restVp2 < WIN32_OVERLAY_T51_REFILL_RESTVP_PX)
         {
-            restVpBudgetHint = restVp2;
-            layoutRefilledForBudget = true;
-            goto refill_budget;
+            // T55: fill-monitor では client 基準の refill 短縮を行わない（仮想キャンバスと HUD 密度がずれる）
+            if (!Win32_IsMainWindowFillMonitorPresentation(hwnd))
+            {
+                restVpBudgetHint = restVp2;
+                layoutRefilledForBudget = true;
+                goto refill_budget;
+            }
         }
     }
 

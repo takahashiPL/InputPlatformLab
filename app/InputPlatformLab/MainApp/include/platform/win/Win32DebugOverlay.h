@@ -70,6 +70,8 @@ void Win32_DebugOverlay_FormatScrollDebugOverlay(
 #define WIN32_OVERLAY_T53_MINIMAL_T14_BUDGET_PX 60
 #endif
 
+// T55: fill-monitor（Borderless/Fullscreen）では HUD budget を committed 仮想解像度に揃え、T51 refill を抑止（MainApp / Win32DebugOverlay）
+
 // MainApp が WM_PAINT 用に組み立てたバッファを、GDI で描画するモジュール（D3D とは役割分担）。
 // compactMenuForT37Layout: T37 有効時のみ左列メニューを短文化（T14 本文バッファは変えない）。
 void Win32_FillMenuSamplePaintBuffers(
