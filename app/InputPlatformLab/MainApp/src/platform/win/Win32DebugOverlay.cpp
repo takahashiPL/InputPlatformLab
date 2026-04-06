@@ -283,6 +283,36 @@ void Win32_DebugOverlay_ClampScrollYToMaxScroll(int maxScroll, const wchar_t* wh
     s_paintScrollY = newY;
 }
 
+// T45: Windowed のみ。論理レイアウトの最終 contentH / スクロール用ビューポート高から SetScrollInfo（maxScroll_si == contentH - viewportH）
+static void Win32_T45_ApplyWindowedScrollInfo(HWND hwnd, int scrollContentH, int scrollViewportH, int pos)
+{
+    if (!hwnd || Win32_IsMainWindowFillMonitorPresentation(hwnd))
+    {
+        return;
+    }
+    const int nMax = (std::max)(0, scrollContentH - 1);
+    const UINT nPage = static_cast<UINT>((std::max)(1, scrollViewportH));
+    SCROLLINFO si = {};
+    si.cbSize = sizeof(si);
+    si.fMask = SIF_RANGE | SIF_PAGE | SIF_POS;
+    si.nMin = 0;
+    si.nMax = nMax;
+    si.nPage = nPage;
+    si.nPos = pos;
+    Win32_UpdateNativeScrollbarsWindowedOnly(hwnd, SB_VERT, &si, TRUE);
+    const int maxScrollSi = (std::max)(0, static_cast<int>(nMax) - static_cast<int>(nPage) + 1);
+    wchar_t line[320] = {};
+    swprintf_s(
+        line,
+        _countof(line),
+        L"[T45] SI final nMax=%d nPage=%u pos=%d maxScroll=%d\r\n",
+        nMax,
+        nPage,
+        pos,
+        maxScrollSi);
+    OutputDebugStringW(line);
+}
+
 // 垂直スクロール位置を更新し、必要なら再描画。F7/F8 や WM_VSCROLL から呼ばれる。
 void Win32DebugOverlay_MainView_SetScrollPos(HWND hwnd, int newY, const wchar_t* logWhere)
 {
@@ -680,29 +710,6 @@ static void Win32_DebugOverlay_ComputeLayoutMetrics(
     const int scrollYBeforePaint = s_paintScrollY;
     Win32_DebugOverlay_ClampScrollYToMaxScroll(maxScroll, L"ComputeLayoutMetrics.phase1");
 
-    SCROLLINFO si = {};
-    si.cbSize = sizeof(si);
-    si.fMask = SIF_RANGE | SIF_PAGE | SIF_POS;
-    si.nMin = 0;
-    si.nMax = (std::max)(0, contentHeight - 1);
-    si.nPage = static_cast<UINT>(
-        vmSplitActive ? (std::max)(1, splitRestVp) : (std::max)(1, clientH));
-    si.nPos = s_paintScrollY;
-    Win32_UpdateNativeScrollbarsWindowedOnly(hwnd, SB_VERT, &si, TRUE);
-
-    if (logScroll)
-    {
-        Win32DebugOverlay_ScrollLog(
-            L"WM_PAINT after SetScrollInfo",
-            hwnd,
-            scrollYBeforePaint,
-            s_paintScrollY,
-            contentHeight,
-            s_paintDbgT17DocY,
-            vmSplitActive ? splitHRest : baseContentH,
-            extraBottomPadding);
-    }
-
     int jumpF7 = Win32DebugOverlay_ScrollTargetT17WithTopMargin();
     int jumpF8 = Win32DebugOverlay_ScrollTargetT17Centered(hwnd);
     wchar_t overlay[1024] = {};
@@ -743,10 +750,6 @@ static void Win32_DebugOverlay_ComputeLayoutMetrics(
             const int maxScroll2 = (std::max)(0, contentH2 - restVp2);
             s_paintDbgMaxScroll = maxScroll2;
             Win32_DebugOverlay_ClampScrollYToMaxScroll(maxScroll2, L"ComputeLayoutMetrics.vmSplitRefine");
-            si.nMax = (std::max)(0, contentH2 - 1);
-            si.nPage = static_cast<UINT>((std::max)(1, restVp2));
-            si.nPos = s_paintScrollY;
-            Win32_UpdateNativeScrollbarsWindowedOnly(hwnd, SB_VERT, &si, TRUE);
             s_paintDbgContentHeight = contentH2;
             s_paintDbgExtraBottomPadding = extra2;
             maxScroll = maxScroll2;
@@ -754,6 +757,32 @@ static void Win32_DebugOverlay_ComputeLayoutMetrics(
             extraBottomPadding = extra2;
         }
         s_paintDbgRestViewportClientH = restVp2;
+    }
+
+    {
+        const int scrollContentHFinal = s_paintDbgContentHeight;
+        const int scrollViewportHFinal = vmSplitActive ? s_paintDbgRestViewportClientH : clientH;
+        const int maxScrollUnified = (std::max)(0, scrollContentHFinal - scrollViewportHFinal);
+        s_paintDbgMaxScroll = maxScrollUnified;
+        Win32_DebugOverlay_ClampScrollYToMaxScroll(maxScrollUnified, L"ComputeLayoutMetrics.unified");
+        Win32_T45_ApplyWindowedScrollInfo(hwnd, scrollContentHFinal, scrollViewportHFinal, s_paintScrollY);
+    }
+
+    if (logScroll)
+    {
+        Win32DebugOverlay_ScrollLog(
+            L"WM_PAINT after SetScrollInfo",
+            hwnd,
+            scrollYBeforePaint,
+            s_paintScrollY,
+            s_paintDbgContentHeight,
+            s_paintDbgT17DocY,
+            vmSplitActive ? splitHRest : baseContentH,
+            s_paintDbgExtraBottomPadding);
+    }
+
+    if (vmSplitActive)
+    {
         jumpF7 = Win32DebugOverlay_ScrollTargetT17WithTopMargin();
         jumpF8 = Win32DebugOverlay_ScrollTargetT17Centered(hwnd);
         Win32_DebugOverlay_FormatScrollDebugOverlay(
@@ -763,10 +792,10 @@ static void Win32_DebugOverlay_ComputeLayoutMetrics(
             s_paintDbgContentHeightBase,
             s_paintDbgExtraBottomPadding,
             s_paintDbgContentHeight,
-            maxScroll,
+            s_paintDbgMaxScroll,
             s_paintDbgT17DocY,
             s_paintScrollY,
-            s_paintDbgClientHeight,
+            s_paintDbgRestViewportClientH,
             jumpF7,
             jumpF8);
         actualOverlayHeight =
@@ -774,19 +803,6 @@ static void Win32_DebugOverlay_ComputeLayoutMetrics(
     }
 
     s_paintDbgActualOverlayHeight = actualOverlayHeight;
-
-    {
-        const int yBeforeFinal = s_paintScrollY;
-        Win32_DebugOverlay_ClampScrollYToMaxScroll(s_paintDbgMaxScroll, L"ComputeLayoutMetrics.final");
-        if (s_paintScrollY != yBeforeFinal && !Win32_IsMainWindowFillMonitorPresentation(hwnd))
-        {
-            SCROLLINFO siPos = {};
-            siPos.cbSize = sizeof(siPos);
-            siPos.fMask = SIF_POS;
-            siPos.nPos = s_paintScrollY;
-            Win32_UpdateNativeScrollbarsWindowedOnly(hwnd, SB_VERT, &siPos, TRUE);
-        }
-    }
 
     if (outHud)
     {
@@ -898,7 +914,7 @@ void Win32DebugOverlay_Paint(
         s_paintDbgMaxScroll,
         s_paintDbgT17DocY,
         s_paintScrollY,
-        s_paintDbgClientHeight,
+        s_paintDbgRestViewportClientH,
         jumpF7,
         jumpF8);
 
