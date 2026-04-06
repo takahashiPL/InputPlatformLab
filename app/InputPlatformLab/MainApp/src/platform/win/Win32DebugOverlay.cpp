@@ -669,6 +669,8 @@ static void Win32_DebugOverlay_ComputeLayoutMetrics(
 
     int restVpBudgetHint = -1;
     bool layoutRefilledForBudget = false;
+    // T54: T51 refill で短縮したバッファを、final で収まったあと 1 回だけ clientH 相当へ戻す
+    bool t54ReExpanded = false;
 
     wchar_t menuBuf[3072] = {};
     wchar_t t14Buf[8192] = {};
@@ -1035,13 +1037,27 @@ refill_budget:
         }
     }
 
+    const int scrollContentHFinal = s_paintDbgContentHeight;
+    const int scrollViewportHFinal = vmSplitActive ? s_paintDbgRestViewportClientH : clientH;
+    const int maxScrollUnified = (std::max)(0, scrollContentHFinal - scrollViewportHFinal);
     {
-        const int scrollContentHFinal = s_paintDbgContentHeight;
-        const int scrollViewportHFinal = vmSplitActive ? s_paintDbgRestViewportClientH : clientH;
-        const int maxScrollUnified = (std::max)(0, scrollContentHFinal - scrollViewportHFinal);
         s_paintDbgMaxScroll = maxScrollUnified;
         Win32_DebugOverlay_ClampScrollYToMaxScroll(maxScrollUnified, L"ComputeLayoutMetrics.unified");
         Win32_T45_ApplyWindowedScrollInfo(hwnd, scrollContentHFinal, scrollViewportHFinal, s_paintScrollY);
+    }
+
+    // T54: provisional restVpBudgetHint で短縮した本文が、確定レイアウトでは不要になったら通常 budget で再生成（最大 1 回）
+    if (!t54ReExpanded && !Win32_IsMainWindowFillMonitorPresentation(hwnd) && restVpBudgetHint >= 0)
+    {
+        const bool finalLayoutFits =
+            !vmSplitActive || maxScrollUnified == 0 || scrollContentHFinal <= scrollViewportHFinal;
+        if (finalLayoutFits)
+        {
+            restVpBudgetHint = -1;
+            layoutRefilledForBudget = false;
+            t54ReExpanded = true;
+            goto refill_budget;
+        }
     }
 
     s_paintDbgLayoutMetricsFromPaintValid = true;
