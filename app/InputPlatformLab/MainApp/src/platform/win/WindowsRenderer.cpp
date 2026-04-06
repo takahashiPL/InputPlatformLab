@@ -632,7 +632,7 @@ static HRESULT WindowsRenderer_DrawD2DContentToSurface(
     return hr;
 }
 
-// 最終 swapchain backbuffer: 左列 HUD 全文（menu+t14）スクロール → cand/act（committed に乗せない）
+// 最終 swapchain backbuffer: T39 3 帯（row1 cand/act, row2 menu, body T14 スクロール）+ 下端 [scroll]
 static HRESULT WindowsRenderer_DrawHudD2DOnFinalBackbuffer(
     WindowsRendererState* s,
     UINT cw,
@@ -644,6 +644,7 @@ static HRESULT WindowsRenderer_DrawHudD2DOnFinalBackbuffer(
         return E_INVALIDARG;
     }
     s->dbgHudLeftColumnSkipGdi = false;
+    s->dbgHudScrollBandSkipGdi = false;
 
     UINT dpiSys = GetDpiForWindow(s->targetHwnd);
     if (dpiSys == 0)
@@ -684,43 +685,172 @@ static HRESULT WindowsRenderer_DrawHudD2DOnFinalBackbuffer(
     }
 
     static const wchar_t kFallbackT33Line[] = L"T33: DirectWrite overlay (1 line)";
-    const wchar_t* const t33LinePtr =
+    const wchar_t* const row1CandPtr =
         (s->t17HudLine[0] != L'\0') ? s->t17HudLine : kFallbackT33Line;
-    const UINT32 t33LineLen = static_cast<UINT32>(wcslen(t33LinePtr));
-#if WIN32_RENDERER_DEBUG_GRID_64PX
-    const bool t37 = s->t37VirtualBodyOverlayRequested;
-    const float t33Top = t37 ? 8.0f : 80.0f;
-#else
-    const float t33Top = 8.0f;
-#endif
-    D2D1_RECT_F layout;
-#if WIN32_RENDERER_DEBUG_GRID_64PX
-    if (t37)
-    {
-        const float splitX = (std::max)(80.f, wDip * 0.5f);
-        layout = D2D1::RectF(
-            8.0f,
-            t33Top,
-            splitX - 8.f,
-            (std::max)(t33Top + 4.0f, hDip - 8.0f));
-    }
-    else
-#endif
-    {
-        layout = D2D1::RectF(
-            8.0f,
-            t33Top,
-            (std::max)(8.0f, wDip - 8.0f),
-            (std::max)(t33Top + 4.0f, hDip - 8.0f));
-    }
+    const UINT32 row1CandLen = static_cast<UINT32>(wcslen(row1CandPtr));
 
     s->d2dContext->SetTarget(dstBmp);
     s->d2dContext->BeginDraw();
     s->d2dContext->SetTransform(D2D1::Matrix3x2F::Identity());
 
+    static constexpr float kFinalHudMarginDip = 8.0f;
     bool drewLeftHudToD2d = false;
-    if (s->dbgHudLeftColumnText[0] != L'\0' && cw == s->dbgHudLeftColumnPrefillClientW &&
-        ch == s->dbgHudLeftColumnPrefillClientH && s->dbgHudLeftColumnClipBottomPadPx >= 0)
+    const bool prefillOk =
+        cw == s->dbgHudLeftColumnPrefillClientW && ch == s->dbgHudLeftColumnPrefillClientH &&
+        s->dbgHudLeftColumnClipBottomPadPx >= 0;
+    if (prefillOk && s->dbgHudBodyBandText[0] != L'\0' && s->dbgHudMenuBandText[0] != L'\0' &&
+        s->dbgHudFinalBodyTopPx > 0 && s->dbgHudBodyT14DocTopPx >= 0 && s->dbgHudRow2TopPx >= 0)
+    {
+        const float bottomPadDip =
+            static_cast<float>(s->dbgHudLeftColumnClipBottomPadPx) * (96.f / dpiY);
+        const float clipBottomDip = (std::max)(0.f, hDip - bottomPadDip);
+        const float bodyTopDip = static_cast<float>(s->dbgHudFinalBodyTopPx) * sy;
+
+        const D2D1_RECT_F clipBody =
+            D2D1::RectF(0.f, bodyTopDip, wDip, clipBottomDip);
+        s->d2dContext->PushAxisAlignedClip(clipBody, D2D1_ANTIALIAS_MODE_ALIASED);
+
+        if (s->dbgHudT14VmSplit && s->dbgHudT14PrefixText[0] != L'\0' && s->dbgHudT14RestText[0] != L'\0')
+        {
+            const float t14TextStartDip =
+                static_cast<float>(s->dbgHudRow2TopPx + s->dbgHudBodyT14DocTopPx) * sy;
+            const float prefixHDip = static_cast<float>(s->dbgHudT14PrefixHeightPx) * sy;
+            const float vmBandHDip = static_cast<float>(s->dbgHudVmBandHeightPx) * sy;
+            const float restScrollDip = static_cast<float>(s->dbgHudLeftColumnScrollYPx) * sy;
+            const float restStartDip = t14TextStartDip + prefixHDip + vmBandHDip;
+
+            const UINT32 prefixLen =
+                static_cast<UINT32>((std::min)(wcslen(s->dbgHudT14PrefixText), size_t{8191}));
+            const D2D1_RECT_F rcPref = D2D1::RectF(
+                0.f,
+                t14TextStartDip,
+                wDip,
+                t14TextStartDip + prefixHDip + 8.f);
+            s->d2dContext->DrawText(
+                s->dbgHudT14PrefixText,
+                prefixLen,
+                s->dwriteTextFormat,
+                rcPref,
+                s->d2dTextBrush,
+                D2D1_DRAW_TEXT_OPTIONS_NONE,
+                DWRITE_MEASURING_MODE_NATURAL);
+
+            wchar_t vmBandBuf[8192] = {};
+            wcscpy_s(vmBandBuf, _countof(vmBandBuf), s->dbgHudVmHeadingText);
+            wcscat_s(vmBandBuf, _countof(vmBandBuf), s->dbgHudVmListBandText);
+            const UINT32 vmLen =
+                static_cast<UINT32>((std::min)(wcslen(vmBandBuf), size_t{8191}));
+            const D2D1_RECT_F rcVm = D2D1::RectF(
+                0.f,
+                t14TextStartDip + prefixHDip,
+                wDip,
+                restStartDip + 8.f);
+            s->d2dContext->DrawText(
+                vmBandBuf,
+                vmLen,
+                s->dwriteTextFormat,
+                rcVm,
+                s->d2dTextBrush,
+                D2D1_DRAW_TEXT_OPTIONS_NONE,
+                DWRITE_MEASURING_MODE_NATURAL);
+
+            const D2D1_RECT_F clipRest =
+                D2D1::RectF(0.f, restStartDip, wDip, clipBottomDip);
+            s->d2dContext->PushAxisAlignedClip(clipRest, D2D1_ANTIALIAS_MODE_ALIASED);
+            s->d2dContext->SetTransform(D2D1::Matrix3x2F::Translation(0.f, -restScrollDip));
+            const UINT32 restLen =
+                static_cast<UINT32>((std::min)(wcslen(s->dbgHudBodyBandText), size_t{16383}));
+            const D2D1_RECT_F docRest = D2D1::RectF(
+                0.f,
+                restStartDip,
+                wDip,
+                restStartDip + 2000000.f);
+            s->d2dContext->DrawText(
+                s->dbgHudBodyBandText,
+                restLen,
+                s->dwriteTextFormat,
+                docRest,
+                s->d2dTextBrush,
+                D2D1_DRAW_TEXT_OPTIONS_NONE,
+                DWRITE_MEASURING_MODE_NATURAL);
+            s->d2dContext->SetTransform(D2D1::Matrix3x2F::Identity());
+            s->d2dContext->PopAxisAlignedClip();
+        }
+        else
+        {
+            const int scrollBodyPx = (std::max)(
+                0,
+                s->dbgHudLeftColumnScrollYPx + s->dbgHudFinalBodyTopPx - s->dbgHudBodyT14DocTopPx);
+            const float scrollBodyDip = static_cast<float>(scrollBodyPx) * sy;
+            s->d2dContext->SetTransform(D2D1::Matrix3x2F::Translation(0.f, -scrollBodyDip));
+            const UINT32 bodyLen =
+                static_cast<UINT32>((std::min)(wcslen(s->dbgHudBodyBandText), size_t{16383}));
+            const D2D1_RECT_F docBody = D2D1::RectF(
+                0.f,
+                bodyTopDip,
+                wDip,
+                bodyTopDip + 2000000.f);
+            s->d2dContext->DrawText(
+                s->dbgHudBodyBandText,
+                bodyLen,
+                s->dwriteTextFormat,
+                docBody,
+                s->d2dTextBrush,
+                D2D1_DRAW_TEXT_OPTIONS_NONE,
+                DWRITE_MEASURING_MODE_NATURAL);
+            s->d2dContext->SetTransform(D2D1::Matrix3x2F::Identity());
+        }
+        s->d2dContext->PopAxisAlignedClip();
+
+        const float row1HDip = static_cast<float>(s->dbgHudFinalRow1HeightPx) * sy;
+        const float row2TopDip = static_cast<float>(s->dbgHudRow2TopPx) * sy;
+        const float menuHDip = static_cast<float>(s->dbgHudMenuColumnHeightPx) * sy;
+        const float row2BottomDip = (std::min)(bodyTopDip - 1.f, row2TopDip + menuHDip);
+
+        const D2D1_RECT_F row1Rect = D2D1::RectF(
+            kFinalHudMarginDip,
+            0.f,
+            (std::max)(kFinalHudMarginDip + 4.f, wDip - kFinalHudMarginDip),
+            row1HDip + 4.f);
+        s->d2dContext->DrawText(
+            row1CandPtr,
+            row1CandLen,
+            s->dwriteTextFormat,
+            row1Rect,
+            s->d2dTextBrush,
+            D2D1_DRAW_TEXT_OPTIONS_NONE,
+            DWRITE_MEASURING_MODE_NATURAL);
+        if (firstDiag)
+        {
+            T33_LogFrameStep(L"[HUD] DrawText row1 cand/act (T39)", S_OK);
+        }
+
+        const UINT32 menuLen =
+            static_cast<UINT32>((std::min)(wcslen(s->dbgHudMenuBandText), size_t{3071}));
+        const D2D1_RECT_F row2Rect = D2D1::RectF(
+            kFinalHudMarginDip,
+            row2TopDip,
+            (std::max)(kFinalHudMarginDip + 4.f, wDip - kFinalHudMarginDip),
+            (std::max)(row2TopDip + 4.f, row2BottomDip));
+        s->d2dContext->DrawText(
+            s->dbgHudMenuBandText,
+            menuLen,
+            s->dwriteTextFormat,
+            row2Rect,
+            s->d2dTextBrush,
+            D2D1_DRAW_TEXT_OPTIONS_NONE,
+            DWRITE_MEASURING_MODE_NATURAL);
+        if (firstDiag)
+        {
+            T33_LogFrameStep(L"[HUD] DrawText row2 menu (T39)", S_OK);
+        }
+        if (firstDiag)
+        {
+            T33_LogFrameStep(L"[HUD] DrawText body T14 (T39)", S_OK);
+        }
+        drewLeftHudToD2d = true;
+    }
+    else if (s->dbgHudLeftColumnText[0] != L'\0' && prefillOk)
     {
         const float scrollDip =
             static_cast<float>(s->dbgHudLeftColumnScrollYPx) * (96.f / dpiY);
@@ -751,27 +881,81 @@ static HRESULT WindowsRenderer_DrawHudD2DOnFinalBackbuffer(
         drewLeftHudToD2d = true;
         if (firstDiag)
         {
-            T33_LogFrameStep(L"[HUD] DrawText left column (menu+t14)", S_OK);
+            T33_LogFrameStep(L"[HUD] DrawText left column (menu+t14) fallback", S_OK);
+        }
+        const float t33Top = 8.0f;
+        const D2D1_RECT_F layout = D2D1::RectF(
+            8.0f,
+            t33Top,
+            (std::max)(8.0f, wDip - 8.0f),
+            (std::max)(t33Top + 4.0f, hDip - 8.0f));
+        s->d2dContext->DrawText(
+            row1CandPtr,
+            row1CandLen,
+            s->dwriteTextFormat,
+            layout,
+            s->d2dTextBrush,
+            D2D1_DRAW_TEXT_OPTIONS_NONE,
+            DWRITE_MEASURING_MODE_NATURAL);
+        if (firstDiag)
+        {
+            T33_LogFrameStep(L"[HUD] DrawText cand/act fallback", S_OK);
+        }
+    }
+    else
+    {
+        const float t33Top = 8.0f;
+        const D2D1_RECT_F layout = D2D1::RectF(
+            8.0f,
+            t33Top,
+            (std::max)(8.0f, wDip - 8.0f),
+            (std::max)(t33Top + 4.0f, hDip - 8.0f));
+        s->d2dContext->DrawText(
+            row1CandPtr,
+            row1CandLen,
+            s->dwriteTextFormat,
+            layout,
+            s->d2dTextBrush,
+            D2D1_DRAW_TEXT_OPTIONS_NONE,
+            DWRITE_MEASURING_MODE_NATURAL);
+        if (firstDiag)
+        {
+            T33_LogFrameStep(L"[HUD] DrawText cand/act only", S_OK);
         }
     }
 
-    s->d2dContext->DrawText(
-        t33LinePtr,
-        t33LineLen,
-        s->dwriteTextFormat,
-        layout,
-        s->d2dTextBrush,
-        D2D1_DRAW_TEXT_OPTIONS_NONE,
-        DWRITE_MEASURING_MODE_NATURAL);
-    if (firstDiag)
+    bool drewScrollBandToD2d = false;
+    if (s->dbgHudScrollBandText[0] != L'\0' && s->dbgHudScrollBandHeightPx > 0 &&
+        cw == s->dbgHudLeftColumnPrefillClientW && ch == s->dbgHudLeftColumnPrefillClientH)
     {
-        T33_LogFrameStep(L"[HUD] DrawText cand/act", S_OK);
+        const float bandHDip = static_cast<float>(s->dbgHudScrollBandHeightPx) * sy;
+        const float topBand = (std::max)(0.f, hDip - bandHDip);
+        const D2D1_RECT_F scrollRect = D2D1::RectF(0.f, topBand, wDip, hDip);
+        const UINT32 scrollLen = static_cast<UINT32>(
+            (std::min)(wcslen(s->dbgHudScrollBandText), size_t{1023}));
+        s->d2dContext->DrawText(
+            s->dbgHudScrollBandText,
+            scrollLen,
+            s->dwriteTextFormat,
+            scrollRect,
+            s->d2dTextBrush,
+            D2D1_DRAW_TEXT_OPTIONS_NONE,
+            DWRITE_MEASURING_MODE_NATURAL);
+        drewScrollBandToD2d = true;
+        if (firstDiag)
+        {
+            T33_LogFrameStep(L"[HUD] DrawText scroll band (T38)", S_OK);
+        }
     }
 
     hr = s->d2dContext->EndDraw();
     if (SUCCEEDED(hr) && drewLeftHudToD2d)
     {
         s->dbgHudLeftColumnSkipGdi = true;
+    }
+    if (SUCCEEDED(hr) && drewScrollBandToD2d)
+    {
+        s->dbgHudScrollBandSkipGdi = true;
     }
     dstBmp->Release();
     s->d2dContext->SetTarget(nullptr);

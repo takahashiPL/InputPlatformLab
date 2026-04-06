@@ -3996,6 +3996,11 @@ static void Win32_T14_TryAutoScrollSelectionIntoView(HWND hwnd)
             L"[T14VIEW] source=paint-cache (skip; not ready or client size mismatch)\r\n");
         return;
     }
+    if (Win32DebugOverlay_IsT14VmSplitActive())
+    {
+        OutputDebugStringW(L"[T14VIEW] T40 vmSplit: autoFollow uses visible-modes band only (no main scroll)\r\n");
+        return;
+    }
 
     SCROLLINFO si = {};
     si.cbSize = sizeof(si);
@@ -5736,6 +5741,8 @@ static void Win32_MainView_PaintFrame(HWND hWnd)
         hWnd,
         hdc,
         &s_windowsRendererState,
+        Win32_T17_ModeLabel(s_t17LastAppliedPresentationMode),
+        Win32_T17_ModeLabel(s_t17CurrentPresentationMode),
         Win32_T17_ModeLabel(s_t17LastAppliedPresentationMode));
 #endif
     WindowsRenderer_Frame(
@@ -5752,8 +5759,11 @@ static void Win32_MainView_PaintFrame(HWND hWnd)
             hWnd,
             hdc,
             Win32_T17_ModeLabel(s_t17LastAppliedPresentationMode),
+            Win32_T17_ModeLabel(s_t17CurrentPresentationMode),
+            Win32_T17_ModeLabel(s_t17LastAppliedPresentationMode),
             suppressT14BodyGdi,
-            s_windowsRendererState.dbgHudLeftColumnSkipGdi);
+            s_windowsRendererState.dbgHudLeftColumnSkipGdi,
+            s_windowsRendererState.dbgHudScrollBandSkipGdi);
     }
 #endif
     EndPaint(hWnd, &ps);

@@ -90,7 +90,7 @@ struct WindowsRendererState
     wchar_t t37BodyText[8192]{};
     // T17: F6 候補と Enter 適用を D2D 上段 1 行に表示（MainApp が毎フレーム更新）
     wchar_t t17HudLine[128]{};
-    // GDI 左列 HUD（メニュー+t14 列）を D2D で描いたフレームでは GDI で重ねない（下端 [scroll] 帯は GDI のまま）
+    // GDI 左列 HUD（メニュー+t14 列）を D2D で描いたフレームでは GDI で重ねない
     bool dbgHudLeftColumnSkipGdi = false;
     wchar_t dbgHudLeftColumnText[16384]{};
     int dbgHudLeftColumnTopPx = 0;
@@ -98,6 +98,26 @@ struct WindowsRendererState
     int dbgHudLeftColumnClipBottomPadPx = 0;
     std::uint32_t dbgHudLeftColumnPrefillClientW = 0;
     std::uint32_t dbgHudLeftColumnPrefillClientH = 0;
+    // T38: 下端 [scroll] サマリを final backbuffer の D2D で描いたフレームでは GDI の [scroll] 帯を描かない
+    bool dbgHudScrollBandSkipGdi = false;
+    wchar_t dbgHudScrollBandText[1024]{};
+    int dbgHudScrollBandHeightPx = 0;
+    // T39: final HUD 3 帯（row1 cand/act, row2 menu, body T14+）— Prefill で GDI 計測と一致させる
+    wchar_t dbgHudMenuBandText[3072]{};
+    wchar_t dbgHudBodyBandText[16384]{};
+    int dbgHudFinalRow1HeightPx = 0;
+    int dbgHudFinalBodyTopPx = 0;
+    int dbgHudBodyT14DocTopPx = 0;
+    int dbgHudRow2TopPx = 0;
+    int dbgHudMenuColumnHeightPx = 0;
+    // T40: visible modes リストを本文スクロールから分離（prefix + vm 帯固定 + rest のみ scrollY）
+    bool dbgHudT14VmSplit = false;
+    wchar_t dbgHudT14PrefixText[8192]{};
+    wchar_t dbgHudVmHeadingText[64]{};
+    wchar_t dbgHudVmListBandText[8192]{};
+    wchar_t dbgHudT14RestText[16384]{};
+    int dbgHudT14PrefixHeightPx = 0;
+    int dbgHudVmBandHeightPx = 0;
 };
 
 // --- T31 公開面（3 入口 + Shutdown）---
