@@ -283,11 +283,19 @@ void Win32_DebugOverlay_ClampScrollYToMaxScroll(int maxScroll, const wchar_t* wh
     s_paintScrollY = newY;
 }
 
+// T46: [scroll] 帯に併記する直近の Windowed SetScrollInfo（fill-monitor では無効）
+static int s_t46LastSiNMax = 0;
+static UINT s_t46LastSiNPage = 0;
+static int s_t46LastSiNPos = 0;
+static int s_t46LastSiMaxScrollSi = 0;
+static bool s_t46LastSiValid = false;
+
 // T45: Windowed のみ。論理レイアウトの最終 contentH / スクロール用ビューポート高から SetScrollInfo（maxScroll_si == contentH - viewportH）
 static void Win32_T45_ApplyWindowedScrollInfo(HWND hwnd, int scrollContentH, int scrollViewportH, int pos)
 {
     if (!hwnd || Win32_IsMainWindowFillMonitorPresentation(hwnd))
     {
+        s_t46LastSiValid = false;
         return;
     }
     const int nMax = (std::max)(0, scrollContentH - 1);
@@ -301,6 +309,11 @@ static void Win32_T45_ApplyWindowedScrollInfo(HWND hwnd, int scrollContentH, int
     si.nPos = pos;
     Win32_UpdateNativeScrollbarsWindowedOnly(hwnd, SB_VERT, &si, TRUE);
     const int maxScrollSi = (std::max)(0, static_cast<int>(nMax) - static_cast<int>(nPage) + 1);
+    s_t46LastSiValid = true;
+    s_t46LastSiNMax = nMax;
+    s_t46LastSiNPage = nPage;
+    s_t46LastSiNPos = pos;
+    s_t46LastSiMaxScrollSi = maxScrollSi;
     wchar_t line[320] = {};
     swprintf_s(
         line,
@@ -383,31 +396,92 @@ void Win32_DebugOverlay_FormatScrollDebugOverlay(
     int contentHBase,
     int extraBottomPadding,
     int contentHeight,
-    int maxScroll,
     int t17DocY,
     int scrollY,
-    int clientH,
+    int rawClientH,
+    int scrollVpH,
     int jumpF7,
-    int jumpF8)
+    int jumpF8,
+    bool provisionalNoSi)
 {
-    swprintf_s(
-        buf,
-        bufCount,
-        L"[scroll] mode(actual)=%s\r\n"
-        L"contentH(base)=%d  extraBottomPadding=%d  contentH(with padding)=%d  maxScroll=%d  T17DocY=%d\r\n"
-        L"scrollY=%d  clientH=%d  jumpTargetF7=%d  jumpTargetF8=%d  (F7 margin=%d)\r\n"
-        L"(PgUp/Dn=1/2 page; POPUP=pad clientH; Windowed=min pad to reach T17)",
-        modeLabel,
-        contentHBase,
-        extraBottomPadding,
-        contentHeight,
-        maxScroll,
-        t17DocY,
-        scrollY,
-        clientH,
-        jumpF7,
-        jumpF8,
-        WIN32_MAIN_T17_JUMP_TOP_MARGIN);
+    const int maxScrollLogical = (std::max)(0, contentHeight - scrollVpH);
+    if (provisionalNoSi)
+    {
+        swprintf_s(
+            buf,
+            bufCount,
+            L"[scroll] mode(actual)=%s\r\n"
+            L"contentH(base)=%d  extraBottomPadding=%d  contentH(with padding)=%d  "
+            L"maxScroll(contentH-scrollVpH)=%d  T17DocY=%d\r\n"
+            L"scrollY=%d  rawClientH=%d  scrollVpH=%d  jumpTargetF7=%d  jumpTargetF8=%d  (F7 margin=%d)\r\n"
+            L"(provisional; SI line after T45)\r\n"
+            L"(PgUp/Dn=1/2 page; POPUP=pad clientH; Windowed=min pad to reach T17)",
+            modeLabel,
+            contentHBase,
+            extraBottomPadding,
+            contentHeight,
+            maxScrollLogical,
+            t17DocY,
+            scrollY,
+            rawClientH,
+            scrollVpH,
+            jumpF7,
+            jumpF8,
+            WIN32_MAIN_T17_JUMP_TOP_MARGIN);
+        return;
+    }
+    if (s_t46LastSiValid)
+    {
+        swprintf_s(
+            buf,
+            bufCount,
+            L"[scroll] mode(actual)=%s\r\n"
+            L"contentH(base)=%d  extraBottomPadding=%d  contentH(with padding)=%d  "
+            L"maxScroll(contentH-scrollVpH)=%d  T17DocY=%d\r\n"
+            L"scrollY=%d  rawClientH=%d  scrollVpH=%d  jumpTargetF7=%d  jumpTargetF8=%d  (F7 margin=%d)\r\n"
+            L"SI: nMax=%d nPage=%u pos=%d maxScroll_si=%d\r\n"
+            L"(PgUp/Dn=1/2 page; POPUP=pad clientH; Windowed=min pad to reach T17)",
+            modeLabel,
+            contentHBase,
+            extraBottomPadding,
+            contentHeight,
+            maxScrollLogical,
+            t17DocY,
+            scrollY,
+            rawClientH,
+            scrollVpH,
+            jumpF7,
+            jumpF8,
+            WIN32_MAIN_T17_JUMP_TOP_MARGIN,
+            s_t46LastSiNMax,
+            s_t46LastSiNPage,
+            s_t46LastSiNPos,
+            s_t46LastSiMaxScrollSi);
+    }
+    else
+    {
+        swprintf_s(
+            buf,
+            bufCount,
+            L"[scroll] mode(actual)=%s\r\n"
+            L"contentH(base)=%d  extraBottomPadding=%d  contentH(with padding)=%d  "
+            L"maxScroll(contentH-scrollVpH)=%d  T17DocY=%d\r\n"
+            L"scrollY=%d  rawClientH=%d  scrollVpH=%d  jumpTargetF7=%d  jumpTargetF8=%d  (F7 margin=%d)\r\n"
+            L"SI: (n/a — fill-monitor / no native scrollbar)\r\n"
+            L"(PgUp/Dn=1/2 page; POPUP=pad clientH; Windowed=min pad to reach T17)",
+            modeLabel,
+            contentHBase,
+            extraBottomPadding,
+            contentHeight,
+            maxScrollLogical,
+            t17DocY,
+            scrollY,
+            rawClientH,
+            scrollVpH,
+            jumpF7,
+            jumpF8,
+            WIN32_MAIN_T17_JUMP_TOP_MARGIN);
+    }
 }
 
 static int Win32_MainView_MeasureScrollOverlayTextHeight(HDC hdc, int clientW, const wchar_t* text)
@@ -712,22 +786,28 @@ static void Win32_DebugOverlay_ComputeLayoutMetrics(
 
     int jumpF7 = Win32DebugOverlay_ScrollTargetT17WithTopMargin();
     int jumpF8 = Win32DebugOverlay_ScrollTargetT17Centered(hwnd);
-    wchar_t overlay[1024] = {};
-    Win32_DebugOverlay_FormatScrollDebugOverlay(
-        overlay,
-        _countof(overlay),
-        t17ModeLabelForOverlay,
-        s_paintDbgContentHeightBase,
-        s_paintDbgExtraBottomPadding,
-        s_paintDbgContentHeight,
-        maxScroll,
-        s_paintDbgT17DocY,
-        s_paintScrollY,
-        s_paintDbgClientHeight,
-        jumpF7,
-        jumpF8);
-    int actualOverlayHeight =
-        Win32_MainView_MeasureScrollOverlayTextHeight(hdc, clientW, overlay);
+    wchar_t overlay[2048] = {};
+    int actualOverlayHeight = 0;
+
+    if (vmSplitActive)
+    {
+        Win32_DebugOverlay_FormatScrollDebugOverlay(
+            overlay,
+            _countof(overlay),
+            t17ModeLabelForOverlay,
+            s_paintDbgContentHeightBase,
+            s_paintDbgExtraBottomPadding,
+            s_paintDbgContentHeight,
+            s_paintDbgT17DocY,
+            s_paintScrollY,
+            clientH,
+            splitRestVp,
+            jumpF7,
+            jumpF8,
+            true);
+        actualOverlayHeight =
+            Win32_MainView_MeasureScrollOverlayTextHeight(hdc, clientW, overlay);
+    }
 
     if (vmSplitActive)
     {
@@ -781,26 +861,24 @@ static void Win32_DebugOverlay_ComputeLayoutMetrics(
             s_paintDbgExtraBottomPadding);
     }
 
-    if (vmSplitActive)
-    {
-        jumpF7 = Win32DebugOverlay_ScrollTargetT17WithTopMargin();
-        jumpF8 = Win32DebugOverlay_ScrollTargetT17Centered(hwnd);
-        Win32_DebugOverlay_FormatScrollDebugOverlay(
-            overlay,
-            _countof(overlay),
-            t17ModeLabelForOverlay,
-            s_paintDbgContentHeightBase,
-            s_paintDbgExtraBottomPadding,
-            s_paintDbgContentHeight,
-            s_paintDbgMaxScroll,
-            s_paintDbgT17DocY,
-            s_paintScrollY,
-            s_paintDbgRestViewportClientH,
-            jumpF7,
-            jumpF8);
-        actualOverlayHeight =
-            Win32_MainView_MeasureScrollOverlayTextHeight(hdc, clientW, overlay);
-    }
+    jumpF7 = Win32DebugOverlay_ScrollTargetT17WithTopMargin();
+    jumpF8 = Win32DebugOverlay_ScrollTargetT17Centered(hwnd);
+    Win32_DebugOverlay_FormatScrollDebugOverlay(
+        overlay,
+        _countof(overlay),
+        t17ModeLabelForOverlay,
+        s_paintDbgContentHeightBase,
+        s_paintDbgExtraBottomPadding,
+        s_paintDbgContentHeight,
+        s_paintDbgT17DocY,
+        s_paintScrollY,
+        s_paintDbgClientHeight,
+        s_paintDbgRestViewportClientH,
+        jumpF7,
+        jumpF8,
+        false);
+    actualOverlayHeight =
+        Win32_MainView_MeasureScrollOverlayTextHeight(hdc, clientW, overlay);
 
     s_paintDbgActualOverlayHeight = actualOverlayHeight;
 
@@ -901,7 +979,7 @@ void Win32DebugOverlay_Paint(
 
     const int actualOverlayHeight = s_paintDbgActualOverlayHeight;
 
-    wchar_t overlay[1024] = {};
+    wchar_t overlay[2048] = {};
     const int jumpF7 = Win32DebugOverlay_ScrollTargetT17WithTopMargin();
     const int jumpF8 = Win32DebugOverlay_ScrollTargetT17Centered(hwnd);
     Win32_DebugOverlay_FormatScrollDebugOverlay(
@@ -911,12 +989,13 @@ void Win32DebugOverlay_Paint(
         s_paintDbgContentHeightBase,
         s_paintDbgExtraBottomPadding,
         s_paintDbgContentHeight,
-        s_paintDbgMaxScroll,
         s_paintDbgT17DocY,
         s_paintScrollY,
+        s_paintDbgClientHeight,
         s_paintDbgRestViewportClientH,
         jumpF7,
-        jumpF8);
+        jumpF8,
+        false);
 
     // D3D が既にクライアントを塗っているため、ここでは白で全面上書きしない
     SetBkMode(hdc, TRANSPARENT);

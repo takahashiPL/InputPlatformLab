@@ -932,7 +932,7 @@ static HRESULT WindowsRenderer_DrawHudD2DOnFinalBackbuffer(
         const float topBand = (std::max)(0.f, hDip - bandHDip);
         const D2D1_RECT_F scrollRect = D2D1::RectF(0.f, topBand, wDip, hDip);
         const UINT32 scrollLen = static_cast<UINT32>(
-            (std::min)(wcslen(s->dbgHudScrollBandText), size_t{1023}));
+            (std::min)(wcslen(s->dbgHudScrollBandText), size_t{2047}));
         s->d2dContext->DrawText(
             s->dbgHudScrollBandText,
             scrollLen,
