@@ -2374,20 +2374,29 @@ static const wchar_t* Win32_T16_ShowCmdLabel(UINT sc)
     }
 }
 
-// T55: fill-monitor + オフスクリーン時、HUD の T14/T15/T16 用 budget を client だけに直結させない（committed 仮想高で tiny 縮退を抑制）
-static int Win32_T55_HudBudgetPxForFill(HWND hwnd, int clientH, int restVpBudgetHint)
+// T56 contentBudgetPx: 行数・tiny/minimal 判定専用。レイアウト viewport（scrollVpH 等）とは分離する。
+// restVpBudgetHint >= 0（T51 provisional）のときは幾何整合のため hint のみ（committed gh と混ぜない）。
+// hint < 0 かつ fill-monitor のみ max(clientH, committed grid H)。
+static int Win32_T56_ContentBudgetPxForHudFill(HWND hwnd, int clientH, int restVpBudgetHint)
 {
-    const int base = (restVpBudgetHint >= 0) ? restVpBudgetHint : clientH;
-    if (!hwnd || !IsWindow(hwnd) || !Win32_MainWindow_IsFillMonitorPresentationMode(hwnd))
+    if (!hwnd || !IsWindow(hwnd))
     {
-        return base;
+        return (restVpBudgetHint >= 0) ? restVpBudgetHint : clientH;
+    }
+    if (restVpBudgetHint >= 0)
+    {
+        return restVpBudgetHint;
+    }
+    if (!Win32_MainWindow_IsFillMonitorPresentationMode(hwnd))
+    {
+        return clientH;
     }
     const int gh = s_lastCommittedGridSelectedPhysH;
     if (gh > 0)
     {
-        return (std::max)(base, gh);
+        return (std::max)(clientH, gh);
     }
-    return base;
+    return clientH;
 }
 
 // WM_PAINT 用テキスト: T16（ウィンドウド時の目標／実測・再生成結果）を buf に追記。
@@ -2402,14 +2411,14 @@ static void Win32_T16_AppendPaintSection(
     // target の logical（MulDiv(mode,96,dpi)）と比較するには current も同じ式で論理化する。
     const int cw = static_cast<int>(rcClient.right - rcClient.left);
     const int ch = static_cast<int>(rcClient.bottom - rcClient.top);
-    const int budgetPx = Win32_T55_HudBudgetPxForFill(hwnd, ch, restVpBudgetHint);
+    const int budgetPx = Win32_T56_ContentBudgetPxForHudFill(hwnd, ch, restVpBudgetHint);
     // T51: 実効 restVp が小さいときも T16 を省略（T50 の rawClientH 極小に加える）
     if (budgetPx > 0 && budgetPx < WIN32_OVERLAY_T51_OMIT_T16_RESTVP_PX)
     {
         return;
     }
     // T50: 極小 Windowed では T16 ブロックを生成しない（文字列生成で予算を節約）
-    // T55: fill-monitor では budgetPx が committed 仮想高を含むため、client だけの極小判定を避ける
+    // T56: fill-monitor では contentBudgetPx が committed 仮想高を含むため、client だけの極小判定を避ける
     if (budgetPx > 0 && budgetPx < WIN32_OVERLAY_T50_TINY_CLIENT_H)
     {
         return;
@@ -4006,7 +4015,7 @@ static void Win32_FillMenuSamplePaintBuffers_T14T15Column(
     int clientH,
     int restVpBudgetHint)
 {
-    const int budgetPx = Win32_T55_HudBudgetPxForFill(hwnd, clientH, restVpBudgetHint);
+    const int budgetPx = Win32_T56_ContentBudgetPxForHudFill(hwnd, clientH, restVpBudgetHint);
     const bool t53Windowed =
         hwnd && IsWindow(hwnd) && !Win32_MainWindow_IsFillMonitorPresentationMode(hwnd);
     const bool t53OneRow =
@@ -4245,7 +4254,7 @@ static void Win32_FillMenuSamplePaintBuffers_AppendT16T18T17(
     int restVpBudgetHint)
 {
     const int ch = static_cast<int>(rcClient.bottom - rcClient.top);
-    const int budgetPx = Win32_T55_HudBudgetPxForFill(hwnd, ch, restVpBudgetHint);
+    const int budgetPx = Win32_T56_ContentBudgetPxForHudFill(hwnd, ch, restVpBudgetHint);
     if (hwnd && IsWindow(hwnd) && !Win32_MainWindow_IsFillMonitorPresentationMode(hwnd) &&
         budgetPx >= 0 && budgetPx < WIN32_OVERLAY_T53_OMIT_T16_BUDGET_PX)
     {
@@ -4326,15 +4335,9 @@ static void Win32_T14_TryAutoScrollSelectionIntoView(HWND hwnd)
         return;
     }
 
-    SCROLLINFO si = {};
-    si.cbSize = sizeof(si);
-    si.fMask = SIF_ALL;
-    if (!GetScrollInfo(hwnd, SB_VERT, &si))
-    {
-        return;
-    }
-    const int maxScroll = (std::max)(0, static_cast<int>(si.nMax) - static_cast<int>(si.nPage) + 1);
-    const int scrollY = static_cast<int>(si.nPos);
+    // T56: scroll 幾何は overlay 計算（SCROLL ログと同じ s_paintDbgMaxScroll / s_paintScrollY）
+    const int maxScroll = (std::max)(0, s_paintDbgMaxScroll);
+    const int scrollY = s_paintScrollY;
 
     const ptrdiff_t rowSpan =
         static_cast<ptrdiff_t>(s_t14SelectedModeIndex) - static_cast<ptrdiff_t>(s_t14FirstVisibleModeIndex);
@@ -4347,6 +4350,15 @@ static void Win32_T14_TryAutoScrollSelectionIntoView(HWND hwnd)
     const int selectedRowTop =
         s_paintDbgT14VisibleModesDocStartY + static_cast<int>(rowSpan) * lineHeight;
     const int selectedRowBottom = selectedRowTop + lineHeight;
+    // T56: doc 座標を contentH(with padding) と整合（極小ウィンドウで行が本文外に出る不整合を抑止）
+    const int docContentH = s_paintDbgContentHeight;
+    int effRowTop = selectedRowTop;
+    int effRowBottom = selectedRowBottom;
+    if (docContentH > 0 && selectedRowBottom > docContentH)
+    {
+        effRowBottom = docContentH;
+        effRowTop = (std::max)(0, effRowBottom - lineHeight);
+    }
 
     static const int kT14ViewTopMargin = 12;
     static const int kT14ViewBottomMargin = 8;
@@ -4374,6 +4386,17 @@ static void Win32_T14_TryAutoScrollSelectionIntoView(HWND hwnd)
     OutputDebugStringW(logLine);
     swprintf_s(logLine, _countof(logLine), L"[T14VIEW] selectedRowBottom=%d\r\n", selectedRowBottom);
     OutputDebugStringW(logLine);
+    if (docContentH > 0)
+    {
+        swprintf_s(
+            logLine,
+            _countof(logLine),
+            L"[T14VIEW] docContentH=%d effRowTop=%d effRowBottom=%d\r\n",
+            docContentH,
+            effRowTop,
+            effRowBottom);
+        OutputDebugStringW(logLine);
+    }
     swprintf_s(logLine, _countof(logLine), L"[T14VIEW] scrollBandReservePx=%d\r\n", scrollBandReservePx);
     OutputDebugStringW(logLine);
 
@@ -4391,14 +4414,14 @@ static void Win32_T14_TryAutoScrollSelectionIntoView(HWND hwnd)
         return;
     }
 
-    int candidate = selectedRowTop - anchorClientY;
+    int candidate = effRowTop - anchorClientY;
     candidate = (std::clamp)(candidate, 0, maxScroll);
 
     const int safeBottomAfterAnchor =
         candidate + clientH - scrollBandReservePx - kT14ViewBottomMargin;
-    if (selectedRowBottom > safeBottomAfterAnchor)
+    if (effRowBottom > safeBottomAfterAnchor)
     {
-        candidate += (selectedRowBottom - safeBottomAfterAnchor);
+        candidate += (effRowBottom - safeBottomAfterAnchor);
     }
 
     const int clamped = (std::clamp)(candidate, 0, maxScroll);

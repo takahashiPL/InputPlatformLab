@@ -854,15 +854,9 @@ refill_budget:
             splitRestTopPx = row2TopPx + t14BaseY + splitHPrefix + splitHVmBand;
             splitRestVp = (std::max)(1, clientH - splitRestTopPx);
             const int maxScrollBeforePaddingRest = (std::max)(0, splitHRest - splitRestVp);
-            if (Win32_IsMainWindowFillMonitorPresentation(hwnd))
-            {
-                extraBottomPadding = clientH;
-            }
-            else
-            {
-                extraBottomPadding =
-                    (std::max)(0, s_paintDbgT17DocYRestScroll - maxScrollBeforePaddingRest);
-            }
+            // T56: fill-monitor でも extraBottomPadding は T17 到達に必要な分のみ（rawClientH 一律付与はしない）
+            extraBottomPadding =
+                (std::max)(0, s_paintDbgT17DocYRestScroll - maxScrollBeforePaddingRest);
             contentHeight = splitHRest + extraBottomPadding;
             maxScroll = (std::max)(0, contentHeight - splitRestVp);
             t17DocY = s_paintDbgT17DocYRestScroll;
@@ -926,14 +920,8 @@ refill_budget:
         s_paintDbgT17DocY = t17DocY;
 
         const int maxScrollBeforePadding = (std::max)(0, baseContentH - clientH);
-        if (Win32_IsMainWindowFillMonitorPresentation(hwnd))
-        {
-            extraBottomPadding = clientH;
-        }
-        else
-        {
-            extraBottomPadding = (std::max)(0, t17DocY - maxScrollBeforePadding);
-        }
+        // T56: fill-monitor でも Windowed と同様に T17 到達分のみ（仮想解像度は contentBudget 側で扱う）
+        extraBottomPadding = (std::max)(0, t17DocY - maxScrollBeforePadding);
         contentHeight = baseContentH + extraBottomPadding;
         maxScroll = (std::max)(0, contentHeight - clientH);
     }
@@ -962,7 +950,8 @@ refill_budget:
     int actualOverlayHeight = 0;
     const bool compactScrollBand =
         (clientH < WIN32_OVERLAY_T49_SCROLL_COMPACT_CLIENT_H) ||
-        (vmSplitActive && splitRestVp > 0 && splitRestVp < WIN32_OVERLAY_T51_COMPACT_SCROLL_RESTVP_PX);
+        (vmSplitActive && splitRestVp > 0 && splitRestVp < WIN32_OVERLAY_T51_COMPACT_SCROLL_RESTVP_PX) ||
+        Win32_IsMainWindowFillMonitorPresentation(hwnd);
 
     if (vmSplitActive)
     {
@@ -1008,15 +997,8 @@ refill_budget:
         {
             const int maxScrollBeforePaddingRest2 = (std::max)(0, splitHRest - restVp2);
             int extra2 = 0;
-            if (Win32_IsMainWindowFillMonitorPresentation(hwnd))
-            {
-                extra2 = clientH;
-            }
-            else
-            {
-                extra2 = (std::max)(
-                    0, s_paintDbgT17DocYRestScroll - maxScrollBeforePaddingRest2);
-            }
+            extra2 = (std::max)(
+                0, s_paintDbgT17DocYRestScroll - maxScrollBeforePaddingRest2);
             const int contentH2 = splitHRest + extra2;
             const int maxScroll2 = (std::max)(0, contentH2 - restVp2);
             s_paintDbgMaxScroll = maxScroll2;
@@ -1222,7 +1204,8 @@ void Win32DebugOverlay_Paint(
     const bool compactScrollBandPaint =
         (clientH < WIN32_OVERLAY_T49_SCROLL_COMPACT_CLIENT_H) ||
         (s_paintDbgT14VmSplitActive && s_paintDbgRestViewportClientH > 0 &&
-         s_paintDbgRestViewportClientH < WIN32_OVERLAY_T51_COMPACT_SCROLL_RESTVP_PX);
+         s_paintDbgRestViewportClientH < WIN32_OVERLAY_T51_COMPACT_SCROLL_RESTVP_PX) ||
+        Win32_IsMainWindowFillMonitorPresentation(hwnd);
     Win32_DebugOverlay_FormatScrollDebugOverlay(
         overlay,
         _countof(overlay),
