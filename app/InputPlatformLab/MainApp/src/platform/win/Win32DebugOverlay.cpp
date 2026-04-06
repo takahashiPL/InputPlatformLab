@@ -110,6 +110,24 @@ static bool Win32_IsMainWindowFillMonitorPresentation(HWND hwnd)
     return (st & static_cast<LONG_PTR>(WS_POPUP)) != 0;
 }
 
+bool Win32_MainWindow_IsFillMonitorPresentationMode(HWND hwnd)
+{
+    return Win32_IsMainWindowFillMonitorPresentation(hwnd);
+}
+
+void Win32_UpdateNativeScrollbarsWindowedOnly(HWND hwnd, int nBar, SCROLLINFO* si, BOOL redraw)
+{
+    if (!hwnd || !si)
+    {
+        return;
+    }
+    if (Win32_IsMainWindowFillMonitorPresentation(hwnd))
+    {
+        return;
+    }
+    SetScrollInfo(hwnd, nBar, si, redraw);
+}
+
 // F7 ジャンプ先: 「--- T17 presentation ---」行を上余白付きで見える scrollY。
 int Win32DebugOverlay_ScrollTargetT17WithTopMargin(void)
 {
@@ -251,6 +269,27 @@ void Win32DebugOverlay_MainView_SetScrollPos(HWND hwnd, int newY, const wchar_t*
     {
         return;
     }
+    if (Win32_IsMainWindowFillMonitorPresentation(hwnd))
+    {
+        const int maxScroll = (std::max)(0, s_paintDbgMaxScroll);
+        const int posBefore = s_paintScrollY;
+        const int clamped = (std::clamp)(newY, 0, maxScroll);
+        if (clamped == posBefore)
+        {
+            if (logWhere)
+            {
+                Win32DebugOverlay_ScrollLog(logWhere, hwnd, posBefore, clamped, -1, -1, -1, -1);
+            }
+            return;
+        }
+        s_paintScrollY = clamped;
+        if (logWhere)
+        {
+            Win32DebugOverlay_ScrollLog(logWhere, hwnd, posBefore, clamped, -1, -1, -1, -1);
+        }
+        InvalidateRect(hwnd, nullptr, FALSE);
+        return;
+    }
     SCROLLINFO si = {};
     si.cbSize = sizeof(si);
     si.fMask = SIF_ALL;
@@ -271,7 +310,7 @@ void Win32DebugOverlay_MainView_SetScrollPos(HWND hwnd, int newY, const wchar_t*
     }
     si.fMask = SIF_POS;
     si.nPos = clamped;
-    SetScrollInfo(hwnd, SB_VERT, &si, TRUE);
+    Win32_UpdateNativeScrollbarsWindowedOnly(hwnd, SB_VERT, &si, TRUE);
     s_paintScrollY = clamped;
     if (logWhere)
     {
@@ -622,7 +661,7 @@ static void Win32_DebugOverlay_ComputeLayoutMetrics(
     si.nPage = static_cast<UINT>(
         vmSplitActive ? (std::max)(1, splitRestVp) : (std::max)(1, clientH));
     si.nPos = s_paintScrollY;
-    SetScrollInfo(hwnd, SB_VERT, &si, TRUE);
+    Win32_UpdateNativeScrollbarsWindowedOnly(hwnd, SB_VERT, &si, TRUE);
 
     if (logScroll)
     {
@@ -679,7 +718,7 @@ static void Win32_DebugOverlay_ComputeLayoutMetrics(
             si.nMax = (std::max)(0, contentH2 - 1);
             si.nPage = static_cast<UINT>((std::max)(1, restVp2));
             si.nPos = s_paintScrollY;
-            SetScrollInfo(hwnd, SB_VERT, &si, TRUE);
+            Win32_UpdateNativeScrollbarsWindowedOnly(hwnd, SB_VERT, &si, TRUE);
             s_paintDbgMaxScroll = maxScroll2;
             s_paintDbgContentHeight = contentH2;
             s_paintDbgExtraBottomPadding = extra2;

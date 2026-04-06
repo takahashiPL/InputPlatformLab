@@ -1945,8 +1945,8 @@ static void Win32_T17_LogStateVisibleMode(HWND hwnd, T17PresentationMode visible
     {
         return;
     }
-    const LONG style = static_cast<LONG>(GetWindowLongW(hwnd, GWL_STYLE));
-    const LONG exStyle = static_cast<LONG>(GetWindowLongW(hwnd, GWL_EXSTYLE));
+    const LONG_PTR style = GetWindowLongPtr(hwnd, GWL_STYLE);
+    const LONG_PTR exStyle = GetWindowLongPtr(hwnd, GWL_EXSTYLE);
     RECT wr{};
     GetWindowRect(hwnd, &wr);
     const int ow = static_cast<int>(wr.right - wr.left);
@@ -1967,8 +1967,8 @@ static void Win32_T17_LogStateVisibleMode(HWND hwnd, T17PresentationMode visible
         oh,
         cw,
         ch,
-        static_cast<unsigned long>(style),
-        static_cast<unsigned long>(exStyle));
+        static_cast<unsigned long>(static_cast<ULONG_PTR>(style) & 0xFFFFFFFFul),
+        static_cast<unsigned long>(static_cast<ULONG_PTR>(exStyle) & 0xFFFFFFFFul));
     OutputDebugStringW(line);
 }
 
@@ -5685,6 +5685,36 @@ static void Win32_WndProc_OnXInputPollTimer(HWND hWnd)
     Win32_UnifiedInputConsumerMenuTick(hWnd);
 }
 
+// T43: fill-monitor 時、WM_SIZE / WM_PAINT 直後の実 style・client（ネイティブスクロール再付帯の追跡用）
+static void Win32_T43_LogFillMonitorStyleClient(HWND hwnd, const wchar_t* where)
+{
+    if (!hwnd || !IsWindow(hwnd) || !where)
+    {
+        return;
+    }
+    if (!Win32_MainWindow_IsFillMonitorPresentationMode(hwnd))
+    {
+        return;
+    }
+    const LONG_PTR st = GetWindowLongPtr(hwnd, GWL_STYLE);
+    const LONG_PTR ex = GetWindowLongPtr(hwnd, GWL_EXSTYLE);
+    RECT cr{};
+    GetClientRect(hwnd, &cr);
+    const int cw = static_cast<int>(cr.right - cr.left);
+    const int ch = static_cast<int>(cr.bottom - cr.top);
+    wchar_t line[384] = {};
+    swprintf_s(
+        line,
+        _countof(line),
+        L"[T43] %s: style=0x%08lX exStyle=0x%08lX client=%dx%d\r\n",
+        where,
+        static_cast<unsigned long>(static_cast<ULONG_PTR>(st) & 0xFFFFFFFFul),
+        static_cast<unsigned long>(static_cast<ULONG_PTR>(ex) & 0xFFFFFFFFul),
+        cw,
+        ch);
+    OutputDebugStringW(line);
+}
+
 // T31: WM_SIZE → GetClientRect → WindowsRenderer_Resize（ResizeBuffers / RTV）
 static void Win32_WndProc_OnClientSize(HWND hWnd)
 {
@@ -5695,6 +5725,7 @@ static void Win32_WndProc_OnClientSize(HWND hWnd)
     const UINT32 ch = static_cast<UINT32>(
                 (std::max)(0, static_cast<int>(cr.bottom - cr.top)));
     WindowsRenderer_Resize(&s_windowsRendererState, cw, ch);
+    Win32_T43_LogFillMonitorStyleClient(hWnd, L"WM_SIZE after resize");
 }
 
 static bool Win32_WndProc_OnVScroll(
@@ -5704,6 +5735,72 @@ static bool Win32_WndProc_OnVScroll(
     UINT message,
     LRESULT* outDefResult)
 {
+    if (Win32_MainWindow_IsFillMonitorPresentationMode(hWnd))
+    {
+        RECT cr{};
+        GetClientRect(hWnd, &cr);
+        const int clientH = (std::max)(1, static_cast<int>(cr.bottom - cr.top));
+        const int maxScroll = (std::max)(0, s_paintDbgMaxScroll);
+        const int y = s_paintScrollY;
+        const int nMin = 0;
+        int newY = y;
+        const UINT nPage = static_cast<UINT>(clientH);
+        switch (LOWORD(wParam))
+        {
+        case SB_LINEUP:
+            newY -= (s_paintScrollLinePx > 0) ? s_paintScrollLinePx : WIN32_MAIN_DEBUG_SCROLL_LINE;
+            break;
+        case SB_LINEDOWN:
+            newY += (s_paintScrollLinePx > 0) ? s_paintScrollLinePx : WIN32_MAIN_DEBUG_SCROLL_LINE;
+            break;
+        case SB_PAGEUP:
+            newY -= (static_cast<int>(nPage) * WIN32_MAIN_SCROLL_PAGEUP_NUM) / WIN32_MAIN_SCROLL_PAGEUP_DEN;
+            break;
+        case SB_PAGEDOWN:
+            newY += (static_cast<int>(nPage) * WIN32_MAIN_SCROLL_PAGEUP_NUM) / WIN32_MAIN_SCROLL_PAGEUP_DEN;
+            break;
+        case SB_TOP:
+            newY = nMin;
+            break;
+        case SB_BOTTOM:
+            newY = maxScroll;
+            break;
+        case SB_THUMBTRACK:
+            {
+                SCROLLINFO st = {};
+                st.cbSize = sizeof(st);
+                st.fMask = SIF_TRACKPOS;
+                if (GetScrollInfo(hWnd, SB_VERT, &st))
+                {
+                    newY = static_cast<int>(st.nTrackPos);
+                }
+            }
+            break;
+        case SB_THUMBPOSITION:
+            newY = static_cast<int>(static_cast<short>(HIWORD(wParam)));
+            break;
+        default:
+            *outDefResult = DefWindowProc(hWnd, message, wParam, lParam);
+            return true;
+        }
+        newY = (std::clamp)(newY, 0, maxScroll);
+        if (newY != y)
+        {
+            s_paintScrollY = newY;
+            {
+                wchar_t wv[96] = {};
+                swprintf_s(
+                    wv,
+                    _countof(wv),
+                    L"WM_VSCROLL SB=%d",
+                    static_cast<int>(LOWORD(wParam)));
+                Win32DebugOverlay_ScrollLog(wv, hWnd, y, newY, -1, -1, -1, -1);
+            }
+            InvalidateRect(hWnd, nullptr, FALSE);
+        }
+        return false;
+    }
+
     SCROLLINFO si = {};
     si.cbSize = sizeof(si);
     si.fMask = SIF_ALL;
@@ -5760,7 +5857,7 @@ static bool Win32_WndProc_OnVScroll(
     {
         si.fMask = SIF_POS;
         si.nPos = newY;
-        SetScrollInfo(hWnd, SB_VERT, &si, TRUE);
+        Win32_UpdateNativeScrollbarsWindowedOnly(hWnd, SB_VERT, &si, TRUE);
         s_paintScrollY = newY;
         {
             wchar_t wv[96] = {};
@@ -5778,6 +5875,47 @@ static bool Win32_WndProc_OnVScroll(
 
 static void Win32_WndProc_OnMouseWheel(HWND hWnd, WPARAM wParam)
 {
+    if (Win32_MainWindow_IsFillMonitorPresentationMode(hWnd))
+    {
+        RECT cr{};
+        GetClientRect(hWnd, &cr);
+        const int pagePx = (std::max)(1, static_cast<int>(cr.bottom - cr.top));
+        const int y = s_paintScrollY;
+        UINT wheelLines = 3;
+        SystemParametersInfoW(SPI_GETWHEELSCROLLLINES, 0, &wheelLines, 0);
+        const int linePx = (s_paintScrollLinePx > 0) ? s_paintScrollLinePx : WIN32_MAIN_DEBUG_SCROLL_LINE;
+        const int quarterPage = (std::max)(pagePx / 4, linePx * 3);
+        int dy = 0;
+        if (wheelLines == WHEEL_PAGESCROLL)
+        {
+            dy = pagePx;
+        }
+        else
+        {
+            const int lineBased = static_cast<int>(wheelLines) * linePx;
+            dy = (std::max)(lineBased, quarterPage);
+        }
+        const int delta = GET_WHEEL_DELTA_WPARAM(wParam);
+        int newY = y;
+        if (delta > 0)
+        {
+            newY -= dy;
+        }
+        else if (delta < 0)
+        {
+            newY += dy;
+        }
+        const int maxScroll = (std::max)(0, s_paintDbgMaxScroll);
+        newY = (std::clamp)(newY, 0, maxScroll);
+        if (newY != y)
+        {
+            s_paintScrollY = newY;
+            Win32DebugOverlay_ScrollLog(L"WM_MOUSEWHEEL", hWnd, y, newY, -1, -1, -1, -1);
+            InvalidateRect(hWnd, nullptr, FALSE);
+        }
+        return;
+    }
+
     SCROLLINFO si = {};
     si.cbSize = sizeof(si);
     si.fMask = SIF_ALL;
@@ -5817,7 +5955,7 @@ static void Win32_WndProc_OnMouseWheel(HWND hWnd, WPARAM wParam)
     {
         si.fMask = SIF_POS;
         si.nPos = newY;
-        SetScrollInfo(hWnd, SB_VERT, &si, TRUE);
+        Win32_UpdateNativeScrollbarsWindowedOnly(hWnd, SB_VERT, &si, TRUE);
         s_paintScrollY = newY;
         Win32DebugOverlay_ScrollLog(L"WM_MOUSEWHEEL", hWnd, y, newY, -1, -1, -1, -1);
         InvalidateRect(hWnd, nullptr, FALSE);
@@ -5874,6 +6012,7 @@ static void Win32_MainView_PaintFrame(HWND hWnd)
 static void Win32_WndProc_OnPaint(HWND hWnd)
 {
     Win32_MainView_PaintFrame(hWnd);
+    Win32_T43_LogFillMonitorStyleClient(hWnd, L"WM_PAINT after frame");
 }
 
 //

@@ -73,6 +73,10 @@ void Win32DebugOverlay_ScrollLog(
 
 void Win32DebugOverlay_MainView_SetScrollPos(HWND hwnd, int newY, const wchar_t* logWhere);
 
+// T43: Borderless / Fullscreen（fill-monitor）では標準スクロールバー API を呼ばない。Windowed のみ SetScrollInfo 等を実行。
+bool Win32_MainWindow_IsFillMonitorPresentationMode(HWND hwnd);
+void Win32_UpdateNativeScrollbarsWindowedOnly(HWND hwnd, int nBar, SCROLLINFO* si, BOOL redraw);
+
 int Win32DebugOverlay_ScrollTargetT17WithTopMargin(void);
 int Win32DebugOverlay_ScrollTargetT17Centered(HWND hwnd);
 
