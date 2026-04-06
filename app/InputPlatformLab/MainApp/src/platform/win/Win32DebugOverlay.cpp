@@ -440,9 +440,52 @@ void Win32_DebugOverlay_FormatScrollDebugOverlay(
     int scrollVpH,
     int jumpF7,
     int jumpF8,
-    bool provisionalNoSi)
+    bool provisionalNoSi,
+    bool compactScrollBand)
 {
     const int maxScrollLogical = (std::max)(0, contentHeight - scrollVpH);
+    if (compactScrollBand)
+    {
+        if (provisionalNoSi)
+        {
+            swprintf_s(
+                buf,
+                bufCount,
+                L"[scroll] %s  y=%d vp=%d max=%d  (prov)\r\n",
+                modeLabel,
+                scrollY,
+                scrollVpH,
+                maxScrollLogical);
+            return;
+        }
+        if (s_t46LastSiValid)
+        {
+            swprintf_s(
+                buf,
+                bufCount,
+                L"[scroll] %s  y=%d vp=%d max=%d  SI nMax=%d nPage=%u pos=%d max_si=%d\r\n",
+                modeLabel,
+                scrollY,
+                scrollVpH,
+                maxScrollLogical,
+                s_t46LastSiNMax,
+                s_t46LastSiNPage,
+                s_t46LastSiNPos,
+                s_t46LastSiMaxScrollSi);
+        }
+        else
+        {
+            swprintf_s(
+                buf,
+                bufCount,
+                L"[scroll] %s  y=%d vp=%d max=%d  (no native SI)\r\n",
+                modeLabel,
+                scrollY,
+                scrollVpH,
+                maxScrollLogical);
+        }
+        return;
+    }
     if (provisionalNoSi)
     {
         swprintf_s(
@@ -834,6 +877,7 @@ static void Win32_DebugOverlay_ComputeLayoutMetrics(
     int jumpF8 = Win32DebugOverlay_ScrollTargetT17Centered(hwnd);
     wchar_t overlay[2048] = {};
     int actualOverlayHeight = 0;
+    const bool compactScrollBand = (clientH < WIN32_OVERLAY_T49_SCROLL_COMPACT_CLIENT_H);
 
     if (vmSplitActive)
     {
@@ -850,7 +894,8 @@ static void Win32_DebugOverlay_ComputeLayoutMetrics(
             splitRestVp,
             jumpF7,
             jumpF8,
-            true);
+            true,
+            compactScrollBand);
         actualOverlayHeight =
             Win32_MainView_MeasureScrollOverlayTextHeight(hdc, clientW, overlay);
     }
@@ -937,7 +982,8 @@ static void Win32_DebugOverlay_ComputeLayoutMetrics(
         s_paintDbgRestViewportClientH,
         jumpF7,
         jumpF8,
-        false);
+        false,
+        compactScrollBand);
     actualOverlayHeight =
         Win32_MainView_MeasureScrollOverlayTextHeight(hdc, clientW, overlay);
 
@@ -961,7 +1007,7 @@ static void Win32_DebugOverlay_ComputeLayoutMetrics(
         outHud->dbgHudLeftColumnPrefillClientW = static_cast<std::uint32_t>(clientW);
         outHud->dbgHudLeftColumnPrefillClientH = static_cast<std::uint32_t>(clientH);
         wcscpy_s(outHud->dbgHudScrollBandText, _countof(outHud->dbgHudScrollBandText), overlay);
-        outHud->dbgHudScrollBandHeightPx = actualOverlayHeight;
+        outHud->dbgHudScrollBandHeightPx = s_paintDbgScrollBandReservePx;
         wcscpy_s(outHud->dbgHudMenuBandText, _countof(outHud->dbgHudMenuBandText), menuBuf);
         outHud->dbgHudFinalRow1HeightPx = row1H;
         outHud->dbgHudFinalBodyTopPx = bodyTopPx;
@@ -1049,6 +1095,7 @@ void Win32DebugOverlay_Paint(
     wchar_t overlay[2048] = {};
     const int jumpF7 = Win32DebugOverlay_ScrollTargetT17WithTopMargin();
     const int jumpF8 = Win32DebugOverlay_ScrollTargetT17Centered(hwnd);
+    const bool compactScrollBandPaint = (clientH < WIN32_OVERLAY_T49_SCROLL_COMPACT_CLIENT_H);
     Win32_DebugOverlay_FormatScrollDebugOverlay(
         overlay,
         _countof(overlay),
@@ -1062,7 +1109,8 @@ void Win32DebugOverlay_Paint(
         s_paintDbgRestViewportClientH,
         jumpF7,
         jumpF8,
-        false);
+        false,
+        compactScrollBandPaint);
 
     // D3D が既にクライアントを塗っているため、ここでは白で全面上書きしない
     SetBkMode(hdc, TRANSPARENT);
@@ -1119,23 +1167,45 @@ void Win32DebugOverlay_Paint(
                 rcPrefDraw.top = t14TextStartPx;
                 rcPrefDraw.bottom = (std::min)(
                     static_cast<int>(rcPrefDraw.top) + s_paintDbgT14VmSplitPrefixH + 4, restTopPx);
-                DrawTextW(
-                    hdc,
-                    s_paintDbgT14VmSplitPrefix,
-                    -1,
-                    &rcPrefDraw,
-                    DT_LEFT | DT_TOP | DT_NOPREFIX | DT_WORDBREAK);
+                rcPrefDraw.right = rcClipMain.right;
+                {
+                    const int savedPref = SaveDC(hdc);
+                    IntersectClipRect(
+                        hdc,
+                        rcPrefDraw.left,
+                        rcPrefDraw.top,
+                        rcPrefDraw.right,
+                        rcPrefDraw.bottom);
+                    DrawTextW(
+                        hdc,
+                        s_paintDbgT14VmSplitPrefix,
+                        -1,
+                        &rcPrefDraw,
+                        DT_LEFT | DT_TOP | DT_NOPREFIX | DT_WORDBREAK);
+                    RestoreDC(hdc, savedPref);
+                }
 
                 RECT rcVmDraw = rcT14Draw;
                 rcVmDraw.top = t14TextStartPx + s_paintDbgT14VmSplitPrefixH;
                 rcVmDraw.bottom = (std::min)(
                     static_cast<int>(rcVmDraw.top) + s_paintDbgT14VmSplitVmBandH + 4, restTopPx);
-                DrawTextW(
-                    hdc,
-                    s_paintDbgT14VmSplitVmBand,
-                    -1,
-                    &rcVmDraw,
-                    DT_LEFT | DT_TOP | DT_NOPREFIX | DT_WORDBREAK);
+                rcVmDraw.right = rcClipMain.right;
+                {
+                    const int savedVm = SaveDC(hdc);
+                    IntersectClipRect(
+                        hdc,
+                        rcVmDraw.left,
+                        rcVmDraw.top,
+                        rcVmDraw.right,
+                        rcVmDraw.bottom);
+                    DrawTextW(
+                        hdc,
+                        s_paintDbgT14VmSplitVmBand,
+                        -1,
+                        &rcVmDraw,
+                        DT_LEFT | DT_TOP | DT_NOPREFIX | DT_WORDBREAK);
+                    RestoreDC(hdc, savedVm);
+                }
 
                 const int savedRest = SaveDC(hdc);
                 IntersectClipRect(
@@ -1188,7 +1258,10 @@ void Win32DebugOverlay_Paint(
         RECT rcOv = rcClient;
         const int scrollBandReserve = s_paintDbgScrollBandReservePx;
         rcOv.top = (std::max)(rcClient.top, rcClient.bottom - scrollBandReserve);
+        const int savedOv = SaveDC(hdc);
+        IntersectClipRect(hdc, rcOv.left, rcOv.top, rcOv.right, rcOv.bottom);
         DrawTextW(hdc, overlay, -1, &rcOv, DT_LEFT | DT_TOP | DT_NOPREFIX | DT_WORDBREAK);
+        RestoreDC(hdc, savedOv);
     }
 
     SetTextColor(hdc, prevTextColor);

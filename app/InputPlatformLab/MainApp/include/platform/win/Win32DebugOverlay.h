@@ -9,6 +9,7 @@ struct WindowsRendererState;
 // [scroll] デバッグ帯の本文（Win32_MainView_FormatScrollDebugOverlay と同一フォーマット）。final D2D HUD 用にも利用。
 // T46: maxScroll = contentH(with padding) - scrollVpH（本文スクロール用）。rawClientH=GetClientRect、scrollVpH=nPage 相当。
 // provisionalNoSi: vmSplit のオーバーレイ高さ見積り用に T45 前で呼ぶとき true（SI 行なし）。
+// T49: compactScrollBand — clientH が小さいとき [scroll] を短縮行にし帯高さ・重なりを抑える
 void Win32_DebugOverlay_FormatScrollDebugOverlay(
     wchar_t* buf,
     size_t bufCount,
@@ -22,7 +23,15 @@ void Win32_DebugOverlay_FormatScrollDebugOverlay(
     int scrollVpH,
     int jumpF7,
     int jumpF8,
-    bool provisionalNoSi);
+    bool provisionalNoSi,
+    bool compactScrollBand);
+
+#ifndef WIN32_OVERLAY_T49_SCROLL_COMPACT_CLIENT_H
+#define WIN32_OVERLAY_T49_SCROLL_COMPACT_CLIENT_H 360
+#endif
+#ifndef WIN32_OVERLAY_T49_T14_MINIMAL_HEADER_CLIENT_H
+#define WIN32_OVERLAY_T49_T14_MINIMAL_HEADER_CLIENT_H 300
+#endif
 
 // MainApp が WM_PAINT 用に組み立てたバッファを、GDI で描画するモジュール（D3D とは役割分担）。
 // compactMenuForT37Layout: T37 有効時のみ左列メニューを短文化（T14 本文バッファは変えない）。

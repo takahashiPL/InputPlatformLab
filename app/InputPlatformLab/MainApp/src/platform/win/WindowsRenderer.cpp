@@ -730,6 +730,7 @@ static HRESULT WindowsRenderer_DrawHudD2DOnFinalBackbuffer(
                 t14TextStartDip,
                 wDip,
                 (std::min)(t14TextStartDip + prefixHDip + 8.f, restStartDip));
+            s->d2dContext->PushAxisAlignedClip(rcPref, D2D1_ANTIALIAS_MODE_ALIASED);
             s->d2dContext->DrawText(
                 s->dbgHudT14PrefixText,
                 prefixLen,
@@ -738,6 +739,7 @@ static HRESULT WindowsRenderer_DrawHudD2DOnFinalBackbuffer(
                 s->d2dTextBrush,
                 D2D1_DRAW_TEXT_OPTIONS_NONE,
                 DWRITE_MEASURING_MODE_NATURAL);
+            s->d2dContext->PopAxisAlignedClip();
 
             wchar_t vmBandBuf[8192] = {};
             wcscpy_s(vmBandBuf, _countof(vmBandBuf), s->dbgHudVmHeadingText);
@@ -749,6 +751,7 @@ static HRESULT WindowsRenderer_DrawHudD2DOnFinalBackbuffer(
                 t14TextStartDip + prefixHDip,
                 wDip,
                 (std::min)(t14TextStartDip + prefixHDip + vmBandHDip + 8.f, restStartDip));
+            s->d2dContext->PushAxisAlignedClip(rcVm, D2D1_ANTIALIAS_MODE_ALIASED);
             s->d2dContext->DrawText(
                 vmBandBuf,
                 vmLen,
@@ -757,6 +760,7 @@ static HRESULT WindowsRenderer_DrawHudD2DOnFinalBackbuffer(
                 s->d2dTextBrush,
                 D2D1_DRAW_TEXT_OPTIONS_NONE,
                 DWRITE_MEASURING_MODE_NATURAL);
+            s->d2dContext->PopAxisAlignedClip();
 
             const D2D1_RECT_F clipRest =
                 D2D1::RectF(0.f, restStartDip, wDip, clipBottomDip);
@@ -937,6 +941,7 @@ static HRESULT WindowsRenderer_DrawHudD2DOnFinalBackbuffer(
         const D2D1_RECT_F scrollRect = D2D1::RectF(0.f, topBand, wDip, hDip);
         const UINT32 scrollLen = static_cast<UINT32>(
             (std::min)(wcslen(s->dbgHudScrollBandText), size_t{2047}));
+        s->d2dContext->PushAxisAlignedClip(scrollRect, D2D1_ANTIALIAS_MODE_ALIASED);
         s->d2dContext->DrawText(
             s->dbgHudScrollBandText,
             scrollLen,
@@ -945,6 +950,7 @@ static HRESULT WindowsRenderer_DrawHudD2DOnFinalBackbuffer(
             s->d2dTextBrush,
             D2D1_DRAW_TEXT_OPTIONS_NONE,
             DWRITE_MEASURING_MODE_NATURAL);
+        s->d2dContext->PopAxisAlignedClip();
         drewScrollBandToD2d = true;
         if (firstDiag)
         {

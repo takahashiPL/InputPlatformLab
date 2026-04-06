@@ -409,7 +409,7 @@ static void Win32_FillMenuSamplePaintBuffers_MenuColumn(
     wchar_t* menuBuf,
     size_t menuBufCount,
     bool compactT37);
-static void Win32_FillMenuSamplePaintBuffers_T14T15Column(wchar_t* t14Buf, size_t t14BufCount);
+static void Win32_FillMenuSamplePaintBuffers_T14T15Column(wchar_t* t14Buf, size_t t14BufCount, int clientH);
 static void Win32_FillMenuSamplePaintBuffers_AppendT16T18T17(
     HWND hwnd,
     const RECT& rcClient,
@@ -3939,31 +3939,65 @@ static void Win32_FillMenuSamplePaintBuffers_MenuColumn(
         c00, c10, c01, c11);
 }
 
+// T49: clientH に応じて表示行数を抑える（論理の kT14VisibleModeCount は据え置き）
+static size_t Win32_T14_VisibleModeRowsForClientH(int clientH)
+{
+    if (clientH < 240)
+    {
+        return 2;
+    }
+    if (clientH < 340)
+    {
+        return 4;
+    }
+    if (clientH < 480)
+    {
+        return 6;
+    }
+    return kT14VisibleModeCount;
+}
+
 // T14 可視行 + T15 最近傍ブロック（モニタ無し時はプレースホルダ）。
-static void Win32_FillMenuSamplePaintBuffers_T14T15Column(wchar_t* t14Buf, size_t t14BufCount)
+static void Win32_FillMenuSamplePaintBuffers_T14T15Column(wchar_t* t14Buf, size_t t14BufCount, int clientH)
 {
     if (!s_displayMonitorsCache.empty() && kT14SelectedMonitorIndex < s_displayMonitorsCache.size())
     {
         const DisplayMonitorInfo& mon = s_displayMonitorsCache[kT14SelectedMonitorIndex];
-        swprintf_s(t14Buf, t14BufCount,
-            L"--- T14 Displays ---\r\n"
-            L"monitor count: %zu\r\n"
-            L"selected monitor index: %zu (fixed)\r\n"
-            L"modes (deduped W*H): %zu\r\n"
-            L"visibleModeCount: %zu\r\n"
-            L"selectedModeIndex: %zu\r\n"
-            L"firstVisibleModeIndex: %zu\r\n"
-            L"(Up/Down: scroll when menu closed)\r\n"
-            L"(Left/Right: T15 desired preset when menu closed)\r\n"
-            L"visible modes:\r\n",
-            s_displayMonitorsCache.size(),
-            kT14SelectedMonitorIndex,
-            mon.modes.size(),
-            kT14VisibleModeCount,
-            s_t14SelectedModeIndex,
-            s_t14FirstVisibleModeIndex);
+        const size_t rowsToPaint =
+            (std::min)(Win32_T14_VisibleModeRowsForClientH(clientH), kT14VisibleModeCount);
+        const bool minimalHeader =
+            (clientH > 0 && clientH < WIN32_OVERLAY_T49_T14_MINIMAL_HEADER_CLIENT_H);
 
-        for (size_t row = 0; row < kT14VisibleModeCount; ++row)
+        if (minimalHeader)
+        {
+            swprintf_s(
+                t14Buf,
+                t14BufCount,
+                L"--- T14 Displays ---\r\n"
+                L"visible modes:\r\n");
+        }
+        else
+        {
+            swprintf_s(t14Buf, t14BufCount,
+                L"--- T14 Displays ---\r\n"
+                L"monitor count: %zu\r\n"
+                L"selected monitor index: %zu (fixed)\r\n"
+                L"modes (deduped W*H): %zu\r\n"
+                L"visibleModeCount: %zu\r\n"
+                L"selectedModeIndex: %zu\r\n"
+                L"firstVisibleModeIndex: %zu\r\n"
+                L"(Up/Down: scroll when menu closed)\r\n"
+                L"(Left/Right: T15 desired preset when menu closed)\r\n"
+                L"visible modes:\r\n",
+                s_displayMonitorsCache.size(),
+                kT14SelectedMonitorIndex,
+                mon.modes.size(),
+                kT14VisibleModeCount,
+                s_t14SelectedModeIndex,
+                s_t14FirstVisibleModeIndex);
+        }
+
+        for (size_t row = 0; row < rowsToPaint; ++row)
         {
             const size_t mi = s_t14FirstVisibleModeIndex + row;
             if (mi >= mon.modes.size())
@@ -3990,7 +4024,32 @@ static void Win32_FillMenuSamplePaintBuffers_T14T15Column(wchar_t* t14Buf, size_
 
         {
             wchar_t t15Block[768] = {};
-            if (s_t15MatchResult.nearestModeIndex != static_cast<size_t>(-1) &&
+            if (minimalHeader)
+            {
+                if (s_t15MatchResult.nearestModeIndex != static_cast<size_t>(-1) &&
+                    s_t15MatchResult.nearestModeIndex < mon.modes.size())
+                {
+                    const DisplayModeInfo& nm = mon.modes[s_t15MatchResult.nearestModeIndex];
+                    swprintf_s(
+                        t15Block,
+                        _countof(t15Block),
+                        L"\r\n--- T15 nearest resolution ---\r\n"
+                        L"[%zu] %dx%d\r\n",
+                        s_t15MatchResult.nearestModeIndex,
+                        nm.width,
+                        nm.height);
+                }
+                else
+                {
+                    swprintf_s(
+                        t15Block,
+                        _countof(t15Block),
+                        L"\r\n--- T15 nearest resolution ---\r\n"
+                        L"(none)\r\n");
+                }
+            }
+            else if (
+                s_t15MatchResult.nearestModeIndex != static_cast<size_t>(-1) &&
                 s_t15MatchResult.nearestModeIndex < mon.modes.size())
             {
                 const DisplayModeInfo& nm = mon.modes[s_t15MatchResult.nearestModeIndex];
@@ -4064,7 +4123,10 @@ void Win32_FillMenuSamplePaintBuffers(
     Win32_T18_RefreshControllerIdentifySnapshot();
 
     Win32_FillMenuSamplePaintBuffers_MenuColumn(menuBuf, menuBufCount, compactMenuForT37Layout);
-    Win32_FillMenuSamplePaintBuffers_T14T15Column(t14Buf, t14BufCount);
+    Win32_FillMenuSamplePaintBuffers_T14T15Column(
+        t14Buf,
+        t14BufCount,
+        static_cast<int>(rcClient.bottom - rcClient.top));
     Win32_FillMenuSamplePaintBuffers_AppendT16T18T17(hwnd, rcClient, t14Buf, t14BufCount);
 }
 
