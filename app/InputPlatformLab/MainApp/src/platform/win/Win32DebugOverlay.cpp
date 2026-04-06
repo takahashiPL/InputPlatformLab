@@ -262,6 +262,27 @@ void Win32DebugOverlay_ScrollLog(
     OutputDebugStringW(L"[SCROLL] ----\r\n");
 }
 
+void Win32_DebugOverlay_ClampScrollYToMaxScroll(int maxScroll, const wchar_t* where)
+{
+    const int oldY = s_paintScrollY;
+    const int maxSafe = (std::max)(0, maxScroll);
+    const int newY = (std::clamp)(oldY, 0, maxSafe);
+    if (newY != oldY)
+    {
+        wchar_t line[320] = {};
+        swprintf_s(
+            line,
+            _countof(line),
+            L"[T44] clamp scrollY where=%s old=%d max=%d new=%d\r\n",
+            where ? where : L"?",
+            oldY,
+            maxSafe,
+            newY);
+        OutputDebugStringW(line);
+    }
+    s_paintScrollY = newY;
+}
+
 // 垂直スクロール位置を更新し、必要なら再描画。F7/F8 や WM_VSCROLL から呼ばれる。
 void Win32DebugOverlay_MainView_SetScrollPos(HWND hwnd, int newY, const wchar_t* logWhere)
 {
@@ -272,6 +293,7 @@ void Win32DebugOverlay_MainView_SetScrollPos(HWND hwnd, int newY, const wchar_t*
     if (Win32_IsMainWindowFillMonitorPresentation(hwnd))
     {
         const int maxScroll = (std::max)(0, s_paintDbgMaxScroll);
+        Win32_DebugOverlay_ClampScrollYToMaxScroll(maxScroll, L"MainView_SetScrollPos.fillMonitor.preflight");
         const int posBefore = s_paintScrollY;
         const int clamped = (std::clamp)(newY, 0, maxScroll);
         if (clamped == posBefore)
@@ -297,8 +319,13 @@ void Win32DebugOverlay_MainView_SetScrollPos(HWND hwnd, int newY, const wchar_t*
     {
         return;
     }
-    const int posBefore = static_cast<int>(si.nPos);
     const int maxScroll = (std::max)(0, static_cast<int>(si.nMax) - static_cast<int>(si.nPage) + 1);
+    Win32_DebugOverlay_ClampScrollYToMaxScroll(maxScroll, L"MainView_SetScrollPos.windowed.preflight");
+    if (!GetScrollInfo(hwnd, SB_VERT, &si))
+    {
+        return;
+    }
+    const int posBefore = static_cast<int>(si.nPos);
     const int clamped = (std::clamp)(newY, 0, maxScroll);
     if (clamped == posBefore)
     {
@@ -651,7 +678,7 @@ static void Win32_DebugOverlay_ComputeLayoutMetrics(
 
     s_paintDbgMaxScroll = maxScroll;
     const int scrollYBeforePaint = s_paintScrollY;
-    s_paintScrollY = (std::clamp)(s_paintScrollY, 0, maxScroll);
+    Win32_DebugOverlay_ClampScrollYToMaxScroll(maxScroll, L"ComputeLayoutMetrics.phase1");
 
     SCROLLINFO si = {};
     si.cbSize = sizeof(si);
@@ -714,12 +741,12 @@ static void Win32_DebugOverlay_ComputeLayoutMetrics(
             }
             const int contentH2 = splitHRest + extra2;
             const int maxScroll2 = (std::max)(0, contentH2 - restVp2);
-            s_paintScrollY = (std::clamp)(s_paintScrollY, 0, maxScroll2);
+            s_paintDbgMaxScroll = maxScroll2;
+            Win32_DebugOverlay_ClampScrollYToMaxScroll(maxScroll2, L"ComputeLayoutMetrics.vmSplitRefine");
             si.nMax = (std::max)(0, contentH2 - 1);
             si.nPage = static_cast<UINT>((std::max)(1, restVp2));
             si.nPos = s_paintScrollY;
             Win32_UpdateNativeScrollbarsWindowedOnly(hwnd, SB_VERT, &si, TRUE);
-            s_paintDbgMaxScroll = maxScroll2;
             s_paintDbgContentHeight = contentH2;
             s_paintDbgExtraBottomPadding = extra2;
             maxScroll = maxScroll2;
@@ -747,6 +774,19 @@ static void Win32_DebugOverlay_ComputeLayoutMetrics(
     }
 
     s_paintDbgActualOverlayHeight = actualOverlayHeight;
+
+    {
+        const int yBeforeFinal = s_paintScrollY;
+        Win32_DebugOverlay_ClampScrollYToMaxScroll(s_paintDbgMaxScroll, L"ComputeLayoutMetrics.final");
+        if (s_paintScrollY != yBeforeFinal && !Win32_IsMainWindowFillMonitorPresentation(hwnd))
+        {
+            SCROLLINFO siPos = {};
+            siPos.cbSize = sizeof(siPos);
+            siPos.fMask = SIF_POS;
+            siPos.nPos = s_paintScrollY;
+            Win32_UpdateNativeScrollbarsWindowedOnly(hwnd, SB_VERT, &siPos, TRUE);
+        }
+    }
 
     if (outHud)
     {

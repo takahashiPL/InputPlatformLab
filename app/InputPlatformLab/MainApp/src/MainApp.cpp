@@ -2301,6 +2301,16 @@ static void Win32_T17_ApplyCurrentPresentationMode(HWND hwnd)
             Win32_T17_ModeLabel(candidate),
             Win32_T17_ModeLabel(appliedMode));
         OutputDebugStringW(endOk);
+        {
+            RECT crEst{};
+            GetClientRect(hwndAfter, &crEst);
+            const int clientHAfter =
+                (std::max)(0, static_cast<int>(crEst.bottom - crEst.top));
+            const int maxScrollEst =
+                (std::max)(0, s_paintDbgContentHeight - clientHAfter);
+            Win32_DebugOverlay_ClampScrollYToMaxScroll(
+                maxScrollEst, L"T17 post-recreate (est until WM_PAINT)");
+        }
         Win32DebugOverlay_ScrollLog(
             L"T17 apply (post-recreate; contentH/T17DocY stale until next WM_PAINT)",
             hwndAfter,
@@ -5725,6 +5735,10 @@ static void Win32_WndProc_OnClientSize(HWND hWnd)
     const UINT32 ch = static_cast<UINT32>(
                 (std::max)(0, static_cast<int>(cr.bottom - cr.top)));
     WindowsRenderer_Resize(&s_windowsRendererState, cw, ch);
+    {
+        const int maxScrollEst = (std::max)(0, s_paintDbgContentHeight - static_cast<int>(ch));
+        Win32_DebugOverlay_ClampScrollYToMaxScroll(maxScrollEst, L"WM_SIZE (est until WM_PAINT)");
+    }
     Win32_T43_LogFillMonitorStyleClient(hWnd, L"WM_SIZE after resize");
 }
 

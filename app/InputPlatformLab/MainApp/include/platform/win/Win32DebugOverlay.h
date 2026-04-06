@@ -77,6 +77,9 @@ void Win32DebugOverlay_MainView_SetScrollPos(HWND hwnd, int newY, const wchar_t*
 bool Win32_MainWindow_IsFillMonitorPresentationMode(HWND hwnd);
 void Win32_UpdateNativeScrollbarsWindowedOnly(HWND hwnd, int nBar, SCROLLINFO* si, BOOL redraw);
 
+// T44: maxScroll 確定後に s_paintScrollY を [0,maxScroll] に揃える（再生成・client 縮小後の外れ値除去）
+void Win32_DebugOverlay_ClampScrollYToMaxScroll(int maxScroll, const wchar_t* where);
+
 int Win32DebugOverlay_ScrollTargetT17WithTopMargin(void);
 int Win32DebugOverlay_ScrollTargetT17Centered(HWND hwnd);
 
