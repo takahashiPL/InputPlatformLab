@@ -32,6 +32,10 @@ void Win32_DebugOverlay_FormatScrollDebugOverlay(
 #ifndef WIN32_OVERLAY_T49_T14_MINIMAL_HEADER_CLIENT_H
 #define WIN32_OVERLAY_T49_T14_MINIMAL_HEADER_CLIENT_H 300
 #endif
+// T50: 極小 clientH 以下で T14/T15/T16/[scroll] の情報量を予算どおり削る（MainApp / FormatScroll で共有）
+#ifndef WIN32_OVERLAY_T50_TINY_CLIENT_H
+#define WIN32_OVERLAY_T50_TINY_CLIENT_H 280
+#endif
 
 // MainApp が WM_PAINT 用に組み立てたバッファを、GDI で描画するモジュール（D3D とは役割分担）。
 // compactMenuForT37Layout: T37 有効時のみ左列メニューを短文化（T14 本文バッファは変えない）。

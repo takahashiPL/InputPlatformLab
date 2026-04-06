@@ -446,6 +446,32 @@ void Win32_DebugOverlay_FormatScrollDebugOverlay(
     const int maxScrollLogical = (std::max)(0, contentHeight - scrollVpH);
     if (compactScrollBand)
     {
+        // T50: 極小時は 1 行固定（SI や補足は出さず計測高さを抑える）
+        if (rawClientH > 0 && rawClientH < WIN32_OVERLAY_T50_TINY_CLIENT_H)
+        {
+            if (provisionalNoSi)
+            {
+                swprintf_s(
+                    buf,
+                    bufCount,
+                    L"[scroll] y=%d vp=%d max=%d\r\n",
+                    scrollY,
+                    scrollVpH,
+                    maxScrollLogical);
+            }
+            else
+            {
+                swprintf_s(
+                    buf,
+                    bufCount,
+                    L"[scroll] %s y=%d vp=%d max=%d\r\n",
+                    modeLabel,
+                    scrollY,
+                    scrollVpH,
+                    maxScrollLogical);
+            }
+            return;
+        }
         if (provisionalNoSi)
         {
             swprintf_s(

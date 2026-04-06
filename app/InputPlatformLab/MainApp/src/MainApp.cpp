@@ -2386,6 +2386,11 @@ static void Win32_T16_AppendPaintSection(
     // target の logical（MulDiv(mode,96,dpi)）と比較するには current も同じ式で論理化する。
     const int cw = static_cast<int>(rcClient.right - rcClient.left);
     const int ch = static_cast<int>(rcClient.bottom - rcClient.top);
+    // T50: 極小 Windowed では T16 ブロックを生成しない（文字列生成で予算を節約）
+    if (ch > 0 && ch < WIN32_OVERLAY_T50_TINY_CLIENT_H)
+    {
+        return;
+    }
     int physW = 0;
     int physH = 0;
     const bool hasTarget = Win32_T16_ResolveWindowedTargetPhysicalSize(physW, physH, false);
@@ -3939,9 +3944,22 @@ static void Win32_FillMenuSamplePaintBuffers_MenuColumn(
         c00, c10, c01, c11);
 }
 
-// T49: clientH に応じて表示行数を抑える（論理の kT14VisibleModeCount は据え置き）
+// T49/T50: clientH に応じて表示行数を抑える（論理の kT14VisibleModeCount は据え置き）
+// T50 極小: 1～3 行。それ以外は T49 の段階。
 static size_t Win32_T14_VisibleModeRowsForClientH(int clientH)
 {
+    if (clientH < WIN32_OVERLAY_T50_TINY_CLIENT_H)
+    {
+        if (clientH < 200)
+        {
+            return 1;
+        }
+        if (clientH < 240)
+        {
+            return 2;
+        }
+        return 3;
+    }
     if (clientH < 240)
     {
         return 2;
@@ -3965,10 +3983,20 @@ static void Win32_FillMenuSamplePaintBuffers_T14T15Column(wchar_t* t14Buf, size_
         const DisplayMonitorInfo& mon = s_displayMonitorsCache[kT14SelectedMonitorIndex];
         const size_t rowsToPaint =
             (std::min)(Win32_T14_VisibleModeRowsForClientH(clientH), kT14VisibleModeCount);
+        const bool tinyBudget =
+            (clientH > 0 && clientH < WIN32_OVERLAY_T50_TINY_CLIENT_H);
         const bool minimalHeader =
             (clientH > 0 && clientH < WIN32_OVERLAY_T49_T14_MINIMAL_HEADER_CLIENT_H);
 
-        if (minimalHeader)
+        if (tinyBudget)
+        {
+            swprintf_s(
+                t14Buf,
+                t14BufCount,
+                L"--- T14 ---\r\n"
+                L"visible modes:\r\n");
+        }
+        else if (minimalHeader)
         {
             swprintf_s(
                 t14Buf,
@@ -4010,21 +4038,58 @@ static void Win32_FillMenuSamplePaintBuffers_T14T15Column(wchar_t* t14Buf, size_
                 (s_t15MatchResult.nearestModeIndex != static_cast<size_t>(-1)) &&
                 (mi == s_t15MatchResult.nearestModeIndex);
             wchar_t line[192] = {};
-            swprintf_s(line, _countof(line),
-                L"  %s%s [%zu] %dx%d bpp=%d hz=%d\r\n",
-                mark,
-                nearestStar ? L"*" : L" ",
-                mi,
-                mode.width,
-                mode.height,
-                mode.bits_per_pixel,
-                mode.refresh_hz);
+            if (tinyBudget)
+            {
+                swprintf_s(line, _countof(line),
+                    L"%s%s[%zu]%dx%d\r\n",
+                    mark,
+                    nearestStar ? L"*" : L"",
+                    mi,
+                    mode.width,
+                    mode.height);
+            }
+            else
+            {
+                swprintf_s(line, _countof(line),
+                    L"  %s%s [%zu] %dx%d bpp=%d hz=%d\r\n",
+                    mark,
+                    nearestStar ? L"*" : L" ",
+                    mi,
+                    mode.width,
+                    mode.height,
+                    mode.bits_per_pixel,
+                    mode.refresh_hz);
+            }
             wcscat_s(t14Buf, t14BufCount, line);
         }
 
         {
             wchar_t t15Block[768] = {};
-            if (minimalHeader)
+            if (tinyBudget)
+            {
+                if (s_t15MatchResult.nearestModeIndex != static_cast<size_t>(-1) &&
+                    s_t15MatchResult.nearestModeIndex < mon.modes.size())
+                {
+                    const DisplayModeInfo& nm = mon.modes[s_t15MatchResult.nearestModeIndex];
+                    swprintf_s(
+                        t15Block,
+                        _countof(t15Block),
+                        L"\r\n--- T15 nearest resolution ---\r\n"
+                        L"T15 %dx%d ex:%d\r\n",
+                        nm.width,
+                        nm.height,
+                        s_t15MatchResult.exactMatch ? 1 : 0);
+                }
+                else
+                {
+                    swprintf_s(
+                        t15Block,
+                        _countof(t15Block),
+                        L"\r\n--- T15 nearest resolution ---\r\n"
+                        L"T15 (none)\r\n");
+                }
+            }
+            else if (minimalHeader)
             {
                 if (s_t15MatchResult.nearestModeIndex != static_cast<size_t>(-1) &&
                     s_t15MatchResult.nearestModeIndex < mon.modes.size())
