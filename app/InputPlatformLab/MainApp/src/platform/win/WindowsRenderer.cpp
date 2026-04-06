@@ -717,7 +717,11 @@ static HRESULT WindowsRenderer_DrawHudD2DOnFinalBackbuffer(
             const float prefixHDip = static_cast<float>(s->dbgHudT14PrefixHeightPx) * sy;
             const float vmBandHDip = static_cast<float>(s->dbgHudVmBandHeightPx) * sy;
             const float restScrollDip = static_cast<float>(s->dbgHudLeftColumnScrollYPx) * sy;
-            const float restStartDip = t14TextStartDip + prefixHDip + vmBandHDip;
+            const float restStartNaturalDip = t14TextStartDip + prefixHDip + vmBandHDip;
+            const float restStartDip =
+                (s->dbgHudRestViewportTopPx > 0)
+                    ? static_cast<float>(s->dbgHudRestViewportTopPx) * sy
+                    : restStartNaturalDip;
 
             const UINT32 prefixLen =
                 static_cast<UINT32>((std::min)(wcslen(s->dbgHudT14PrefixText), size_t{8191}));
@@ -725,7 +729,7 @@ static HRESULT WindowsRenderer_DrawHudD2DOnFinalBackbuffer(
                 0.f,
                 t14TextStartDip,
                 wDip,
-                t14TextStartDip + prefixHDip + 8.f);
+                (std::min)(t14TextStartDip + prefixHDip + 8.f, restStartDip));
             s->d2dContext->DrawText(
                 s->dbgHudT14PrefixText,
                 prefixLen,
@@ -744,7 +748,7 @@ static HRESULT WindowsRenderer_DrawHudD2DOnFinalBackbuffer(
                 0.f,
                 t14TextStartDip + prefixHDip,
                 wDip,
-                restStartDip + 8.f);
+                (std::min)(t14TextStartDip + prefixHDip + vmBandHDip + 8.f, restStartDip));
             s->d2dContext->DrawText(
                 vmBandBuf,
                 vmLen,

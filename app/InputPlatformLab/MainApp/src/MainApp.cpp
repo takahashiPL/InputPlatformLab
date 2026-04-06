@@ -249,6 +249,7 @@ bool s_paintDbgT14LayoutValid = false;
 int s_paintDbgT14VisibleModesDocStartY = 0;
 int s_paintDbgLineHeight = 16;
 int s_paintDbgActualOverlayHeight = 0;
+int s_paintDbgScrollBandReservePx = 0; // T48: [scroll] 帯に割り当てた実効高さ（本文 min 保証で圧縮可）
 int s_paintDbgClientW = 0;
 int s_paintDbgClientH = 0;
 int s_paintDbgMaxScroll = 0;
@@ -4138,7 +4139,7 @@ static void Win32_T14_TryAutoScrollSelectionIntoView(HWND hwnd)
 
     static const int kT14ViewTopMargin = 12;
     static const int kT14ViewBottomMargin = 8;
-    const int actualOverlayHeight = s_paintDbgActualOverlayHeight;
+    const int scrollBandReservePx = s_paintDbgScrollBandReservePx;
     const int anchorClientY =
         kT14ViewTopMargin + WIN32_T14_AUTOFOLLOW_ANCHOR_ROWS * lineHeight;
 
@@ -4162,11 +4163,11 @@ static void Win32_T14_TryAutoScrollSelectionIntoView(HWND hwnd)
     OutputDebugStringW(logLine);
     swprintf_s(logLine, _countof(logLine), L"[T14VIEW] selectedRowBottom=%d\r\n", selectedRowBottom);
     OutputDebugStringW(logLine);
-    swprintf_s(logLine, _countof(logLine), L"[T14VIEW] actualOverlayHeight=%d\r\n", actualOverlayHeight);
+    swprintf_s(logLine, _countof(logLine), L"[T14VIEW] scrollBandReservePx=%d\r\n", scrollBandReservePx);
     OutputDebugStringW(logLine);
 
     const int contentSafeHeight =
-        clientH - actualOverlayHeight - kT14ViewBottomMargin - kT14ViewTopMargin;
+        clientH - scrollBandReservePx - kT14ViewBottomMargin - kT14ViewTopMargin;
     if (contentSafeHeight < lineHeight)
     {
         swprintf_s(
@@ -4183,7 +4184,7 @@ static void Win32_T14_TryAutoScrollSelectionIntoView(HWND hwnd)
     candidate = (std::clamp)(candidate, 0, maxScroll);
 
     const int safeBottomAfterAnchor =
-        candidate + clientH - actualOverlayHeight - kT14ViewBottomMargin;
+        candidate + clientH - scrollBandReservePx - kT14ViewBottomMargin;
     if (selectedRowBottom > safeBottomAfterAnchor)
     {
         candidate += (selectedRowBottom - safeBottomAfterAnchor);
@@ -4192,7 +4193,7 @@ static void Win32_T14_TryAutoScrollSelectionIntoView(HWND hwnd)
     const int clamped = (std::clamp)(candidate, 0, maxScroll);
 
     const int safeTopFinal = clamped + kT14ViewTopMargin;
-    const int safeBottomFinal = clamped + clientH - actualOverlayHeight - kT14ViewBottomMargin;
+    const int safeBottomFinal = clamped + clientH - scrollBandReservePx - kT14ViewBottomMargin;
     swprintf_s(
         logLine,
         _countof(logLine),

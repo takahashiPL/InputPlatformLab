@@ -64,6 +64,7 @@ void Win32DebugOverlay_Paint(
     bool skipMenuColumnGdi,
     bool skipScrollBandGdi);
 
+// T47: Output の [SCROLL] は [scroll] 帯と同じ rawClientH / scrollVpH / maxScroll(contentH-scrollVpH) / SI（T45 スナップショット）
 void Win32DebugOverlay_ScrollLog(
     const wchar_t* where,
     HWND hwnd,

@@ -21,6 +21,11 @@
 #define WIN32_HUD_DBG_FINAL_ROW2_TO_BODY_EXTRA_GAP_PX 28
 #endif
 
+// T48: body（vmSplit rest）スクロールビューポートの最小高さ（scrollVpH / [scroll] と GDI/D2D クリップを一致させる）
+#ifndef WIN32_OVERLAY_MIN_BODY_VIEWPORT_PX
+#define WIN32_OVERLAY_MIN_BODY_VIEWPORT_PX 64
+#endif
+
 // GDI Paint と D2D final HUD で body クリップ先頭を共有（ComputeLayoutMetrics で更新）
 static int s_paintDbgFinalBodyTopPx = 0;
 static int s_paintDbgBodyT14DocTopPx = 0;
@@ -31,6 +36,7 @@ static int s_paintDbgRow2TopPx = 0;
 static bool s_paintDbgT14VmSplitActive = false;
 static int s_paintDbgT17DocYRestScroll = 0;
 static int s_paintDbgRestViewportClientH = 0;
+static int s_paintDbgRestViewportTopPx = 0;
 
 // T40: GDI パス用（ComputeLayoutMetrics で更新、Paint が参照）
 static wchar_t s_paintDbgT14VmSplitPrefix[8192]{};
@@ -55,6 +61,7 @@ extern bool s_paintDbgT14LayoutValid;
 extern int s_paintDbgT14VisibleModesDocStartY;
 extern int s_paintDbgLineHeight;
 extern int s_paintDbgActualOverlayHeight;
+extern int s_paintDbgScrollBandReservePx;
 extern int s_paintDbgClientW;
 extern int s_paintDbgClientH;
 extern int s_paintDbgMaxScroll;
@@ -128,6 +135,13 @@ void Win32_UpdateNativeScrollbarsWindowedOnly(HWND hwnd, int nBar, SCROLLINFO* s
     SetScrollInfo(hwnd, nBar, si, redraw);
 }
 
+// T46/T47: 直近の Windowed SetScrollInfo（fill-monitor では無効）— [scroll] 帯と [SCROLL] ログで共有
+static int s_t46LastSiNMax = 0;
+static UINT s_t46LastSiNPage = 0;
+static int s_t46LastSiNPos = 0;
+static int s_t46LastSiMaxScrollSi = 0;
+static bool s_t46LastSiValid = false;
+
 // F7 ジャンプ先: 「--- T17 presentation ---」行を上余白付きで見える scrollY。
 int Win32DebugOverlay_ScrollTargetT17WithTopMargin(void)
 {
@@ -164,7 +178,7 @@ bool Win32DebugOverlay_IsT14VmSplitActive(void)
     return s_paintDbgT14VmSplitActive;
 }
 
-// スクロール調整時のデバッグ出力（クライアント高・maxScroll・T17 行の関係を確認するため）。
+// スクロール調整時のデバッグ出力（T47: [scroll] 帯と同じ rawClientH / scrollVpH / maxScroll(contentH-scrollVpH) / SI）
 void Win32DebugOverlay_ScrollLog(
     const wchar_t* where,
     HWND hwnd,
@@ -175,21 +189,28 @@ void Win32DebugOverlay_ScrollLog(
     int contentHBase,
     int extraBottomPadding)
 {
-    int clientH = s_paintDbgClientHeight;
+    int rawClientH = s_paintDbgClientHeight;
     if (hwnd && IsWindow(hwnd))
     {
         RECT rc{};
         GetClientRect(hwnd, &rc);
-        clientH = static_cast<int>(rc.bottom - rc.top);
+        rawClientH = static_cast<int>(rc.bottom - rc.top);
+    }
+    int scrollVpH = s_paintDbgRestViewportClientH;
+    if (scrollVpH < 1)
+    {
+        scrollVpH = (std::max)(1, rawClientH);
     }
     const int contentH = (contentHOverride >= 0) ? contentHOverride : s_paintDbgContentHeight;
     const int t17Y = (t17Override >= 0) ? t17Override : s_paintDbgT17DocY;
-    const int maxScroll = (std::max)(0, contentH - clientH);
+    const int maxScroll = (std::max)(0, contentH - scrollVpH);
 
-    wchar_t line[384] = {};
+    wchar_t line[512] = {};
     swprintf_s(line, _countof(line), L"[SCROLL] where=%s\r\n", where ? where : L"?");
     OutputDebugStringW(line);
-    swprintf_s(line, _countof(line), L"[SCROLL] clientH=%d\r\n", clientH);
+    swprintf_s(line, _countof(line), L"[SCROLL] rawClientH=%d\r\n", rawClientH);
+    OutputDebugStringW(line);
+    swprintf_s(line, _countof(line), L"[SCROLL] scrollVpH=%d\r\n", scrollVpH);
     OutputDebugStringW(line);
     if (contentHBase >= 0)
     {
@@ -211,7 +232,11 @@ void Win32DebugOverlay_ScrollLog(
         swprintf_s(line, _countof(line), L"[SCROLL] contentH=%d\r\n", contentH);
         OutputDebugStringW(line);
     }
-    swprintf_s(line, _countof(line), L"[SCROLL] maxScroll=%d\r\n", maxScroll);
+    swprintf_s(
+        line,
+        _countof(line),
+        L"[SCROLL] maxScroll(contentH-scrollVpH)=%d\r\n",
+        maxScroll);
     OutputDebugStringW(line);
     swprintf_s(
         line,
@@ -240,7 +265,23 @@ void Win32DebugOverlay_ScrollLog(
         OutputDebugStringW(line);
     }
 
-    if (hwnd && IsWindow(hwnd))
+    if (hwnd && IsWindow(hwnd) && Win32_IsMainWindowFillMonitorPresentation(hwnd))
+    {
+        OutputDebugStringW(L"[SCROLL] SI: (n/a fill-monitor)\r\n");
+    }
+    else if (s_t46LastSiValid)
+    {
+        swprintf_s(
+            line,
+            _countof(line),
+            L"[SCROLL] SI: nMax=%d nPage=%u pos=%d maxScroll_si=%d\r\n",
+            s_t46LastSiNMax,
+            s_t46LastSiNPage,
+            s_t46LastSiNPos,
+            s_t46LastSiMaxScrollSi);
+        OutputDebugStringW(line);
+    }
+    else if (hwnd && IsWindow(hwnd))
     {
         SCROLLINFO si = {};
         si.cbSize = sizeof(si);
@@ -251,12 +292,16 @@ void Win32DebugOverlay_ScrollLog(
             swprintf_s(
                 line,
                 _countof(line),
-                L"[SCROLL] scrollbar nMax=%d nPage=%d pos=%d maxScroll_si=%d\r\n",
+                L"[SCROLL] SI: (fallback GetScrollInfo) nMax=%d nPage=%u pos=%d maxScroll_si=%d\r\n",
                 static_cast<int>(si.nMax),
                 static_cast<int>(si.nPage),
                 static_cast<int>(si.nPos),
                 maxSi);
             OutputDebugStringW(line);
+        }
+        else
+        {
+            OutputDebugStringW(L"[SCROLL] SI: (n/a)\r\n");
         }
     }
     OutputDebugStringW(L"[SCROLL] ----\r\n");
@@ -282,13 +327,6 @@ void Win32_DebugOverlay_ClampScrollYToMaxScroll(int maxScroll, const wchar_t* wh
     }
     s_paintScrollY = newY;
 }
-
-// T46: [scroll] 帯に併記する直近の Windowed SetScrollInfo（fill-monitor では無効）
-static int s_t46LastSiNMax = 0;
-static UINT s_t46LastSiNPage = 0;
-static int s_t46LastSiNPos = 0;
-static int s_t46LastSiMaxScrollSi = 0;
-static bool s_t46LastSiValid = false;
 
 // T45: Windowed のみ。論理レイアウトの最終 contentH / スクロール用ビューポート高から SetScrollInfo（maxScroll_si == contentH - viewportH）
 static void Win32_T45_ApplyWindowedScrollInfo(HWND hwnd, int scrollContentH, int scrollViewportH, int pos)
@@ -511,6 +549,9 @@ static void Win32_DebugOverlay_ComputeLayoutMetrics(
     const int clientW = static_cast<int>(rcClient.right - rcClient.left);
     const int clientH = static_cast<int>(rcClient.bottom - rcClient.top);
 
+    s_paintDbgScrollBandReservePx = 0;
+    s_paintDbgRestViewportTopPx = 0;
+
     wchar_t menuBuf[3072] = {};
     wchar_t t14Buf[8192] = {};
     Win32_FillMenuSamplePaintBuffers(
@@ -541,10 +582,15 @@ static void Win32_DebugOverlay_ComputeLayoutMetrics(
     rcRow1.bottom = 0;
     DrawTextW(hdc, row1Buf, -1, &rcRow1, DT_LEFT | DT_TOP | DT_NOPREFIX | DT_WORDBREAK | DT_CALCRECT);
     const int row1H = static_cast<int>(rcRow1.bottom - rcRow1.top);
-    const int row2TopPx = row1H + WIN32_HUD_DBG_FINAL_ROW1_BOTTOM_GAP_PX + t37TopGap;
+    // T48: 小画面では row1↔row2 / row2↔本文の固定余白を圧縮し、本文ビューポートを確保する
+    const int row1GapPx =
+        (clientH < 360) ? (WIN32_HUD_DBG_FINAL_ROW1_BOTTOM_GAP_PX / 2) : WIN32_HUD_DBG_FINAL_ROW1_BOTTOM_GAP_PX;
+    const int row2ToBodyExtraGapPx =
+        (clientH < 360) ? (WIN32_HUD_DBG_FINAL_ROW2_TO_BODY_EXTRA_GAP_PX / 2)
+                        : WIN32_HUD_DBG_FINAL_ROW2_TO_BODY_EXTRA_GAP_PX;
+    const int row2TopPx = row1H + row1GapPx + t37TopGap;
     const int t14DocTopAbsPx = static_cast<int>(rcT14Doc.top) + t37TopGap;
-    const int bodyTopPx =
-        row2TopPx + static_cast<int>(rcT14Doc.top) + WIN32_HUD_DBG_FINAL_ROW2_TO_BODY_EXTRA_GAP_PX;
+    const int bodyTopPx = row2TopPx + static_cast<int>(rcT14Doc.top) + row2ToBodyExtraGapPx;
     s_paintDbgFinalBodyTopPx = bodyTopPx;
     s_paintDbgBodyT14DocTopPx = t14DocTopAbsPx;
     s_paintDbgFinalRow1HeightPx = row1H;
@@ -811,9 +857,24 @@ static void Win32_DebugOverlay_ComputeLayoutMetrics(
 
     if (vmSplitActive)
     {
-        const int overlayReserve = (std::min)(actualOverlayHeight, clientH);
-        const int restVp2 = (std::max)(1, clientH - overlayReserve - splitRestTopPx);
-        if (restVp2 != splitRestVp)
+        const int kMinBody = WIN32_OVERLAY_MIN_BODY_VIEWPORT_PX;
+        int splitRestTopPxEff = splitRestTopPx;
+        int overlayReserve = (std::min)(actualOverlayHeight, clientH);
+        {
+            const int maxOverlayForBody = (std::max)(0, clientH - splitRestTopPxEff - kMinBody);
+            overlayReserve = (std::min)(overlayReserve, maxOverlayForBody);
+            const int maxTopForRest = (std::max)(0, clientH - kMinBody - overlayReserve);
+            if (splitRestTopPxEff > maxTopForRest)
+            {
+                splitRestTopPxEff = maxTopForRest;
+            }
+        }
+        int restVp2 = clientH - overlayReserve - splitRestTopPxEff;
+        restVp2 = (std::max)(1, restVp2);
+
+        s_paintDbgRestViewportTopPx = splitRestTopPxEff;
+        s_paintDbgScrollBandReservePx = overlayReserve;
+
         {
             const int maxScrollBeforePaddingRest2 = (std::max)(0, splitHRest - restVp2);
             int extra2 = 0;
@@ -882,6 +943,12 @@ static void Win32_DebugOverlay_ComputeLayoutMetrics(
 
     s_paintDbgActualOverlayHeight = actualOverlayHeight;
 
+    if (!vmSplitActive)
+    {
+        s_paintDbgScrollBandReservePx = (std::min)(actualOverlayHeight, clientH);
+        s_paintDbgRestViewportTopPx = 0;
+    }
+
     if (outHud)
     {
         outHud->dbgHudLeftColumnText[0] = L'\0';
@@ -890,7 +957,7 @@ static void Win32_DebugOverlay_ComputeLayoutMetrics(
         wcscat_s(outHud->dbgHudLeftColumnText, _countof(outHud->dbgHudLeftColumnText), t14Buf);
         outHud->dbgHudLeftColumnTopPx = t37TopGap;
         outHud->dbgHudLeftColumnScrollYPx = s_paintScrollY;
-        outHud->dbgHudLeftColumnClipBottomPadPx = (std::min)(actualOverlayHeight, clientH);
+        outHud->dbgHudLeftColumnClipBottomPadPx = s_paintDbgScrollBandReservePx;
         outHud->dbgHudLeftColumnPrefillClientW = static_cast<std::uint32_t>(clientW);
         outHud->dbgHudLeftColumnPrefillClientH = static_cast<std::uint32_t>(clientH);
         wcscpy_s(outHud->dbgHudScrollBandText, _countof(outHud->dbgHudScrollBandText), overlay);
@@ -924,6 +991,7 @@ static void Win32_DebugOverlay_ComputeLayoutMetrics(
             wcscpy_s(outHud->dbgHudT14RestText, _countof(outHud->dbgHudT14RestText), s_paintDbgT14VmSplitRest);
             outHud->dbgHudT14PrefixHeightPx = splitHPrefix;
             outHud->dbgHudVmBandHeightPx = splitHVmBand;
+            outHud->dbgHudRestViewportTopPx = s_paintDbgRestViewportTopPx;
             wcscpy_s(
                 outHud->dbgHudBodyBandText,
                 _countof(outHud->dbgHudBodyBandText),
@@ -937,6 +1005,7 @@ static void Win32_DebugOverlay_ComputeLayoutMetrics(
             outHud->dbgHudT14RestText[0] = L'\0';
             outHud->dbgHudT14PrefixHeightPx = 0;
             outHud->dbgHudVmBandHeightPx = 0;
+            outHud->dbgHudRestViewportTopPx = 0;
             wcscpy_s(outHud->dbgHudBodyBandText, _countof(outHud->dbgHudBodyBandText), t14Buf);
         }
     }
@@ -977,8 +1046,6 @@ void Win32DebugOverlay_Paint(
     const int t37TopGap =
         Win32_IsT37VirtualBodyOverlayActiveForLayout() ? WIN32_OVERLAY_T37_MENU_TOP_GAP_PX : 0;
 
-    const int actualOverlayHeight = s_paintDbgActualOverlayHeight;
-
     wchar_t overlay[2048] = {};
     const int jumpF7 = Win32DebugOverlay_ScrollTargetT17WithTopMargin();
     const int jumpF8 = Win32DebugOverlay_ScrollTargetT17Centered(hwnd);
@@ -1004,9 +1071,9 @@ void Win32DebugOverlay_Paint(
 
     RECT rcClipMain = rcClient;
     {
-        const int overlayReserve = (std::min)(actualOverlayHeight, clientH);
+        const int scrollBandReserve = s_paintDbgScrollBandReservePx;
         rcClipMain.bottom =
-            (std::max)(rcClipMain.top, rcClipMain.bottom - overlayReserve);
+            (std::max)(rcClipMain.top, rcClipMain.bottom - scrollBandReserve);
     }
 
     const int bodyTopPx = s_paintDbgFinalBodyTopPx;
@@ -1044,9 +1111,14 @@ void Win32DebugOverlay_Paint(
             if (s_paintDbgT14VmSplitActive)
             {
                 const int t14TextStartPx = s_paintDbgRow2TopPx + s_paintDbgBodyT14DocTopPx;
+                const int restTopNatural =
+                    t14TextStartPx + s_paintDbgT14VmSplitPrefixH + s_paintDbgT14VmSplitVmBandH;
+                const int restTopPx =
+                    (s_paintDbgRestViewportTopPx > 0) ? s_paintDbgRestViewportTopPx : restTopNatural;
                 RECT rcPrefDraw = rcT14Draw;
                 rcPrefDraw.top = t14TextStartPx;
-                rcPrefDraw.bottom = rcPrefDraw.top + s_paintDbgT14VmSplitPrefixH + 4;
+                rcPrefDraw.bottom = (std::min)(
+                    static_cast<int>(rcPrefDraw.top) + s_paintDbgT14VmSplitPrefixH + 4, restTopPx);
                 DrawTextW(
                     hdc,
                     s_paintDbgT14VmSplitPrefix,
@@ -1056,7 +1128,8 @@ void Win32DebugOverlay_Paint(
 
                 RECT rcVmDraw = rcT14Draw;
                 rcVmDraw.top = t14TextStartPx + s_paintDbgT14VmSplitPrefixH;
-                rcVmDraw.bottom = rcVmDraw.top + s_paintDbgT14VmSplitVmBandH + 4;
+                rcVmDraw.bottom = (std::min)(
+                    static_cast<int>(rcVmDraw.top) + s_paintDbgT14VmSplitVmBandH + 4, restTopPx);
                 DrawTextW(
                     hdc,
                     s_paintDbgT14VmSplitVmBand,
@@ -1065,7 +1138,6 @@ void Win32DebugOverlay_Paint(
                     DT_LEFT | DT_TOP | DT_NOPREFIX | DT_WORDBREAK);
 
                 const int savedRest = SaveDC(hdc);
-                const int restTopPx = t14TextStartPx + s_paintDbgT14VmSplitPrefixH + s_paintDbgT14VmSplitVmBandH;
                 IntersectClipRect(
                     hdc,
                     rcClipMain.left,
@@ -1098,7 +1170,7 @@ void Win32DebugOverlay_Paint(
         RestoreDC(hdc, saved);
 
         const int row1H = s_paintDbgFinalRow1HeightPx;
-        const int row2TopPx = row1H + WIN32_HUD_DBG_FINAL_ROW1_BOTTOM_GAP_PX + t37TopGap;
+        const int row2TopPx = s_paintDbgRow2TopPx;
         RECT rcRow1{};
         rcRow1.left = 0;
         rcRow1.top = 0;
@@ -1114,7 +1186,8 @@ void Win32DebugOverlay_Paint(
     if (!skipScrollBandGdi)
     {
         RECT rcOv = rcClient;
-        rcOv.top = (std::max)(rcClient.top, rcClient.bottom - actualOverlayHeight);
+        const int scrollBandReserve = s_paintDbgScrollBandReservePx;
+        rcOv.top = (std::max)(rcClient.top, rcClient.bottom - scrollBandReserve);
         DrawTextW(hdc, overlay, -1, &rcOv, DT_LEFT | DT_TOP | DT_NOPREFIX | DT_WORDBREAK);
     }
 
@@ -1155,6 +1228,7 @@ void Win32_DebugOverlay_PrefillHudLeftColumnForD2d(
     st->dbgHudT14RestText[0] = L'\0';
     st->dbgHudT14PrefixHeightPx = 0;
     st->dbgHudVmBandHeightPx = 0;
+    st->dbgHudRestViewportTopPx = 0;
 
     RECT rcActual{};
     GetClientRect(hwnd, &rcActual);

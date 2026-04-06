@@ -118,6 +118,8 @@ struct WindowsRendererState
     wchar_t dbgHudT14RestText[16384]{};
     int dbgHudT14PrefixHeightPx = 0;
     int dbgHudVmBandHeightPx = 0;
+    // T48: vmSplit 時、本文スクロール領域の先頭 Y（client）。0 のときは prefix+vm 計測で導出
+    int dbgHudRestViewportTopPx = 0;
 };
 
 // --- T31 公開面（3 入口 + Shutdown）---
