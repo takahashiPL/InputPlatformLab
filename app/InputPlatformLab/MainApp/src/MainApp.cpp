@@ -1507,19 +1507,26 @@ static void Win32_T16_LogAndStoreActualMetricsAfterCreate(
         showCmd = wp.showCmd;
     }
 
-    wchar_t logAfter[512] = {};
+    const LONG_PTR winStyle = GetWindowLongPtr(hwnd, GWL_STYLE);
+    const LONG_PTR winExStyle = GetWindowLongPtr(hwnd, GWL_EXSTYLE);
+
+    wchar_t logAfter[768] = {};
     swprintf_s(
         logAfter,
         _countof(logAfter),
-        L"[T16] %s AFTER: ok=1 client(phys)=%dx%d requested outer(phys)=%dx%d "
-        L"actual outer(phys)=%dx%d IsZoomed=%d showCmd=%u hwnd=%p\r\n",
+        L"[T16] %s AFTER: ok=1 targetPhys=%dx%d client(phys)=%dx%d requested outer(phys)=%dx%d "
+        L"actual outer(phys)=%dx%d style=0x%08lX exStyle=0x%08lX IsZoomed=%d showCmd=%u hwnd=%p\r\n",
         afterLabel,
+        s_t16LastTargetPhysicalW,
+        s_t16LastTargetPhysicalH,
         actualClientW,
         actualClientH,
         requestedOuterPhysW,
         requestedOuterPhysH,
         s_t16LastActualOuterW,
         s_t16LastActualOuterH,
+        static_cast<unsigned long>(static_cast<ULONG_PTR>(winStyle) & 0xFFFFFFFFul),
+        static_cast<unsigned long>(static_cast<ULONG_PTR>(winExStyle) & 0xFFFFFFFFul),
         IsZoomed(hwnd) ? 1 : 0,
         showCmd,
         static_cast<void*>(hwnd));
@@ -1792,7 +1799,8 @@ static bool Win32_T17_BuildFillMonitorConfig(HWND hwnd, MainWindowConfig& out, b
     s_t16LastDpiY = dpiY;
 
     const RECT& mr = s_displayMonitorsCache[kT14SelectedMonitorIndex].monitor_rect;
-    out.windowStyle = WS_POPUP | WS_VSCROLL;
+    // T41: Borderless / Fullscreen は native スクロールバーなし（論理 scrollY / HUD は維持）。client を物理フルに一致させる。
+    out.windowStyle = WS_POPUP;
     out.windowExStyle = WS_EX_APPWINDOW;
     out.useAdjustWindowRect = FALSE;
     out.dpiX = dpiX;
