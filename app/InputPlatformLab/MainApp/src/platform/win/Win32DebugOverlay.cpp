@@ -38,6 +38,9 @@ static int s_paintDbgT17DocYRestScroll = 0;
 static int s_paintDbgRestViewportClientH = 0;
 static int s_paintDbgRestViewportTopPx = 0;
 
+// T53: 極小 Windowed で [scroll] 帯の GDI 重ね描きを止める（レイアウト予約は維持）
+static bool s_paintDbgT53ScrollBandDrawEnabled = true;
+
 // T40: GDI パス用（ComputeLayoutMetrics で更新、Paint が参照）
 static wchar_t s_paintDbgT14VmSplitPrefix[8192]{};
 static wchar_t s_paintDbgT14VmSplitVmBand[8192]{};
@@ -1084,8 +1087,17 @@ refill_budget:
         s_paintDbgRestViewportTopPx = 0;
     }
 
+    {
+        const int budgetT53 = (restVpBudgetHint >= 0) ? restVpBudgetHint : clientH;
+        const bool windowedHud = !Win32_IsMainWindowFillMonitorPresentation(hwnd);
+        s_paintDbgT53ScrollBandDrawEnabled =
+            !(windowedHud && budgetT53 >= 0 &&
+              budgetT53 < WIN32_OVERLAY_T53_OMIT_SCROLL_BAND_BUDGET_PX);
+    }
+
     if (outHud)
     {
+        outHud->dbgHudDrawScrollBand = s_paintDbgT53ScrollBandDrawEnabled;
         outHud->dbgHudLeftColumnText[0] = L'\0';
         wcscpy_s(outHud->dbgHudLeftColumnText, _countof(outHud->dbgHudLeftColumnText), menuBuf);
         wcscat_s(outHud->dbgHudLeftColumnText, _countof(outHud->dbgHudLeftColumnText), L"\r\n");
@@ -1348,7 +1360,7 @@ void Win32DebugOverlay_Paint(
         DrawTextW(hdc, menuBuf, -1, &rcMenuDraw, DT_LEFT | DT_TOP | DT_NOPREFIX);
     }
 
-    if (!skipScrollBandGdi)
+    if (!skipScrollBandGdi && s_paintDbgT53ScrollBandDrawEnabled)
     {
         RECT rcOv = rcClient;
         const int scrollBandReserve = s_paintDbgScrollBandReservePx;
@@ -1382,6 +1394,7 @@ void Win32_DebugOverlay_PrefillHudLeftColumnForD2d(
     st->dbgHudLeftColumnPrefillClientH = 0;
     st->dbgHudScrollBandText[0] = L'\0';
     st->dbgHudScrollBandHeightPx = 0;
+    st->dbgHudDrawScrollBand = true;
     st->dbgHudMenuBandText[0] = L'\0';
     st->dbgHudBodyBandText[0] = L'\0';
     st->dbgHudFinalRow1HeightPx = 0;

@@ -50,6 +50,26 @@ void Win32_DebugOverlay_FormatScrollDebugOverlay(
 #define WIN32_OVERLAY_T51_OMIT_T16_RESTVP_PX 120
 #endif
 
+// T53: 極小 Windowed のみ budgetPx（clientH または restVpBudgetHint）で段階的縮退（fill-monitor では原則未使用）
+#ifndef WIN32_OVERLAY_T53_OMIT_T16_BUDGET_PX
+#define WIN32_OVERLAY_T53_OMIT_T16_BUDGET_PX 140
+#endif
+#ifndef WIN32_OVERLAY_T53_T15_SUMMARY_BUDGET_PX
+#define WIN32_OVERLAY_T53_T15_SUMMARY_BUDGET_PX 110
+#endif
+#ifndef WIN32_OVERLAY_T53_OMIT_T15_BUDGET_PX
+#define WIN32_OVERLAY_T53_OMIT_T15_BUDGET_PX 90
+#endif
+#ifndef WIN32_OVERLAY_T53_OMIT_SCROLL_BAND_BUDGET_PX
+#define WIN32_OVERLAY_T53_OMIT_SCROLL_BAND_BUDGET_PX 80
+#endif
+#ifndef WIN32_OVERLAY_T53_ONE_VISIBLE_ROW_BUDGET_PX
+#define WIN32_OVERLAY_T53_ONE_VISIBLE_ROW_BUDGET_PX 70
+#endif
+#ifndef WIN32_OVERLAY_T53_MINIMAL_T14_BUDGET_PX
+#define WIN32_OVERLAY_T53_MINIMAL_T14_BUDGET_PX 60
+#endif
+
 // MainApp が WM_PAINT 用に組み立てたバッファを、GDI で描画するモジュール（D3D とは役割分担）。
 // compactMenuForT37Layout: T37 有効時のみ左列メニューを短文化（T14 本文バッファは変えない）。
 void Win32_FillMenuSamplePaintBuffers(

@@ -100,6 +100,8 @@ struct WindowsRendererState
     std::uint32_t dbgHudLeftColumnPrefillClientH = 0;
     // T38: 下端 [scroll] サマリを final backbuffer の D2D で描いたフレームでは GDI の [scroll] 帯を描かない
     bool dbgHudScrollBandSkipGdi = false;
+    // T53: 極小 Windowed ではレイアウト計算・SI は維持しつつ [scroll] 帯の描画のみ省略（重なり防止）
+    bool dbgHudDrawScrollBand = true;
     wchar_t dbgHudScrollBandText[2048]{};
     int dbgHudScrollBandHeightPx = 0;
     // T39: final HUD 3 帯（row1 cand/act, row2 menu, body T14+）— Prefill で GDI 計測と一致させる

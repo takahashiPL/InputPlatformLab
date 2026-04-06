@@ -645,6 +645,7 @@ static HRESULT WindowsRenderer_DrawHudD2DOnFinalBackbuffer(
     }
     s->dbgHudLeftColumnSkipGdi = false;
     s->dbgHudScrollBandSkipGdi = false;
+    s->dbgHudDrawScrollBand = true;
 
     UINT dpiSys = GetDpiForWindow(s->targetHwnd);
     if (dpiSys == 0)
@@ -933,7 +934,8 @@ static HRESULT WindowsRenderer_DrawHudD2DOnFinalBackbuffer(
     }
 
     bool drewScrollBandToD2d = false;
-    if (s->dbgHudScrollBandText[0] != L'\0' && s->dbgHudScrollBandHeightPx > 0 &&
+    if (s->dbgHudDrawScrollBand && s->dbgHudScrollBandText[0] != L'\0' &&
+        s->dbgHudScrollBandHeightPx > 0 &&
         cw == s->dbgHudLeftColumnPrefillClientW && ch == s->dbgHudLeftColumnPrefillClientH)
     {
         const float bandHDip = static_cast<float>(s->dbgHudScrollBandHeightPx) * sy;

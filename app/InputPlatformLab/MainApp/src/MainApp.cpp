@@ -411,6 +411,7 @@ static void Win32_FillMenuSamplePaintBuffers_MenuColumn(
     size_t menuBufCount,
     bool compactT37);
 static void Win32_FillMenuSamplePaintBuffers_T14T15Column(
+    HWND hwnd,
     wchar_t* t14Buf,
     size_t t14BufCount,
     int clientH,
@@ -3982,24 +3983,32 @@ static size_t Win32_T14_VisibleModeRowsForBudgetPx(int budgetPx)
 
 // T14 可視行 + T15 最近傍ブロック（モニタ無し時はプレースホルダ）。
 static void Win32_FillMenuSamplePaintBuffers_T14T15Column(
+    HWND hwnd,
     wchar_t* t14Buf,
     size_t t14BufCount,
     int clientH,
     int restVpBudgetHint)
 {
     const int budgetPx = (restVpBudgetHint >= 0) ? restVpBudgetHint : clientH;
+    const bool t53Windowed =
+        hwnd && IsWindow(hwnd) && !Win32_MainWindow_IsFillMonitorPresentationMode(hwnd);
+    const bool t53OneRow =
+        t53Windowed && budgetPx >= 0 && budgetPx < WIN32_OVERLAY_T53_ONE_VISIBLE_ROW_BUDGET_PX;
+    const bool t53MinimalT14 =
+        t53Windowed && budgetPx >= 0 && budgetPx < WIN32_OVERLAY_T53_MINIMAL_T14_BUDGET_PX;
 
     if (!s_displayMonitorsCache.empty() && kT14SelectedMonitorIndex < s_displayMonitorsCache.size())
     {
         const DisplayMonitorInfo& mon = s_displayMonitorsCache[kT14SelectedMonitorIndex];
-        const size_t rowsToPaint =
-            (std::min)(Win32_T14_VisibleModeRowsForBudgetPx(budgetPx), kT14VisibleModeCount);
+        const size_t rowsToPaint = t53OneRow
+            ? 1u
+            : (std::min)(Win32_T14_VisibleModeRowsForBudgetPx(budgetPx), kT14VisibleModeCount);
         const bool tinyBudget =
             (budgetPx > 0 && budgetPx < WIN32_OVERLAY_T50_TINY_CLIENT_H);
         const bool minimalHeader =
             (budgetPx > 0 && budgetPx < WIN32_OVERLAY_T49_T14_MINIMAL_HEADER_CLIENT_H);
 
-        if (tinyBudget)
+        if (t53MinimalT14 || tinyBudget)
         {
             swprintf_s(
                 t14Buf,
@@ -4038,10 +4047,22 @@ static void Win32_FillMenuSamplePaintBuffers_T14T15Column(
 
         for (size_t row = 0; row < rowsToPaint; ++row)
         {
-            const size_t mi = s_t14FirstVisibleModeIndex + row;
-            if (mi >= mon.modes.size())
+            size_t mi = 0;
+            if (t53OneRow)
             {
-                break;
+                mi = s_t14SelectedModeIndex;
+                if (mi >= mon.modes.size())
+                {
+                    break;
+                }
+            }
+            else
+            {
+                mi = s_t14FirstVisibleModeIndex + row;
+                if (mi >= mon.modes.size())
+                {
+                    break;
+                }
             }
             const DisplayModeInfo& mode = mon.modes[mi];
             const wchar_t* mark = (mi == s_t14SelectedModeIndex) ? L">" : L" ";
@@ -4076,7 +4097,31 @@ static void Win32_FillMenuSamplePaintBuffers_T14T15Column(
 
         {
             wchar_t t15Block[768] = {};
-            if (tinyBudget)
+            if (t53Windowed && budgetPx >= 0 && budgetPx < WIN32_OVERLAY_T53_OMIT_T15_BUDGET_PX)
+            {
+                t15Block[0] = L'\0';
+            }
+            else if (
+                t53Windowed && budgetPx >= 0 && budgetPx < WIN32_OVERLAY_T53_T15_SUMMARY_BUDGET_PX)
+            {
+                if (s_t15MatchResult.nearestModeIndex != static_cast<size_t>(-1) &&
+                    s_t15MatchResult.nearestModeIndex < mon.modes.size())
+                {
+                    const DisplayModeInfo& nm = mon.modes[s_t15MatchResult.nearestModeIndex];
+                    swprintf_s(
+                        t15Block,
+                        _countof(t15Block),
+                        L"\r\nT15: %dx%d ex:%d\r\n",
+                        nm.width,
+                        nm.height,
+                        s_t15MatchResult.exactMatch ? 1 : 0);
+                }
+                else
+                {
+                    swprintf_s(t15Block, _countof(t15Block), L"\r\nT15: (none)\r\n");
+                }
+            }
+            else if (tinyBudget)
             {
                 if (s_t15MatchResult.nearestModeIndex != static_cast<size_t>(-1) &&
                     s_t15MatchResult.nearestModeIndex < mon.modes.size())
@@ -4182,6 +4227,13 @@ static void Win32_FillMenuSamplePaintBuffers_AppendT16T18T17(
     size_t t14BufCount,
     int restVpBudgetHint)
 {
+    const int ch = static_cast<int>(rcClient.bottom - rcClient.top);
+    const int budgetPx = (restVpBudgetHint >= 0) ? restVpBudgetHint : ch;
+    if (hwnd && IsWindow(hwnd) && !Win32_MainWindow_IsFillMonitorPresentationMode(hwnd) &&
+        budgetPx >= 0 && budgetPx < WIN32_OVERLAY_T53_OMIT_T16_BUDGET_PX)
+    {
+        return;
+    }
     Win32_T16_AppendPaintSection(t14Buf, t14BufCount, hwnd, rcClient, restVpBudgetHint);
     Win32_T18_AppendPaintSection(t14Buf, t14BufCount);
     Win32_T17_AppendPaintSection(t14Buf, t14BufCount);
@@ -4202,6 +4254,7 @@ void Win32_FillMenuSamplePaintBuffers(
 
     Win32_FillMenuSamplePaintBuffers_MenuColumn(menuBuf, menuBufCount, compactMenuForT37Layout);
     Win32_FillMenuSamplePaintBuffers_T14T15Column(
+        hwnd,
         t14Buf,
         t14BufCount,
         static_cast<int>(rcClient.bottom - rcClient.top),
