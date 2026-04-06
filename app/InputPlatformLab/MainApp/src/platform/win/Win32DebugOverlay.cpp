@@ -651,6 +651,22 @@ static int Win32_MainView_MeasureScrollOverlayTextHeight(HDC hdc, int clientW, c
     return static_cast<int>(rc.bottom - rc.top);
 }
 
+// T59: T14 ドキュメント内のブロック別に DrawText 高さを取る（prefix がどこまで doc を食うか切り分け）
+static int Win32_T59_MeasureDocSliceHeight(HDC hdc, int w, const wchar_t* s, int lenChars)
+{
+    if (!s || lenChars <= 0)
+    {
+        return 0;
+    }
+    RECT rc{};
+    rc.left = 0;
+    rc.top = 0;
+    rc.right = w;
+    rc.bottom = 1000000;
+    DrawTextW(hdc, s, lenChars, &rc, DT_LEFT | DT_TOP | DT_NOPREFIX | DT_WORDBREAK | DT_CALCRECT);
+    return static_cast<int>(rc.bottom - rc.top);
+}
+
 // Prefill / WM_PAINT 共通: スクロール・[scroll] 帯の高さ・T17 行位置などを計測。
 // outHud 非 null のときは D2D final HUD 用に左列全文（menu+t14）とスクロール値を書き込む。
 static void Win32_DebugOverlay_ComputeLayoutMetrics(
@@ -714,8 +730,8 @@ refill_budget:
     int row2ToBodyExtraGapPx =
         (clientH < 360) ? (WIN32_HUD_DBG_FINAL_ROW2_TO_BODY_EXTRA_GAP_PX / 2)
                         : WIN32_HUD_DBG_FINAL_ROW2_TO_BODY_EXTRA_GAP_PX;
-    // T58: 520px 以下の Windowed で本文上端までの縦をさらに削る（fill-monitor は触らない）
-    if (!Win32_IsMainWindowFillMonitorPresentation(hwnd) && clientH <= 520)
+    // T58/T59: 760px 以下の Windowed で本文上端までの縦をさらに削る（fill-monitor は触らない）
+    if (!Win32_IsMainWindowFillMonitorPresentation(hwnd) && clientH <= WIN32_OVERLAY_T59_WINDOWED_COMPACT_CLIENT_H)
     {
         row1GapPx = (std::min)(row1GapPx, 4);
         row2ToBodyExtraGapPx = (std::min)(row2ToBodyExtraGapPx, 12);
@@ -1176,6 +1192,120 @@ refill_budget:
         const int prefixTop_log = s_paintDbgRow2TopPx + t14BaseY;
         const int vmTop_log =
             s_paintDbgT14VmSplitActive ? (prefixTop_log + splitHPrefix) : 0;
+        int hT14ToVis = 0;
+        int hVmLines = 0;
+        int hT15 = 0;
+        int hT16 = 0;
+        int hT18 = 0;
+        int hT17 = 0;
+        const int visStartDoc = s_paintDbgT14VisibleModesDocStartY - t14BaseY;
+        const int gapsPx = row1GapPx + row2ToBodyExtraGapPx;
+        if (!vmSplitActive)
+        {
+            const wchar_t* pVis = wcsstr(t14Buf, L"visible modes:\r\n");
+            const wchar_t* pT15 = wcsstr(t14Buf, L"\r\n--- T15 nearest resolution ---");
+            if (pT15 == nullptr)
+            {
+                pT15 = wcsstr(t14Buf, L"\r\n--- T15");
+            }
+            if (pT15 == nullptr)
+            {
+                pT15 = wcsstr(t14Buf, L"\r\nT15:");
+            }
+            const wchar_t* pT16 = wcsstr(t14Buf, L"\r\n--- T16");
+            if (pT16 == nullptr)
+            {
+                pT16 = wcsstr(t14Buf, L"--- T16");
+            }
+            const wchar_t* pT18 = wcsstr(t14Buf, L"\r\n--- T18");
+            if (pT18 == nullptr)
+            {
+                pT18 = wcsstr(t14Buf, L"--- T18");
+            }
+            const wchar_t* pT17 = wcsstr(t14Buf, L"\r\n--- T17");
+            if (pT17 == nullptr)
+            {
+                pT17 = wcsstr(t14Buf, L"--- T17");
+            }
+            if (pVis != nullptr)
+            {
+                const size_t prefixChars =
+                    static_cast<size_t>(pVis - t14Buf) + wcslen(L"visible modes:\r\n");
+                hT14ToVis = Win32_T59_MeasureDocSliceHeight(
+                    hdc, clientW, t14Buf, static_cast<int>(prefixChars));
+            }
+            const wchar_t* pAfterVis =
+                pVis != nullptr ? pVis + wcslen(L"visible modes:\r\n") : nullptr;
+            const wchar_t* pVmEnd = pT15;
+            if (pVmEnd == nullptr && pT16 != nullptr)
+            {
+                pVmEnd = pT16;
+            }
+            if (pAfterVis != nullptr && pVmEnd != nullptr && pVmEnd > pAfterVis)
+            {
+                hVmLines = Win32_T59_MeasureDocSliceHeight(
+                    hdc,
+                    clientW,
+                    pAfterVis,
+                    static_cast<int>(pVmEnd - pAfterVis));
+            }
+            if (pT15 != nullptr && pT16 != nullptr && pT16 > pT15)
+            {
+                hT15 = Win32_T59_MeasureDocSliceHeight(
+                    hdc, clientW, pT15, static_cast<int>(pT16 - pT15));
+            }
+            else if (pT15 != nullptr && pT18 != nullptr && pT18 > pT15 &&
+                     (pT16 == nullptr || pT16 > pT18))
+            {
+                hT15 = Win32_T59_MeasureDocSliceHeight(
+                    hdc, clientW, pT15, static_cast<int>(pT18 - pT15));
+            }
+            if (pT16 != nullptr && pT18 != nullptr && pT18 > pT16)
+            {
+                hT16 = Win32_T59_MeasureDocSliceHeight(
+                    hdc, clientW, pT16, static_cast<int>(pT18 - pT16));
+            }
+            else if (pT16 != nullptr && pT17 != nullptr && pT17 > pT16 &&
+                     (pT18 == nullptr || pT18 > pT17))
+            {
+                hT16 = Win32_T59_MeasureDocSliceHeight(
+                    hdc, clientW, pT16, static_cast<int>(pT17 - pT16));
+            }
+            if (pT18 != nullptr && pT17 != nullptr && pT17 > pT18)
+            {
+                hT18 = Win32_T59_MeasureDocSliceHeight(
+                    hdc, clientW, pT18, static_cast<int>(pT17 - pT18));
+            }
+            if (pT17 != nullptr)
+            {
+                hT17 = Win32_T59_MeasureDocSliceHeight(
+                    hdc, clientW, pT17, static_cast<int>(wcslen(pT17)));
+            }
+        }
+        wchar_t t59[768] = {};
+        swprintf_s(
+            t59,
+            _countof(t59),
+            L"[T59BUDGET] vmSplit=%d row1H=%d row2Band=%d row1Gap=%d row2ToBodyGap=%d gaps=%d "
+            L"t14ToVisHeadingDocH=%d vmLinesDocH=%d t15DocH=%d t16DocH=%d t18DocH=%d t17DocH=%d "
+            L"visibleModesStartDoc=%d docContentH=%d lineH=%d\r\n",
+            vmSplitActive ? 1 : 0,
+            row1H_log,
+            row2H_log,
+            row1GapPx,
+            row2ToBodyExtraGapPx,
+            gapsPx,
+            hT14ToVis,
+            hVmLines,
+            hT15,
+            hT16,
+            hT18,
+            hT17,
+            visStartDoc,
+            s_paintDbgContentHeight,
+            s_paintDbgLineHeight);
+        OutputDebugStringW(t59);
+
         wchar_t t57[512] = {};
         swprintf_s(
             t57,
