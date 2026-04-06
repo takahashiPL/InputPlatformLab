@@ -143,6 +143,9 @@ static int s_t46LastSiNPos = 0;
 static int s_t46LastSiMaxScrollSi = 0;
 static bool s_t46LastSiValid = false;
 
+// T52: 直近の Win32_DebugOverlay_ComputeLayoutMetrics が T45 まで完了し、contentH / scrollVpH / SI スナップショットが整合している
+static bool s_paintDbgLayoutMetricsFromPaintValid = false;
+
 // F7 ジャンプ先: 「--- T17 presentation ---」行を上余白付きで見える scrollY。
 int Win32DebugOverlay_ScrollTargetT17WithTopMargin(void)
 {
@@ -179,6 +182,21 @@ bool Win32DebugOverlay_IsT14VmSplitActive(void)
     return s_paintDbgT14VmSplitActive;
 }
 
+void Win32_DebugOverlay_ResetProvisionalLayoutCache(void)
+{
+    s_paintDbgLayoutMetricsFromPaintValid = false;
+    s_paintDbgLayoutRestVpBudgetHint = -1;
+    s_paintDbgScrollBandReservePx = 0;
+    s_paintDbgT14LayoutValid = false;
+    s_paintDbgActualOverlayHeight = 0;
+    s_t46LastSiValid = false;
+}
+
+bool Win32_DebugOverlay_IsPaintLayoutMetricsValid(void)
+{
+    return s_paintDbgLayoutMetricsFromPaintValid;
+}
+
 // スクロール調整時のデバッグ出力（T47: [scroll] 帯と同じ rawClientH / scrollVpH / maxScroll(contentH-scrollVpH) / SI）
 void Win32DebugOverlay_ScrollLog(
     const wchar_t* where,
@@ -197,6 +215,30 @@ void Win32DebugOverlay_ScrollLog(
         GetClientRect(hwnd, &rc);
         rawClientH = static_cast<int>(rc.bottom - rc.top);
     }
+
+    const bool provisionalLayoutLog =
+        !s_paintDbgLayoutMetricsFromPaintValid && contentHOverride < 0 && t17Override < 0;
+    if (provisionalLayoutLog)
+    {
+        wchar_t line[512] = {};
+        swprintf_s(line, _countof(line), L"[SCROLL] where=%s\r\n", where ? where : L"?");
+        OutputDebugStringW(line);
+        OutputDebugStringW(
+            L"[SCROLL] note: layout metrics unsettled until Win32_DebugOverlay_ComputeLayoutMetrics "
+            L"(WM_PAINT); contentH/scrollVpH/maxScroll/T17/SI below omitted as stale\r\n");
+        swprintf_s(line, _countof(line), L"[SCROLL] rawClientH=%d\r\n", rawClientH);
+        OutputDebugStringW(line);
+        swprintf_s(
+            line,
+            _countof(line),
+            L"[SCROLL] scrollY(before)=%d scrollY(after)=%d\r\n",
+            scrollYBefore,
+            scrollYAfter);
+        OutputDebugStringW(line);
+        OutputDebugStringW(L"[SCROLL] ----\r\n");
+        return;
+    }
+
     int scrollVpH = s_paintDbgRestViewportClientH;
     if (scrollVpH < 1)
     {
@@ -998,6 +1040,8 @@ refill_budget:
         Win32_DebugOverlay_ClampScrollYToMaxScroll(maxScrollUnified, L"ComputeLayoutMetrics.unified");
         Win32_T45_ApplyWindowedScrollInfo(hwnd, scrollContentHFinal, scrollViewportHFinal, s_paintScrollY);
     }
+
+    s_paintDbgLayoutMetricsFromPaintValid = true;
 
     if (logScroll)
     {

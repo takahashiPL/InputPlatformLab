@@ -91,6 +91,10 @@ void Win32DebugOverlay_Paint(
     bool skipMenuColumnGdi,
     bool skipScrollBandGdi);
 
+// T52: recreate / WM_SIZE 直後は暫定キャッシュを捨て、ログは WM_PAINT 計算完了まで stale な contentH/restVp を出さない。
+void Win32_DebugOverlay_ResetProvisionalLayoutCache(void);
+bool Win32_DebugOverlay_IsPaintLayoutMetricsValid(void);
+
 // T47: Output の [SCROLL] は [scroll] 帯と同じ rawClientH / scrollVpH / maxScroll(contentH-scrollVpH) / SI（T45 スナップショット）
 void Win32DebugOverlay_ScrollLog(
     const wchar_t* where,

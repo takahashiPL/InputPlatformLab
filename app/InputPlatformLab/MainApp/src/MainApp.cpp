@@ -1538,6 +1538,8 @@ static void Win32_T16_LogAndStoreActualMetricsAfterCreate(
         showCmd,
         static_cast<void*>(hwnd));
     OutputDebugStringW(logAfter);
+
+    Win32_DebugOverlay_ResetProvisionalLayoutCache();
 }
 
 // T42: fill-monitor（Borderless / Fullscreen）で OS / 枠更新後に WS_VSCROLL が付く場合の除去・調査ログ
@@ -2308,18 +2310,8 @@ static void Win32_T17_ApplyCurrentPresentationMode(HWND hwnd)
             Win32_T17_ModeLabel(candidate),
             Win32_T17_ModeLabel(appliedMode));
         OutputDebugStringW(endOk);
-        {
-            RECT crEst{};
-            GetClientRect(hwndAfter, &crEst);
-            const int clientHAfter =
-                (std::max)(0, static_cast<int>(crEst.bottom - crEst.top));
-            const int maxScrollEst =
-                (std::max)(0, s_paintDbgContentHeight - clientHAfter);
-            Win32_DebugOverlay_ClampScrollYToMaxScroll(
-                maxScrollEst, L"T17 post-recreate (est until WM_PAINT)");
-        }
         Win32DebugOverlay_ScrollLog(
-            L"T17 apply (post-recreate; contentH/T17DocY stale until next WM_PAINT)",
+            L"T17 apply (post-recreate)",
             hwndAfter,
             s_paintScrollY,
             s_paintScrollY,
@@ -5884,9 +5876,17 @@ static void Win32_WndProc_OnClientSize(HWND hWnd)
                 (std::max)(0, static_cast<int>(cr.right - cr.left)));
     const UINT32 ch = static_cast<UINT32>(
                 (std::max)(0, static_cast<int>(cr.bottom - cr.top)));
+    const int newCh = static_cast<int>(ch);
+    const int prevCh = s_paintDbgClientHeight;
+    const int prevMaxScroll = s_paintDbgMaxScroll;
+    const bool hadPaintLayout = Win32_DebugOverlay_IsPaintLayoutMetricsValid();
+
+    Win32_DebugOverlay_ResetProvisionalLayoutCache();
+
     WindowsRenderer_Resize(&s_windowsRendererState, cw, ch);
+    if (hadPaintLayout)
     {
-        const int maxScrollEst = (std::max)(0, s_paintDbgContentHeight - static_cast<int>(ch));
+        const int maxScrollEst = (std::max)(0, prevMaxScroll + (prevCh - newCh));
         Win32_DebugOverlay_ClampScrollYToMaxScroll(maxScrollEst, L"WM_SIZE (est until WM_PAINT)");
     }
     Win32_T43_LogFillMonitorStyleClient(hWnd, L"WM_SIZE after resize");
