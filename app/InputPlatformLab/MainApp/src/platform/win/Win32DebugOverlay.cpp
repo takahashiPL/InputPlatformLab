@@ -709,11 +709,17 @@ refill_budget:
     DrawTextW(hdc, row1Buf, -1, &rcRow1, DT_LEFT | DT_TOP | DT_NOPREFIX | DT_WORDBREAK | DT_CALCRECT);
     const int row1H = static_cast<int>(rcRow1.bottom - rcRow1.top);
     // T48: 小画面では row1↔row2 / row2↔本文の固定余白を圧縮し、本文ビューポートを確保する
-    const int row1GapPx =
+    int row1GapPx =
         (clientH < 360) ? (WIN32_HUD_DBG_FINAL_ROW1_BOTTOM_GAP_PX / 2) : WIN32_HUD_DBG_FINAL_ROW1_BOTTOM_GAP_PX;
-    const int row2ToBodyExtraGapPx =
+    int row2ToBodyExtraGapPx =
         (clientH < 360) ? (WIN32_HUD_DBG_FINAL_ROW2_TO_BODY_EXTRA_GAP_PX / 2)
                         : WIN32_HUD_DBG_FINAL_ROW2_TO_BODY_EXTRA_GAP_PX;
+    // T58: 520px 以下の Windowed で本文上端までの縦をさらに削る（fill-monitor は触らない）
+    if (!Win32_IsMainWindowFillMonitorPresentation(hwnd) && clientH <= 520)
+    {
+        row1GapPx = (std::min)(row1GapPx, 4);
+        row2ToBodyExtraGapPx = (std::min)(row2ToBodyExtraGapPx, 12);
+    }
     const int row2TopPx = row1H + row1GapPx + t37TopGap;
     const int t14DocTopAbsPx = static_cast<int>(rcT14Doc.top) + t37TopGap;
     const int bodyTopPx = row2TopPx + static_cast<int>(rcT14Doc.top) + row2ToBodyExtraGapPx;

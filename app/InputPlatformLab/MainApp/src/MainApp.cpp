@@ -670,22 +670,22 @@ static void Win32_T14_ClampIndicesAfterEnumerate()
 
 static void Win32_T14_TryAutoScrollSelectionIntoView(HWND hwnd);
 
-// T57: maxScroll==0 かつ非 vmSplit 時、選択行の doc Y が docContentH を越えないようソースインデックスをクランプする。
-static bool Win32_T14_ClampSelectionToDocContentBounds(HWND hwnd)
+// T58: maxScroll==0 かつ非 vmSplit 時、doc に収まる rowSpan に合わせて firstVisible のみ調整する（selectedModeIndex は変更しない）。
+static void Win32_T58_AlignFirstVisibleToDocNoScroll(HWND hwnd)
 {
     if (!hwnd || !IsWindow(hwnd))
     {
-        return false;
+        return;
     }
     if (s_displayMonitorsCache.empty() ||
         kT14SelectedMonitorIndex >= s_displayMonitorsCache.size())
     {
-        return false;
+        return;
     }
     const size_t n = s_displayMonitorsCache[kT14SelectedMonitorIndex].modes.size();
     if (n == 0)
     {
-        return false;
+        return;
     }
     RECT rcClient{};
     GetClientRect(hwnd, &rcClient);
@@ -693,66 +693,45 @@ static bool Win32_T14_ClampSelectionToDocContentBounds(HWND hwnd)
     const int clientH = static_cast<int>(rcClient.bottom - rcClient.top);
     if (!s_paintDbgT14LayoutValid || clientW != s_paintDbgClientW || clientH != s_paintDbgClientH)
     {
-        return false;
+        return;
     }
     if (Win32DebugOverlay_IsT14VmSplitActive())
     {
-        return false;
+        return;
     }
     if ((std::max)(0, s_paintDbgMaxScroll) != 0)
     {
-        return false;
+        return;
     }
     const int docContentH = s_paintDbgContentHeight;
     const int lineHeight = s_paintDbgLineHeight;
     if (docContentH <= 0 || lineHeight <= 0)
     {
-        return false;
+        return;
     }
     const int startY = s_paintDbgT14VisibleModesDocStartY;
+    const int denom = docContentH - startY - lineHeight;
+    if (denom < 0)
+    {
+        return;
+    }
+    const ptrdiff_t maxRowSpan = denom / lineHeight;
     const ptrdiff_t rowSpan =
         static_cast<ptrdiff_t>(s_t14SelectedModeIndex) - static_cast<ptrdiff_t>(s_t14FirstVisibleModeIndex);
     if (rowSpan < 0 || rowSpan >= static_cast<ptrdiff_t>(kT14VisibleModeCount))
     {
-        return false;
+        return;
     }
-    const int selectedRowBottom =
-        startY + static_cast<int>(rowSpan + 1) * lineHeight;
-    if (selectedRowBottom <= docContentH)
+    if (rowSpan <= maxRowSpan)
     {
-        return false;
+        return;
     }
-
-    const int denom = docContentH - startY - lineHeight;
-    if (denom < 0)
+    const size_t newFirst = s_t14SelectedModeIndex - static_cast<size_t>(maxRowSpan);
+    s_t14FirstVisibleModeIndex = newFirst;
+    if (s_t14FirstVisibleModeIndex > n - 1)
     {
-        if (s_t14SelectedModeIndex != s_t14FirstVisibleModeIndex)
-        {
-            s_t14SelectedModeIndex = s_t14FirstVisibleModeIndex;
-            OutputDebugStringW(L"[T57T14] clamped selection: denom<0 -> first visible row\r\n");
-            return true;
-        }
-        return false;
+        s_t14FirstVisibleModeIndex = n - 1;
     }
-    const ptrdiff_t maxRowSpan = denom / lineHeight;
-    const size_t maxSel = s_t14FirstVisibleModeIndex + static_cast<size_t>(maxRowSpan);
-    const size_t capMaxSel = (std::min)(n - 1, maxSel);
-    if (s_t14SelectedModeIndex > capMaxSel)
-    {
-        wchar_t buf[320] = {};
-        swprintf_s(
-            buf,
-            _countof(buf),
-            L"[T57T14] clamped selection: docContentH=%d startY=%d maxRowSpan=%td capSel=%zu\r\n",
-            docContentH,
-            startY,
-            maxRowSpan,
-            capMaxSel);
-        OutputDebugStringW(buf);
-        s_t14SelectedModeIndex = capMaxSel;
-        return true;
-    }
-    return false;
 }
 
 // menuOpen でないときのみ Up/Down エッジで呼ぶ。変化時のみ InvalidateRect。
@@ -788,7 +767,9 @@ static void Win32_T14_TryScrollFromKeyboardEdges(bool upEdge, bool downEdge, HWN
         return;
     }
 
+    const size_t beforeSel = oldSel;
     s_t14SelectedModeIndex = newSel;
+    const size_t afterInputSel = s_t14SelectedModeIndex;
 
     if (s_t14SelectedModeIndex < s_t14FirstVisibleModeIndex)
     {
@@ -799,7 +780,52 @@ static void Win32_T14_TryScrollFromKeyboardEdges(bool upEdge, bool downEdge, HWN
         s_t14FirstVisibleModeIndex = s_t14SelectedModeIndex - (kT14VisibleModeCount - 1);
     }
 
-    Win32_T14_ClampSelectionToDocContentBounds(hwnd);
+    Win32_T58_AlignFirstVisibleToDocNoScroll(hwnd);
+
+    if (s_t14SelectedModeIndex < s_t14FirstVisibleModeIndex)
+    {
+        s_t14FirstVisibleModeIndex = s_t14SelectedModeIndex;
+    }
+    if (s_t14SelectedModeIndex >= s_t14FirstVisibleModeIndex + kT14VisibleModeCount)
+    {
+        s_t14FirstVisibleModeIndex = s_t14SelectedModeIndex - (kT14VisibleModeCount - 1);
+    }
+
+    const size_t afterClampSel = s_t14SelectedModeIndex;
+    {
+        int maxRowSpanLog = -999;
+        int denomLog = -999;
+        if (s_paintDbgT14LayoutValid)
+        {
+            const int docContentH = s_paintDbgContentHeight;
+            const int lineHeight = s_paintDbgLineHeight;
+            const int startY = s_paintDbgT14VisibleModesDocStartY;
+            if (docContentH > 0 && lineHeight > 0)
+            {
+                denomLog = docContentH - startY - lineHeight;
+                maxRowSpanLog = (denomLog >= 0) ? (denomLog / lineHeight) : -1;
+            }
+        }
+        wchar_t t58[512] = {};
+        swprintf_s(
+            t58,
+            _countof(t58),
+            L"[T58T14SRC] beforeSel=%zu afterInputSel=%zu afterClampSel=%zu firstVisible=%zu "
+            L"maxRowSpan=%d docStartY=%d docContentH=%d lineH=%d maxScroll=%d scrollY=%d "
+            L"(denom=%d)\r\n",
+            beforeSel,
+            afterInputSel,
+            afterClampSel,
+            s_t14FirstVisibleModeIndex,
+            maxRowSpanLog,
+            s_paintDbgT14VisibleModesDocStartY,
+            s_paintDbgContentHeight,
+            s_paintDbgLineHeight,
+            s_paintDbgMaxScroll,
+            s_paintScrollY,
+            denomLog);
+        OutputDebugStringW(t58);
+    }
 
     if (kT14KeyboardSelDebugLog)
     {
@@ -3922,6 +3948,17 @@ static void Win32_LogVirtualInputMenuSample_StateDumpIfChanged(
         static_cast<int>(s.prevMoveX),
         static_cast<int>(s.prevMoveY));
     OutputDebugStringW(line);
+    {
+        wchar_t t14idx[224] = {};
+        swprintf_s(
+            t14idx,
+            _countof(t14idx),
+            L"[T58T14IDX] t14SelectedModeIndex=%zu t14FirstVisibleModeIndex=%zu "
+            L"(menu sel is 2x2 grid; not T14 display modes)\r\n",
+            s_t14SelectedModeIndex,
+            s_t14FirstVisibleModeIndex);
+        OutputDebugStringW(t14idx);
+    }
     s_virtualInputMenuSampleDumpPrev = s;
 }
 
@@ -4109,6 +4146,8 @@ static void Win32_FillMenuSamplePaintBuffers_T14T15Column(
         t53Windowed && budgetPx >= 0 && budgetPx < WIN32_OVERLAY_T53_ONE_VISIBLE_ROW_BUDGET_PX;
     const bool t53MinimalT14 =
         t53Windowed && budgetPx >= 0 && budgetPx < WIN32_OVERLAY_T53_MINIMAL_T14_BUDGET_PX;
+    // T58: 640x480 付近 Windowed で prefix/T15 を短くし、visible modes 帯に縦余白を寄せる
+    const bool t58ShortHeaderWindowed = t53Windowed && clientH <= 520;
 
     if (!s_displayMonitorsCache.empty() && kT14SelectedMonitorIndex < s_displayMonitorsCache.size())
     {
@@ -4120,6 +4159,7 @@ static void Win32_FillMenuSamplePaintBuffers_T14T15Column(
             (budgetPx > 0 && budgetPx < WIN32_OVERLAY_T50_TINY_CLIENT_H);
         const bool minimalHeader =
             (budgetPx > 0 && budgetPx < WIN32_OVERLAY_T49_T14_MINIMAL_HEADER_CLIENT_H);
+        const bool useShortT14Header = minimalHeader || t58ShortHeaderWindowed;
 
         if (t53MinimalT14 || tinyBudget)
         {
@@ -4129,7 +4169,7 @@ static void Win32_FillMenuSamplePaintBuffers_T14T15Column(
                 L"--- T14 ---\r\n"
                 L"visible modes:\r\n");
         }
-        else if (minimalHeader)
+        else if (useShortT14Header)
         {
             swprintf_s(
                 t14Buf,
@@ -4258,7 +4298,7 @@ static void Win32_FillMenuSamplePaintBuffers_T14T15Column(
                         L"T15 (none)\r\n");
                 }
             }
-            else if (minimalHeader)
+            else if (minimalHeader || t58ShortHeaderWindowed)
             {
                 if (s_t15MatchResult.nearestModeIndex != static_cast<size_t>(-1) &&
                     s_t15MatchResult.nearestModeIndex < mon.modes.size())
