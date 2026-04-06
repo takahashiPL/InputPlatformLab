@@ -1533,6 +1533,59 @@ static void Win32_T16_LogAndStoreActualMetricsAfterCreate(
     OutputDebugStringW(logAfter);
 }
 
+// T42: fill-monitor（Borderless / Fullscreen）で OS / 枠更新後に WS_VSCROLL が付く場合の除去・調査ログ
+static void Win32_T42_LogWindowStyle(const wchar_t* tag, HWND hwnd)
+{
+    if (!hwnd || !IsWindow(hwnd))
+    {
+        return;
+    }
+    const LONG_PTR st = GetWindowLongPtr(hwnd, GWL_STYLE);
+    const LONG_PTR ex = GetWindowLongPtr(hwnd, GWL_EXSTYLE);
+    wchar_t line[384] = {};
+    swprintf_s(
+        line,
+        _countof(line),
+        L"[T42] %s: hwnd=%p style=0x%08lX exStyle=0x%08lX\r\n",
+        tag,
+        static_cast<void*>(hwnd),
+        static_cast<unsigned long>(static_cast<ULONG_PTR>(st) & 0xFFFFFFFFul),
+        static_cast<unsigned long>(static_cast<ULONG_PTR>(ex) & 0xFFFFFFFFul));
+    OutputDebugStringW(line);
+}
+
+static void Win32_T16_FillMonitorStripNativeScrollbars(HWND hwnd)
+{
+    if (!hwnd || !IsWindow(hwnd))
+    {
+        return;
+    }
+    const LONG_PTR stBefore = GetWindowLongPtr(hwnd, GWL_STYLE);
+    const LONG_PTR cleared =
+        stBefore &
+        ~(static_cast<LONG_PTR>(WS_VSCROLL) | static_cast<LONG_PTR>(WS_HSCROLL));
+    if (cleared != stBefore)
+    {
+        wchar_t line[256] = {};
+        swprintf_s(
+            line,
+            _countof(line),
+            L"[T42] strip: GWL_STYLE 0x%08lX -> 0x%08lX (clear WS_VSCROLL|WS_HSCROLL)\r\n",
+            static_cast<unsigned long>(static_cast<ULONG_PTR>(stBefore) & 0xFFFFFFFFul),
+            static_cast<unsigned long>(static_cast<ULONG_PTR>(cleared) & 0xFFFFFFFFul));
+        OutputDebugStringW(line);
+    }
+    (void)SetWindowLongPtr(hwnd, GWL_STYLE, cleared);
+    SetWindowPos(
+        hwnd,
+        nullptr,
+        0,
+        0,
+        0,
+        0,
+        SWP_NOMOVE | SWP_NOSIZE | SWP_NOZORDER | SWP_NOACTIVATE | SWP_FRAMECHANGED);
+}
+
 static bool Win32_RecreateMainWindowFromConfig(HWND oldHwnd, const MainWindowConfig& cfg)
 {
     if (!oldHwnd || !IsWindow(oldHwnd))
@@ -1614,6 +1667,23 @@ static bool Win32_RecreateMainWindowFromConfig(HWND oldHwnd, const MainWindowCon
     }
     OutputDebugStringW(logBefore);
 
+    {
+        wchar_t t42Before[320] = {};
+        swprintf_s(
+            t42Before,
+            _countof(t42Before),
+            L"[T42] CreateWindowExW BEFORE (final): fillMonitor=%d style=0x%08lX exStyle=0x%08lX "
+            L"outerPhys=%dx%d pos=(%d,%d)\r\n",
+            cfg.fillMonitorPhysical ? 1 : 0,
+            static_cast<unsigned long>(cfg.windowStyle),
+            static_cast<unsigned long>(cfg.windowExStyle),
+            outerPhysW,
+            outerPhysH,
+            posX,
+            posY);
+        OutputDebugStringW(t42Before);
+    }
+
     HWND newHwnd = CreateWindowExW(
         cfg.windowExStyle,
         szWindowClass,
@@ -1642,6 +1712,7 @@ static bool Win32_RecreateMainWindowFromConfig(HWND oldHwnd, const MainWindowCon
     }
 
     s_mainWindowHwnd = newHwnd;
+    Win32_T42_LogWindowStyle(L"CreateWindowExW immediate AFTER", newHwnd);
 
     {
         RECT cr{};
@@ -1672,6 +1743,13 @@ static bool Win32_RecreateMainWindowFromConfig(HWND oldHwnd, const MainWindowCon
     // CreateWindow 直後の枠・既定状態のずれや SW_SHOW 系の影響を避け、通常ウィンドウとして outer を明示固定する。
     Win32_T16_SetWindowedOuterFrameAtPos(newHwnd, posX, posY, outerPhysW, outerPhysH, true);
     SetForegroundWindow(newHwnd);
+
+    if (cfg.fillMonitorPhysical)
+    {
+        Win32_T42_LogWindowStyle(L"after SetWindowPos/ShowWindow (before T42 strip)", newHwnd);
+        Win32_T16_FillMonitorStripNativeScrollbars(newHwnd);
+        Win32_T42_LogWindowStyle(L"after T42 strip + SWP_FRAMECHANGED", newHwnd);
+    }
 
     Win32_T16_LogAndStoreActualMetricsAfterCreate(newHwnd, outerPhysW, outerPhysH, L"recreate");
 
@@ -1841,6 +1919,22 @@ static bool Win32_T17_BuildFillMonitorConfig(HWND hwnd, MainWindowConfig& out, b
             out.createPhysicalX,
             out.createPhysicalY);
         OutputDebugStringW(line);
+    }
+    {
+        wchar_t t42cfg[384] = {};
+        swprintf_s(
+            t42cfg,
+            _countof(t42cfg),
+            L"[T42] config after BuildFillMonitor: style=0x%08lX exStyle=0x%08lX "
+            L"createPhys=%dx%d pos=(%d,%d) outerUsesCdsModeSize=%d\r\n",
+            static_cast<unsigned long>(out.windowStyle),
+            static_cast<unsigned long>(out.windowExStyle),
+            out.createPhysicalW,
+            out.createPhysicalH,
+            out.createPhysicalX,
+            out.createPhysicalY,
+            outerUsesCdsModeSize ? 1 : 0);
+        OutputDebugStringW(t42cfg);
     }
     return true;
 }
