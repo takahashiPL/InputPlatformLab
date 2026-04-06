@@ -40,6 +40,10 @@ void Win32_DebugOverlay_FormatScrollDebugOverlay(
 #ifndef WIN32_OVERLAY_T51_REFILL_RESTVP_PX
 #define WIN32_OVERLAY_T51_REFILL_RESTVP_PX 120
 #endif
+// T57: fill-monitor Fullscreen のみ、restVp が極小のとき T51 refill を許可（Borderless の十分な scrollVpH は維持）
+#ifndef WIN32_OVERLAY_T57_MIN_RESTVP_FULLSCREEN_PX
+#define WIN32_OVERLAY_T57_MIN_RESTVP_FULLSCREEN_PX 200
+#endif
 #ifndef WIN32_OVERLAY_T51_COMPACT_SCROLL_RESTVP_PX
 #define WIN32_OVERLAY_T51_COMPACT_SCROLL_RESTVP_PX 120
 #endif
@@ -132,6 +136,9 @@ void Win32DebugOverlay_MainView_SetScrollPos(HWND hwnd, int newY, const wchar_t*
 
 // T43: Borderless / Fullscreen（fill-monitor）では標準スクロールバー API を呼ばない。Windowed のみ SetScrollInfo 等を実行。
 bool Win32_MainWindow_IsFillMonitorPresentationMode(HWND hwnd);
+// T57: fill での T51 refill ゲート（Fullscreen のみ）と [T57LAYOUT] ログ用
+bool Win32_MainWindow_IsFullscreenPresentationMode(HWND hwnd);
+const wchar_t* Win32_MainWindow_GetPresentationModeLabelForDebug(void);
 void Win32_UpdateNativeScrollbarsWindowedOnly(HWND hwnd, int nBar, SCROLLINFO* si, BOOL redraw);
 
 // T44: maxScroll 確定後に s_paintScrollY を [0,maxScroll] に揃える（再生成・client 縮小後の外れ値除去）

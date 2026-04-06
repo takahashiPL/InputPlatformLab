@@ -670,6 +670,91 @@ static void Win32_T14_ClampIndicesAfterEnumerate()
 
 static void Win32_T14_TryAutoScrollSelectionIntoView(HWND hwnd);
 
+// T57: maxScroll==0 かつ非 vmSplit 時、選択行の doc Y が docContentH を越えないようソースインデックスをクランプする。
+static bool Win32_T14_ClampSelectionToDocContentBounds(HWND hwnd)
+{
+    if (!hwnd || !IsWindow(hwnd))
+    {
+        return false;
+    }
+    if (s_displayMonitorsCache.empty() ||
+        kT14SelectedMonitorIndex >= s_displayMonitorsCache.size())
+    {
+        return false;
+    }
+    const size_t n = s_displayMonitorsCache[kT14SelectedMonitorIndex].modes.size();
+    if (n == 0)
+    {
+        return false;
+    }
+    RECT rcClient{};
+    GetClientRect(hwnd, &rcClient);
+    const int clientW = static_cast<int>(rcClient.right - rcClient.left);
+    const int clientH = static_cast<int>(rcClient.bottom - rcClient.top);
+    if (!s_paintDbgT14LayoutValid || clientW != s_paintDbgClientW || clientH != s_paintDbgClientH)
+    {
+        return false;
+    }
+    if (Win32DebugOverlay_IsT14VmSplitActive())
+    {
+        return false;
+    }
+    if ((std::max)(0, s_paintDbgMaxScroll) != 0)
+    {
+        return false;
+    }
+    const int docContentH = s_paintDbgContentHeight;
+    const int lineHeight = s_paintDbgLineHeight;
+    if (docContentH <= 0 || lineHeight <= 0)
+    {
+        return false;
+    }
+    const int startY = s_paintDbgT14VisibleModesDocStartY;
+    const ptrdiff_t rowSpan =
+        static_cast<ptrdiff_t>(s_t14SelectedModeIndex) - static_cast<ptrdiff_t>(s_t14FirstVisibleModeIndex);
+    if (rowSpan < 0 || rowSpan >= static_cast<ptrdiff_t>(kT14VisibleModeCount))
+    {
+        return false;
+    }
+    const int selectedRowBottom =
+        startY + static_cast<int>(rowSpan + 1) * lineHeight;
+    if (selectedRowBottom <= docContentH)
+    {
+        return false;
+    }
+
+    const int denom = docContentH - startY - lineHeight;
+    if (denom < 0)
+    {
+        if (s_t14SelectedModeIndex != s_t14FirstVisibleModeIndex)
+        {
+            s_t14SelectedModeIndex = s_t14FirstVisibleModeIndex;
+            OutputDebugStringW(L"[T57T14] clamped selection: denom<0 -> first visible row\r\n");
+            return true;
+        }
+        return false;
+    }
+    const ptrdiff_t maxRowSpan = denom / lineHeight;
+    const size_t maxSel = s_t14FirstVisibleModeIndex + static_cast<size_t>(maxRowSpan);
+    const size_t capMaxSel = (std::min)(n - 1, maxSel);
+    if (s_t14SelectedModeIndex > capMaxSel)
+    {
+        wchar_t buf[320] = {};
+        swprintf_s(
+            buf,
+            _countof(buf),
+            L"[T57T14] clamped selection: docContentH=%d startY=%d maxRowSpan=%td capSel=%zu\r\n",
+            docContentH,
+            startY,
+            maxRowSpan,
+            capMaxSel);
+        OutputDebugStringW(buf);
+        s_t14SelectedModeIndex = capMaxSel;
+        return true;
+    }
+    return false;
+}
+
 // menuOpen でないときのみ Up/Down エッジで呼ぶ。変化時のみ InvalidateRect。
 static void Win32_T14_TryScrollFromKeyboardEdges(bool upEdge, bool downEdge, HWND hwnd)
 {
@@ -713,6 +798,8 @@ static void Win32_T14_TryScrollFromKeyboardEdges(bool upEdge, bool downEdge, HWN
     {
         s_t14FirstVisibleModeIndex = s_t14SelectedModeIndex - (kT14VisibleModeCount - 1);
     }
+
+    Win32_T14_ClampSelectionToDocContentBounds(hwnd);
 
     if (kT14KeyboardSelDebugLog)
     {
@@ -6270,6 +6357,27 @@ static void Win32_WndProc_OnPaint(HWND hWnd)
 {
     Win32_MainView_PaintFrame(hWnd);
     Win32_T43_LogFillMonitorStyleClient(hWnd, L"WM_PAINT after frame");
+}
+
+bool Win32_MainWindow_IsFullscreenPresentationMode(HWND hwnd)
+{
+    (void)hwnd;
+    return s_t17LastAppliedPresentationMode == T17PresentationMode::Fullscreen;
+}
+
+const wchar_t* Win32_MainWindow_GetPresentationModeLabelForDebug(void)
+{
+    switch (s_t17LastAppliedPresentationMode)
+    {
+    case T17PresentationMode::Windowed:
+        return L"Windowed";
+    case T17PresentationMode::Borderless:
+        return L"Borderless";
+    case T17PresentationMode::Fullscreen:
+        return L"Fullscreen";
+    default:
+        return L"?";
+    }
 }
 
 //

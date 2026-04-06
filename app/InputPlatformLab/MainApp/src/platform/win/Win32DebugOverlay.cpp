@@ -1013,8 +1013,13 @@ refill_budget:
 
         if (!layoutRefilledForBudget && restVp2 < WIN32_OVERLAY_T51_REFILL_RESTVP_PX)
         {
-            // T55: fill-monitor では client 基準の refill 短縮を行わない（仮想キャンバスと HUD 密度がずれる）
-            if (!Win32_IsMainWindowFillMonitorPresentation(hwnd))
+            // T55: fill-monitor では原則 refill しない。T57: Fullscreen のみ restVp が極小のとき短縮バッファで prefix/vm 帯を抑え scrollVpH を回復
+            const bool fill = Win32_IsMainWindowFillMonitorPresentation(hwnd);
+            const bool allowFillRefill =
+                !fill ||
+                (Win32_MainWindow_IsFullscreenPresentationMode(hwnd) &&
+                 restVp2 < WIN32_OVERLAY_T57_MIN_RESTVP_FULLSCREEN_PX);
+            if (allowFillRefill)
             {
                 restVpBudgetHint = restVp2;
                 layoutRefilledForBudget = true;
@@ -1157,6 +1162,33 @@ refill_budget:
             outHud->dbgHudRestViewportTopPx = 0;
             wcscpy_s(outHud->dbgHudBodyBandText, _countof(outHud->dbgHudBodyBandText), t14Buf);
         }
+    }
+
+    {
+        const int row1H_log = s_paintDbgFinalRow1HeightPx;
+        const int row2H_log = s_paintDbgRow2TopPx - row1H_log;
+        const int prefixTop_log = s_paintDbgRow2TopPx + t14BaseY;
+        const int vmTop_log =
+            s_paintDbgT14VmSplitActive ? (prefixTop_log + splitHPrefix) : 0;
+        wchar_t t57[512] = {};
+        swprintf_s(
+            t57,
+            _countof(t57),
+            L"[T57LAYOUT] rawClientH=%d row1H=%d row2H=%d prefixTop=%d vmTop=%d restTop=%d "
+            L"scrollBandReserve=%d scrollVpH=%d contentH=%d maxScroll=%d fillMonitor=%d mode=%s\r\n",
+            clientH,
+            row1H_log,
+            row2H_log,
+            prefixTop_log,
+            vmTop_log,
+            s_paintDbgRestViewportTopPx,
+            s_paintDbgScrollBandReservePx,
+            s_paintDbgRestViewportClientH,
+            s_paintDbgContentHeight,
+            s_paintDbgMaxScroll,
+            Win32_IsMainWindowFillMonitorPresentation(hwnd) ? 1 : 0,
+            Win32_MainWindow_GetPresentationModeLabelForDebug());
+        OutputDebugStringW(t57);
     }
 
     s_paintDbgLayoutRestVpBudgetHint = restVpBudgetHint;
