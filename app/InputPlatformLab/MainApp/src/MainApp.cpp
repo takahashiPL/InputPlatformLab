@@ -4256,6 +4256,13 @@ static void Win32_LogVirtualInputMenuSample_StateDumpIfChanged(
         return;
     }
 
+    // ページ式 HUD 運用時は stacked 用ダンプ（VirtualInputMenuSampleDump / T58T14IDX）を出さない。
+    if (Win32_HudPaged_IsEnabled())
+    {
+        s_virtualInputMenuSampleDumpPrev = s;
+        return;
+    }
+
     wchar_t line[192] = {};
     swprintf_s(line, _countof(line),
         L"VirtualInputMenuSampleDump open=%d sel=(%d,%d) prevMove=(%d,%d) changed=1\r\n",
@@ -4265,7 +4272,6 @@ static void Win32_LogVirtualInputMenuSample_StateDumpIfChanged(
         static_cast<int>(s.prevMoveX),
         static_cast<int>(s.prevMoveY));
     OutputDebugStringW(line);
-    if (!Win32_HudPaged_IsEnabled())
     {
         wchar_t t14idx[224] = {};
         swprintf_s(
@@ -5270,7 +5276,9 @@ void Win32_HudPaged_PaintGdi(
     }
 
     SetBkMode(hdc, TRANSPARENT);
-    const COLORREF prevCol = SetTextColor(hdc, RGB(235, 238, 242));
+    const COLORREF colHudBright = RGB(235, 238, 242);
+    const COLORREF colHudStatusSubdued = RGB(188, 194, 204);
+    const COLORREF prevCol = SetTextColor(hdc, colHudBright);
 
     static constexpr int kHudLogW = 640;
     static constexpr int kHudLogH = 480;
@@ -5281,6 +5289,7 @@ void Win32_HudPaged_PaintGdi(
     const int gapCol = (std::max)(2, static_cast<int>(4.f * scale + 0.5f));
     const int headerPad = (std::max)(2, static_cast<int>(4.f * scale + 0.5f));
     const int bandGap = (std::max)(4, static_cast<int>(8.f * scale + 0.5f));
+    const int bodyExtraTopPad = (std::max)(0, static_cast<int>(2.f * scale + 0.5f));
 
     const int fontPx = (std::max)(10, static_cast<int>(14.f * scale + 0.5f));
 
@@ -5309,6 +5318,8 @@ void Win32_HudPaged_PaintGdi(
     const int statW = MulDiv(innerW, 240, 640);
     const int fracW = MulDiv(innerW, 120, 640);
     const int titleW = (std::max)(0, innerW - statW - fracW - 2 * gapCol);
+    // メニュー・本文の左端をタイトル帯と揃え、左カラム（status）より右のブロックに重心を寄せる。
+    const int contentLeft = margin + statW + gapCol;
 
     const int headerTop = t37TopGap + margin;
     const int headerRowH = lineH * 2 + headerPad;
@@ -5344,7 +5355,11 @@ void Win32_HudPaged_PaintGdi(
     {
         const int saved = SaveDC(hdc);
         IntersectClipRect(hdc, rcStat.left, rcStat.top, rcStat.right, rcStat.bottom);
+        const bool statusSubdued =
+            hwnd && IsWindow(hwnd) && Win32_MainWindow_IsFillMonitorPresentationMode(hwnd);
+        SetTextColor(hdc, statusSubdued ? colHudStatusSubdued : colHudBright);
         DrawTextW(hdc, statusCombined, -1, &rcStat, DT_LEFT | DT_TOP | DT_NOPREFIX | DT_WORDBREAK);
+        SetTextColor(hdc, colHudBright);
         RestoreDC(hdc, saved);
     }
 
@@ -5375,22 +5390,22 @@ void Win32_HudPaged_PaintGdi(
 
     const int menuTop = headerTop + headerRowH + bandGap;
     RECT rcMenuMeasure = {};
-    rcMenuMeasure.left = margin;
+    rcMenuMeasure.left = contentLeft;
     rcMenuMeasure.top = menuTop;
     rcMenuMeasure.right = clientW - margin;
     rcMenuMeasure.bottom = clientH;
     DrawTextW(hdc, menuBuf, -1, &rcMenuMeasure, DT_LEFT | DT_TOP | DT_NOPREFIX | DT_CALCRECT);
     const int menuH = static_cast<int>(rcMenuMeasure.bottom - rcMenuMeasure.top);
     RECT rcMenuDraw = {};
-    rcMenuDraw.left = margin;
+    rcMenuDraw.left = contentLeft;
     rcMenuDraw.top = menuTop;
     rcMenuDraw.right = clientW - margin;
     rcMenuDraw.bottom = menuTop + menuH;
     DrawTextW(hdc, menuBuf, -1, &rcMenuDraw, DT_LEFT | DT_TOP | DT_NOPREFIX);
 
-    const int bodyTop = menuTop + menuH + bandGap;
+    const int bodyTop = menuTop + menuH + bandGap + bodyExtraTopPad;
     RECT rcBody = {};
-    rcBody.left = margin;
+    rcBody.left = contentLeft;
     rcBody.top = bodyTop;
     rcBody.right = clientW - margin;
     rcBody.bottom = clientH - margin;
