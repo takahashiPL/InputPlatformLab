@@ -1,12 +1,13 @@
 #include "LogicalInputState.h"
 
-#ifndef LOGICAL_INPUT_DEBUG_LOG
-#define LOGICAL_INPUT_DEBUG_LOG 0
+// 1 にすると South の press/release/push/hold を 1 行で OutputDebugString（非アイドル時のみ）
+#ifndef LOGICAL_INPUT_DEBUG_SOUTH_LINE
+#define LOGICAL_INPUT_DEBUG_SOUTH_LINE 0
 #endif
 
 #include <algorithm>
 #include <stdio.h>
-#if LOGICAL_INPUT_DEBUG_LOG
+#if LOGICAL_INPUT_DEBUG_SOUTH_LINE
 #include <windows.h>
 #endif
 
@@ -79,19 +80,23 @@ void LogicalInputState_Update(
         st.prevHoldFrames[i] = hold;
     }
 
-#if LOGICAL_INPUT_DEBUG_LOG
+#if LOGICAL_INPUT_DEBUG_SOUTH_LINE
     {
-        const size_t si = static_cast<size_t>(LogicalButtonId::South);
-        const LogicalButtonFrameState& b = st.frames[si];
-        if (b.release || b.push)
+        const LogicalButtonFrameState& sb =
+            st.frames[static_cast<size_t>(LogicalButtonId::South)];
+        const bool activity =
+            sb.down || sb.release || sb.push || sb.holdFrames != 0;
+        if (activity)
         {
             wchar_t w[192] = {};
             swprintf_s(
                 w,
                 _countof(w),
-                L"[LOGICAL] South: release=%d push=%d\r\n",
-                b.release ? 1 : 0,
-                b.push ? 1 : 0);
+                L"[LOGICAL] South: press=%d release=%d push=%d hold=%u\r\n",
+                sb.press ? 1 : 0,
+                sb.release ? 1 : 0,
+                sb.push ? 1 : 0,
+                static_cast<unsigned int>(sb.holdFrames));
             OutputDebugStringW(w);
         }
     }

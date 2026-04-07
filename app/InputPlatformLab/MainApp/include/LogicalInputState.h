@@ -1,4 +1,16 @@
 // 論理ボタン単位のフレーム状態（キーボード + ゲームパッドを OR 合成後に 1 パスで更新）
+//
+// 「1 フレーム」の意味（本層）:
+//   LogicalInputState_Update は MainApp の WM_TIMER（XINPUT_POLL）1 回につき 1 回だけ走る。
+//   よって press / release / push / holdFrames の単位は「WM_TIMER tick 基準」であり、
+//   Raw キー（WM_INPUT）や表示用の 1 フレームとは一致しない場合がある。
+//
+// LogicalInputState_Reset() を呼ぶ候補（必要になったら MainApp 等で接続。必須ではない）:
+//   - WM_KILLFOCUS / WM_ACTIVATE（非アクティブ化）: フォーカス喪失後も s_keyboardActionState が
+//     キーアップを取りこぼすと、論理 down が残る可能性がある場合の保険。
+//   - ゲームパッド切断直後: Win32_XInputPoll 内で VirtualInput がリセットされる境界と揃えて
+//     prevDown / prevHoldFrames を捨て、次タイマーでクリーンに再構築したいとき。
+//   - アプリ終了前や「入力デバイス再列挙」後の明示クリアが必要な場合。
 #pragma once
 
 #include "CommonTypes.h"
@@ -67,5 +79,6 @@ inline const LogicalButtonFrameState& LogicalInputState_Frame(
     return st.frames[static_cast<size_t>(id)];
 }
 
-// MainApp: WM_TIMER で XInput/仮想入力更新の直後、VirtualInputConsumer（メニュー）より前に 1 回更新。参照はその後いつでも可。
+// MainApp: WM_TIMER（1 tick = 上記の論理 1 フレーム）で XInput/仮想入力更新の直後、
+// VirtualInputConsumer（メニュー）より前に 1 回更新。参照はその後いつでも可。
 const LogicalInputState* InputCore_LogicalInputState();

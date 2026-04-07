@@ -5807,8 +5807,9 @@ static void Win32_UnifiedInputMenuTick_MergeAndApply(HWND hwndForPaint)
     s_keyboardActionStateAtLastTimer = s_keyboardActionState;
 }
 
-// s_keyboardActionState と s_virtualInputCurr が同一タイマー境界で揃った直後、
+// s_keyboardActionState と s_virtualInputCurr が同一 WM_TIMER tick で揃った直後、
 // VirtualInputPolicy / VirtualInputConsumer（メニュー用）より前にアプリ共通の論理ボタン状態を更新する。
+// 本層の「1 フレーム」= このタイマー 1 回（LogicalInputState.h 参照）。
 static void Win32_LogicalInputTick_AfterPadAndKeyboardCurrent()
 {
     bool logicalDown[static_cast<size_t>(LogicalButtonId::Count)]{};
