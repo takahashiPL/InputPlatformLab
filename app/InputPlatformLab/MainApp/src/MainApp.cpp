@@ -9,6 +9,7 @@
 #include "WindowsDisplayBackend.h"
 #include "WindowsRenderer.h"
 #include "Win32DebugOverlay.h"
+#include "Win32HudPaged.h"
 
 #include <windowsx.h>
 
@@ -137,6 +138,9 @@ static constexpr size_t kT14VisibleModeCount = 8;
 static constexpr size_t kT14SelectedMonitorIndex = 0;
 static size_t s_t14SelectedModeIndex = 0;
 static size_t s_t14FirstVisibleModeIndex = 0;
+// ページ式 HUD: 0=T14 … 4=T17。既定は T14（表示モード一覧）。
+static int s_hudPagedIndex = 0;
+static constexpr int kHudPagedCount = 5;
 
 // T15: 希望解像度 → 最近似 mode（列挙キャッシュのみ。適用はしない）
 struct DisplayModeMatchResult
@@ -4812,10 +4816,323 @@ void Win32_FillMenuSamplePaintBuffers_MenuColumnOnly(wchar_t* menuBuf, size_t me
         Win32_IsT37VirtualBodyOverlayActiveForLayout());
 }
 
+#ifndef WIN32_OVERLAY_T37_MENU_TOP_GAP_PX
+#define WIN32_OVERLAY_T37_MENU_TOP_GAP_PX 52
+#endif
+
+static const wchar_t* const kHudPagedPageTitles[kHudPagedCount] = {
+    L"T14 Displays — Display Mode List",
+    L"T15 Nearest Resolution — Match vs Desired",
+    L"T16 Window Metrics — Client Size and Recreate",
+    L"T18 Controller Identify — HID and XInput",
+    L"T17 Presentation — Windowed / Borderless / Fullscreen",
+};
+
+static void Win32_HudPaged_FillT14PageBody(wchar_t* buf, size_t bufCount)
+{
+    buf[0] = L'\0';
+    if (s_displayMonitorsCache.empty() || kT14SelectedMonitorIndex >= s_displayMonitorsCache.size())
+    {
+        swprintf_s(buf, bufCount, L"(no monitors)\r\n");
+        return;
+    }
+    const DisplayMonitorInfo& mon = s_displayMonitorsCache[kT14SelectedMonitorIndex];
+    swprintf_s(
+        buf,
+        bufCount,
+        L"--- T14 Displays ---\r\n"
+        L"Left/Right: change page   Up/Down: select mode (menu closed)\r\n"
+        L"visible modes:\r\n");
+    const size_t maxRowsFromList =
+        (mon.modes.size() > s_t14FirstVisibleModeIndex)
+            ? (mon.modes.size() - s_t14FirstVisibleModeIndex)
+            : 0u;
+    const size_t rowsToPaint =
+        (std::min)(kT14VisibleModeCount, maxRowsFromList);
+    for (size_t row = 0; row < rowsToPaint; ++row)
+    {
+        const size_t mi = s_t14FirstVisibleModeIndex + row;
+        if (mi >= mon.modes.size())
+        {
+            break;
+        }
+        const DisplayModeInfo& mode = mon.modes[mi];
+        const wchar_t* mark = (mi == s_t14SelectedModeIndex) ? L">" : L" ";
+        const bool nearestStar =
+            (s_t15MatchResult.nearestModeIndex != static_cast<size_t>(-1)) &&
+            (mi == s_t15MatchResult.nearestModeIndex);
+        wchar_t line[192] = {};
+        swprintf_s(
+            line,
+            _countof(line),
+            L"%s%s[%zu]%dx%d\r\n",
+            mark,
+            nearestStar ? L"*" : L"",
+            mi,
+            mode.width,
+            mode.height);
+        wcscat_s(buf, bufCount, line);
+    }
+}
+
+static void Win32_HudPaged_FillT15PageBody(wchar_t* buf, size_t bufCount)
+{
+    buf[0] = L'\0';
+    if (s_displayMonitorsCache.empty() || kT14SelectedMonitorIndex >= s_displayMonitorsCache.size())
+    {
+        swprintf_s(buf, bufCount, L"(no monitors)\r\n");
+        return;
+    }
+    const DisplayMonitorInfo& mon = s_displayMonitorsCache[kT14SelectedMonitorIndex];
+    if (s_t15MatchResult.nearestModeIndex != static_cast<size_t>(-1) &&
+        s_t15MatchResult.nearestModeIndex < mon.modes.size())
+    {
+        const DisplayModeInfo& nm = mon.modes[s_t15MatchResult.nearestModeIndex];
+        swprintf_s(
+            buf,
+            bufCount,
+            L"Up/Down: change desired preset   Left/Right: change page\r\n\r\n"
+            L"--- T15 nearest resolution ---\r\n"
+            L"desired: %dx%d  preset[%zu/%zu]\r\n"
+            L"nearest: [%zu] %dx%d bpp=%d hz=%d\r\n"
+            L"delta: %d / %d\r\n"
+            L"exact match: %d\r\n",
+            s_t15DesiredWidth,
+            s_t15DesiredHeight,
+            s_t15DesiredPresetIndex,
+            kT15DesiredPresetCount,
+            s_t15MatchResult.nearestModeIndex,
+            nm.width,
+            nm.height,
+            nm.bits_per_pixel,
+            nm.refresh_hz,
+            s_t15MatchResult.deltaW,
+            s_t15MatchResult.deltaH,
+            s_t15MatchResult.exactMatch ? 1 : 0);
+    }
+    else
+    {
+        swprintf_s(
+            buf,
+            bufCount,
+            L"Up/Down: change desired preset   Left/Right: change page\r\n\r\n"
+            L"--- T15 nearest resolution ---\r\n"
+            L"desired: %dx%d  preset[%zu/%zu]\r\n"
+            L"nearest: (none)\r\n"
+            L"delta: - / -\r\n"
+            L"exact match: 0\r\n",
+            s_t15DesiredWidth,
+            s_t15DesiredHeight,
+            s_t15DesiredPresetIndex,
+            kT15DesiredPresetCount);
+    }
+}
+
+void Win32_HudPaged_ResetScrollBar(HWND hwnd)
+{
+    s_paintScrollY = 0;
+    if (!hwnd || !IsWindow(hwnd))
+    {
+        return;
+    }
+    if (Win32_MainWindow_IsFillMonitorPresentationMode(hwnd))
+    {
+        return;
+    }
+    SCROLLINFO si = {};
+    si.cbSize = sizeof(si);
+    si.fMask = SIF_RANGE | SIF_PAGE | SIF_POS;
+    si.nMin = 0;
+    si.nMax = 0;
+    si.nPage = 1;
+    si.nPos = 0;
+    SetScrollInfo(hwnd, SB_VERT, &si, TRUE);
+}
+
+void Win32_HudPaged_AdvancePage(int delta)
+{
+    if (kHudPagedCount <= 0)
+    {
+        return;
+    }
+    int n = (s_hudPagedIndex + delta) % kHudPagedCount;
+    if (n < 0)
+    {
+        n += kHudPagedCount;
+    }
+    s_hudPagedIndex = n;
+}
+
+void Win32_HudPaged_PrefillD2d(WindowsRendererState* st, UINT clientW, UINT clientH)
+{
+    if (!st)
+    {
+        return;
+    }
+    st->dbgHudLeftColumnText[0] = L'\0';
+    st->dbgHudBodyBandText[0] = L'\0';
+    st->dbgHudMenuBandText[0] = L'\0';
+    st->dbgHudT14VmSplit = false;
+    st->dbgHudDrawScrollBand = false;
+    st->dbgHudScrollBandHeightPx = 0;
+    st->dbgHudScrollBandText[0] = L'\0';
+    st->dbgHudLeftColumnSkipGdi = false;
+    st->dbgHudScrollBandSkipGdi = false;
+    st->dbgHudLeftColumnPrefillClientW = clientW;
+    st->dbgHudLeftColumnPrefillClientH = clientH;
+    st->dbgHudLeftColumnScrollYPx = 0;
+    st->dbgHudLeftColumnTopPx = 0;
+    st->dbgHudLeftColumnClipBottomPadPx = 0;
+}
+
+void Win32_HudPaged_PaintGdi(
+    HWND hwnd,
+    HDC hdc,
+    const wchar_t* t17CandLabel,
+    const wchar_t* t17ActLabel)
+{
+    Win32_HudPaged_ResetScrollBar(hwnd);
+    RECT rcClient{};
+    GetClientRect(hwnd, &rcClient);
+    const int clientW = static_cast<int>(rcClient.right - rcClient.left);
+    const int clientH = static_cast<int>(rcClient.bottom - rcClient.top);
+    if (clientW < 1 || clientH < 1)
+    {
+        return;
+    }
+
+    const int t37TopGap =
+        Win32_IsT37VirtualBodyOverlayActiveForLayout() ? WIN32_OVERLAY_T37_MENU_TOP_GAP_PX : 0;
+
+    wchar_t row1Buf[128] = {};
+    swprintf_s(
+        row1Buf,
+        _countof(row1Buf),
+        L"cand=%s act=%s",
+        t17CandLabel != nullptr ? t17CandLabel : L"?",
+        t17ActLabel != nullptr ? t17ActLabel : L"?");
+
+    wchar_t menuBuf[3072] = {};
+    Win32_FillMenuSamplePaintBuffers_MenuColumn(
+        menuBuf,
+        _countof(menuBuf),
+        Win32_IsT37VirtualBodyOverlayActiveForLayout());
+
+    wchar_t bodyBuf[16384] = {};
+    RECT rcTmp{};
+    GetClientRect(hwnd, &rcTmp);
+    switch (s_hudPagedIndex)
+    {
+    case 0:
+        Win32_HudPaged_FillT14PageBody(bodyBuf, _countof(bodyBuf));
+        break;
+    case 1:
+        Win32_HudPaged_FillT15PageBody(bodyBuf, _countof(bodyBuf));
+        break;
+    case 2:
+        Win32_T16_AppendPaintSection(
+            bodyBuf,
+            _countof(bodyBuf),
+            hwnd,
+            rcTmp,
+            -1,
+            false,
+            false,
+            false);
+        break;
+    case 3:
+        Win32_T18_RefreshControllerIdentifySnapshot();
+        Win32_T18_AppendPaintSection(bodyBuf, _countof(bodyBuf), false, false, false);
+        break;
+    case 4:
+        Win32_T17_AppendPaintSection(bodyBuf, _countof(bodyBuf), false, false, false);
+        break;
+    default:
+        s_hudPagedIndex = 0;
+        Win32_HudPaged_FillT14PageBody(bodyBuf, _countof(bodyBuf));
+        break;
+    }
+
+    TEXTMETRICW tm{};
+    int lineH = 16;
+    if (GetTextMetricsW(hdc, &tm))
+    {
+        lineH = (std::max)(static_cast<int>(tm.tmHeight), 16);
+    }
+
+    SetBkMode(hdc, TRANSPARENT);
+    const COLORREF prevCol = SetTextColor(hdc, RGB(235, 238, 242));
+
+    const int pad = 8;
+    const int logicalW = 640;
+    const int logicalH = 480;
+    const float scale =
+        (std::min)(static_cast<float>(clientW) / static_cast<float>(logicalW),
+                   static_cast<float>(clientH) / static_cast<float>(logicalH));
+    const int margin = (std::max)(pad, static_cast<int>(8.f * scale));
+
+    RECT rcRow1 = {};
+    rcRow1.left = margin;
+    rcRow1.top = t37TopGap + margin;
+    rcRow1.right = clientW - margin;
+    rcRow1.bottom = rcRow1.top + lineH * 2;
+    DrawTextW(hdc, row1Buf, -1, &rcRow1, DT_LEFT | DT_TOP | DT_NOPREFIX | DT_WORDBREAK);
+
+    const int titleRowTop = rcRow1.bottom + margin;
+    const wchar_t* title = kHudPagedPageTitles[s_hudPagedIndex];
+    wchar_t frac[32] = {};
+    swprintf_s(frac, _countof(frac), L"%d/%d", s_hudPagedIndex + 1, kHudPagedCount);
+
+    RECT rcTitleLeft = {};
+    rcTitleLeft.left = margin;
+    rcTitleLeft.top = titleRowTop;
+    rcTitleLeft.right = clientW - margin - 96;
+    rcTitleLeft.bottom = titleRowTop + lineH + 6;
+    RECT rcFracRight = {};
+    rcFracRight.left = clientW - margin - 96;
+    rcFracRight.top = titleRowTop;
+    rcFracRight.right = clientW - margin;
+    rcFracRight.bottom = titleRowTop + lineH + 6;
+    DrawTextW(hdc, title, -1, &rcTitleLeft, DT_LEFT | DT_TOP | DT_NOPREFIX | DT_WORDBREAK);
+    DrawTextW(hdc, frac, -1, &rcFracRight, DT_RIGHT | DT_TOP | DT_NOPREFIX | DT_SINGLELINE);
+
+    const int menuTop = rcTitleLeft.bottom + margin;
+    RECT rcMenuMeasure = {};
+    rcMenuMeasure.left = margin;
+    rcMenuMeasure.top = menuTop;
+    rcMenuMeasure.right = clientW - margin;
+    rcMenuMeasure.bottom = clientH;
+    DrawTextW(hdc, menuBuf, -1, &rcMenuMeasure, DT_LEFT | DT_TOP | DT_NOPREFIX | DT_CALCRECT);
+    const int menuH = static_cast<int>(rcMenuMeasure.bottom - rcMenuMeasure.top);
+    RECT rcMenuDraw = {};
+    rcMenuDraw.left = margin;
+    rcMenuDraw.top = menuTop;
+    rcMenuDraw.right = clientW - margin;
+    rcMenuDraw.bottom = menuTop + menuH;
+    DrawTextW(hdc, menuBuf, -1, &rcMenuDraw, DT_LEFT | DT_TOP | DT_NOPREFIX);
+
+    const int bodyTop = menuTop + menuH + margin;
+    RECT rcBody = {};
+    rcBody.left = margin;
+    rcBody.top = bodyTop;
+    rcBody.right = clientW - margin;
+    rcBody.bottom = clientH - margin;
+    if (rcBody.bottom > rcBody.top)
+    {
+        DrawTextW(hdc, bodyBuf, -1, &rcBody, DT_LEFT | DT_TOP | DT_NOPREFIX | DT_WORDBREAK);
+    }
+
+    SetTextColor(hdc, prevCol);
+}
+
 // menuOpen 中は T14 行スクロールを動かさない前提。キャッシュされたレイアウトで選択行が見えるよう scroll を補正。
 static void Win32_T14_TryAutoScrollSelectionIntoView(HWND hwnd)
 {
     if (!hwnd || !IsWindow(hwnd))
+    {
+        return;
+    }
+    if (Win32_HudPaged_IsEnabled())
     {
         return;
     }
@@ -5095,13 +5412,32 @@ static void Win32_UnifiedInputMenuTick_WhenMenuClosed(HWND hwndForPaint)
         OutputDebugStringW(L"[T17] F5 edge: no T17 action (F6=cycle, Enter=apply)\r\n");
         InvalidateRect(hwndForPaint, nullptr, FALSE);
     }
-    if (upEdge || downEdge)
+    if (Win32_HudPaged_IsEnabled())
     {
-        Win32_T14_TryScrollFromKeyboardEdges(upEdge, downEdge, hwndForPaint);
+        if (leftEdge || rightEdge)
+        {
+            Win32_HudPaged_AdvancePage(leftEdge ? -1 : 1);
+            InvalidateRect(hwndForPaint, nullptr, FALSE);
+        }
+        if (s_hudPagedIndex == 0 && (upEdge || downEdge))
+        {
+            Win32_T14_TryScrollFromKeyboardEdges(upEdge, downEdge, hwndForPaint);
+        }
+        else if (s_hudPagedIndex == 1 && (upEdge || downEdge))
+        {
+            Win32_T15_TryChangePresetFromKeyboardEdges(upEdge, downEdge, hwndForPaint);
+        }
     }
-    if (leftEdge || rightEdge)
+    else
     {
-        Win32_T15_TryChangePresetFromKeyboardEdges(leftEdge, rightEdge, hwndForPaint);
+        if (upEdge || downEdge)
+        {
+            Win32_T14_TryScrollFromKeyboardEdges(upEdge, downEdge, hwndForPaint);
+        }
+        if (leftEdge || rightEdge)
+        {
+            Win32_T15_TryChangePresetFromKeyboardEdges(leftEdge, rightEdge, hwndForPaint);
+        }
     }
     if (t17F6Edge)
     {
@@ -6592,6 +6928,10 @@ static bool Win32_WndProc_OnVScroll(
     UINT message,
     LRESULT* outDefResult)
 {
+    if (Win32_HudPaged_IsEnabled())
+    {
+        return false;
+    }
     if (Win32_MainWindow_IsFillMonitorPresentationMode(hWnd))
     {
         RECT cr{};
@@ -6732,6 +7072,10 @@ static bool Win32_WndProc_OnVScroll(
 
 static void Win32_WndProc_OnMouseWheel(HWND hWnd, WPARAM wParam)
 {
+    if (Win32_HudPaged_IsEnabled())
+    {
+        return;
+    }
     if (Win32_MainWindow_IsFillMonitorPresentationMode(hWnd))
     {
         RECT cr{};

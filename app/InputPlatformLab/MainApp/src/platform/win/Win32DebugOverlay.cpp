@@ -1,6 +1,7 @@
 #include "framework.h"
 #include "Win32DebugOverlay.h"
 #include "WindowsRenderer.h"
+#include "Win32HudPaged.h"
 
 #include <algorithm>
 
@@ -1541,7 +1542,8 @@ refill_budget:
 }
 
 // 本文（メニュー + T14〜T18 テキスト）をスクロール付きで描画し、下端に [scroll] サマリを載せる。
-void Win32DebugOverlay_Paint(
+// 運用表示では Win32DebugOverlay_Paint がページ式 HUD を優先し、本関数はレガシー参照用。
+static void Win32_DebugOverlay_PaintStackedLegacy(
     HWND hwnd,
     HDC hdc,
     const wchar_t* t17ModeLabelForOverlay,
@@ -1762,6 +1764,36 @@ void Win32DebugOverlay_Paint(
     SetTextColor(hdc, prevTextColor);
 }
 
+void Win32DebugOverlay_Paint(
+    HWND hwnd,
+    HDC hdc,
+    const wchar_t* t17ModeLabelForOverlay,
+    const wchar_t* t17CandLabel,
+    const wchar_t* t17ActLabel,
+    bool suppressT14BodyGdi,
+    bool skipMenuColumnGdi,
+    bool skipScrollBandGdi)
+{
+    if (Win32_HudPaged_IsEnabled())
+    {
+        Win32_HudPaged_PaintGdi(hwnd, hdc, t17CandLabel, t17ActLabel);
+        (void)t17ModeLabelForOverlay;
+        (void)suppressT14BodyGdi;
+        (void)skipMenuColumnGdi;
+        (void)skipScrollBandGdi;
+        return;
+    }
+    Win32_DebugOverlay_PaintStackedLegacy(
+        hwnd,
+        hdc,
+        t17ModeLabelForOverlay,
+        t17CandLabel,
+        t17ActLabel,
+        suppressT14BodyGdi,
+        skipMenuColumnGdi,
+        skipScrollBandGdi);
+}
+
 void Win32_DebugOverlay_PrefillHudLeftColumnForD2d(
     HWND hwnd,
     HDC hdc,
@@ -1805,6 +1837,12 @@ void Win32_DebugOverlay_PrefillHudLeftColumnForD2d(
     const int actualH = static_cast<int>(rcActual.bottom - rcActual.top);
     if (actualW < 1 || actualH < 1)
     {
+        return;
+    }
+
+    if (Win32_HudPaged_IsEnabled())
+    {
+        Win32_HudPaged_PrefillD2d(st, static_cast<UINT>(actualW), static_cast<UINT>(actualH));
         return;
     }
 

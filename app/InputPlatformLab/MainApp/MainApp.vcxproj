@@ -150,6 +150,7 @@
     <ClInclude Include="include\platform\win\WindowsInputBackend.h" />
     <ClInclude Include="include\platform\win\WindowsRenderer.h" />
     <ClInclude Include="include\platform\win\Win32DebugOverlay.h" />
+    <ClInclude Include="include\platform\win\Win32HudPaged.h" />
     <ClInclude Include="include\VirtualInputMenuSample.h" />
     <ClInclude Include="include\VirtualInputNeutral.h" />
   </ItemGroup>
