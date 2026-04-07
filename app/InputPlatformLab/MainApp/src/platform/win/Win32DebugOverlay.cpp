@@ -69,6 +69,10 @@ extern int s_paintDbgLayoutRestVpBudgetHint;
 extern int s_paintDbgClientW;
 extern int s_paintDbgClientH;
 extern int s_paintDbgMaxScroll;
+extern int s_paintDbgT14ColumnBaseY;
+extern int s_paintDbgT14BeforeVisibleDocH;
+extern int s_paintDbgT14VisibleBlockDocH;
+extern int s_paintDbgT14AfterVisibleDocH;
 
 // メニュー列のみ CALCRECT（左列 D2D 用。幅は committed / client のレイアウト幅に合わせる）
 static void Win32_MenuSampleMeasureMenuColumnOnly(
@@ -651,8 +655,8 @@ static int Win32_MainView_MeasureScrollOverlayTextHeight(HDC hdc, int clientW, c
     return static_cast<int>(rc.bottom - rc.top);
 }
 
-// T59: T14 ドキュメント内のブロック別に DrawText 高さを取る（prefix がどこまで doc を食うか切り分け）
-static int Win32_T59_MeasureDocSliceHeight(HDC hdc, int w, const wchar_t* s, int lenChars)
+// T60: T14 ドキュメント内のブロック別に DrawText 高さを取る（vmSplit 有無に関わらず同一バッファで実測）
+static int Win32_T60_MeasureDocSliceHeight(HDC hdc, int w, const wchar_t* s, int lenChars)
 {
     if (!s || lenChars <= 0)
     {
@@ -665,6 +669,39 @@ static int Win32_T59_MeasureDocSliceHeight(HDC hdc, int w, const wchar_t* s, int
     rc.bottom = 1000000;
     DrawTextW(hdc, s, lenChars, &rc, DT_LEFT | DT_TOP | DT_NOPREFIX | DT_WORDBREAK | DT_CALCRECT);
     return static_cast<int>(rc.bottom - rc.top);
+}
+
+// T14 本文内で T15→T16→T18→T17 の先頭を順に探索（前方一致の誤検出を避ける）
+static void Win32_T60_FindT14AppendixMarkers(
+    const wchar_t* pAfterVis,
+    const wchar_t*& outT15,
+    const wchar_t*& outT16,
+    const wchar_t*& outT18,
+    const wchar_t*& outT17)
+{
+    outT15 = nullptr;
+    outT16 = nullptr;
+    outT18 = nullptr;
+    outT17 = nullptr;
+    if (!pAfterVis)
+    {
+        return;
+    }
+    outT15 = wcsstr(pAfterVis, L"\r\n--- T15 nearest resolution ---");
+    if (!outT15)
+    {
+        outT15 = wcsstr(pAfterVis, L"\r\n--- T15");
+    }
+    if (!outT15)
+    {
+        outT15 = wcsstr(pAfterVis, L"\r\nT15:");
+    }
+    const wchar_t* scan16 = outT15 ? outT15 : pAfterVis;
+    outT16 = wcsstr(scan16, L"\r\n--- T16");
+    const wchar_t* scan18 = outT16 ? outT16 : scan16;
+    outT18 = wcsstr(scan18, L"\r\n--- T18");
+    const wchar_t* scan17 = outT18 ? outT18 : scan18;
+    outT17 = wcsstr(scan17, L"\r\n--- T17");
 }
 
 // Prefill / WM_PAINT 共通: スクロール・[scroll] 帯の高さ・T17 行位置などを計測。
@@ -756,6 +793,7 @@ refill_budget:
 
     s_paintDbgT14LayoutValid = false;
     const int t14BaseY = static_cast<int>(rcT14Doc.top) + t37TopGap;
+    s_paintDbgT14ColumnBaseY = t14BaseY;
 
     bool vmSplitActive = false;
     int splitHPrefix = 0;
@@ -998,7 +1036,12 @@ refill_budget:
 
     if (vmSplitActive)
     {
-        const int kMinBody = WIN32_OVERLAY_MIN_BODY_VIEWPORT_PX;
+        int kMinBody = WIN32_OVERLAY_MIN_BODY_VIEWPORT_PX;
+        if (Win32_IsMainWindowFillMonitorPresentation(hwnd) &&
+            Win32_MainWindow_IsFullscreenPresentationMode(hwnd))
+        {
+            kMinBody = WIN32_OVERLAY_T60_FULLSCREEN_MIN_BODY_VIEWPORT_PX;
+        }
         int splitRestTopPxEff = splitRestTopPx;
         int overlayReserve = (std::min)(actualOverlayHeight, clientH);
         {
@@ -1192,102 +1235,128 @@ refill_budget:
         const int prefixTop_log = s_paintDbgRow2TopPx + t14BaseY;
         const int vmTop_log =
             s_paintDbgT14VmSplitActive ? (prefixTop_log + splitHPrefix) : 0;
-        int hT14ToVis = 0;
+        int hT14Header = 0;
+        int hVmHeading = 0;
         int hVmLines = 0;
         int hT15 = 0;
         int hT16 = 0;
         int hT18 = 0;
         int hT17 = 0;
+        int totalBeforeVisible = 0;
         const int visStartDoc = s_paintDbgT14VisibleModesDocStartY - t14BaseY;
         const int gapsPx = row1GapPx + row2ToBodyExtraGapPx;
-        if (!vmSplitActive)
+
+        const wchar_t* pVis = wcsstr(t14Buf, L"visible modes:\r\n");
+        const wchar_t* p0 = t14Buf;
+        if (pVis != nullptr)
         {
-            const wchar_t* pVis = wcsstr(t14Buf, L"visible modes:\r\n");
-            const wchar_t* pT15 = wcsstr(t14Buf, L"\r\n--- T15 nearest resolution ---");
-            if (pT15 == nullptr)
+            const int nVisHead = static_cast<int>(wcslen(L"visible modes:\r\n"));
+            const wchar_t* pAfterVis = pVis + nVisHead;
+            hT14Header = Win32_T60_MeasureDocSliceHeight(
+                hdc, clientW, p0, static_cast<int>(pVis - p0));
+            hVmHeading = Win32_T60_MeasureDocSliceHeight(hdc, clientW, pVis, nVisHead);
+            totalBeforeVisible = Win32_T60_MeasureDocSliceHeight(
+                hdc, clientW, p0, static_cast<int>(pAfterVis - p0));
+
+            const wchar_t* mT15 = nullptr;
+            const wchar_t* mT16 = nullptr;
+            const wchar_t* mT18 = nullptr;
+            const wchar_t* mT17 = nullptr;
+            Win32_T60_FindT14AppendixMarkers(pAfterVis, mT15, mT16, mT18, mT17);
+
+            const wchar_t* pVmEnd = mT15 ? mT15 : (mT16 ? mT16 : (mT18 ? mT18 : mT17));
+            if (pVmEnd != nullptr && pVmEnd > pAfterVis)
             {
-                pT15 = wcsstr(t14Buf, L"\r\n--- T15");
+                hVmLines = Win32_T60_MeasureDocSliceHeight(
+                    hdc, clientW, pAfterVis, static_cast<int>(pVmEnd - pAfterVis));
             }
-            if (pT15 == nullptr)
+            else if (pVmEnd == nullptr)
             {
-                pT15 = wcsstr(t14Buf, L"\r\nT15:");
-            }
-            const wchar_t* pT16 = wcsstr(t14Buf, L"\r\n--- T16");
-            if (pT16 == nullptr)
-            {
-                pT16 = wcsstr(t14Buf, L"--- T16");
-            }
-            const wchar_t* pT18 = wcsstr(t14Buf, L"\r\n--- T18");
-            if (pT18 == nullptr)
-            {
-                pT18 = wcsstr(t14Buf, L"--- T18");
-            }
-            const wchar_t* pT17 = wcsstr(t14Buf, L"\r\n--- T17");
-            if (pT17 == nullptr)
-            {
-                pT17 = wcsstr(t14Buf, L"--- T17");
-            }
-            if (pVis != nullptr)
-            {
-                const size_t prefixChars =
-                    static_cast<size_t>(pVis - t14Buf) + wcslen(L"visible modes:\r\n");
-                hT14ToVis = Win32_T59_MeasureDocSliceHeight(
-                    hdc, clientW, t14Buf, static_cast<int>(prefixChars));
-            }
-            const wchar_t* pAfterVis =
-                pVis != nullptr ? pVis + wcslen(L"visible modes:\r\n") : nullptr;
-            const wchar_t* pVmEnd = pT15;
-            if (pVmEnd == nullptr && pT16 != nullptr)
-            {
-                pVmEnd = pT16;
-            }
-            if (pAfterVis != nullptr && pVmEnd != nullptr && pVmEnd > pAfterVis)
-            {
-                hVmLines = Win32_T59_MeasureDocSliceHeight(
+                hVmLines = Win32_T60_MeasureDocSliceHeight(
                     hdc,
                     clientW,
                     pAfterVis,
-                    static_cast<int>(pVmEnd - pAfterVis));
+                    static_cast<int>(wcslen(pAfterVis)));
             }
-            if (pT15 != nullptr && pT16 != nullptr && pT16 > pT15)
+
+            if (mT15 != nullptr)
             {
-                hT15 = Win32_T59_MeasureDocSliceHeight(
-                    hdc, clientW, pT15, static_cast<int>(pT16 - pT15));
+                const wchar_t* endT15 = nullptr;
+                if (mT16 != nullptr && mT16 > mT15)
+                {
+                    endT15 = mT16;
+                }
+                else if (mT18 != nullptr && mT18 > mT15)
+                {
+                    endT15 = mT18;
+                }
+                else if (mT17 != nullptr && mT17 > mT15)
+                {
+                    endT15 = mT17;
+                }
+                if (endT15 != nullptr)
+                {
+                    hT15 = Win32_T60_MeasureDocSliceHeight(
+                        hdc, clientW, mT15, static_cast<int>(endT15 - mT15));
+                }
             }
-            else if (pT15 != nullptr && pT18 != nullptr && pT18 > pT15 &&
-                     (pT16 == nullptr || pT16 > pT18))
+
+            if (mT16 != nullptr)
             {
-                hT15 = Win32_T59_MeasureDocSliceHeight(
-                    hdc, clientW, pT15, static_cast<int>(pT18 - pT15));
+                const wchar_t* endT16 = nullptr;
+                if (mT18 != nullptr && mT18 > mT16)
+                {
+                    endT16 = mT18;
+                }
+                else if (mT17 != nullptr && mT17 > mT16)
+                {
+                    endT16 = mT17;
+                }
+                if (endT16 != nullptr)
+                {
+                    hT16 = Win32_T60_MeasureDocSliceHeight(
+                        hdc, clientW, mT16, static_cast<int>(endT16 - mT16));
+                }
             }
-            if (pT16 != nullptr && pT18 != nullptr && pT18 > pT16)
+
+            if (mT18 != nullptr)
             {
-                hT16 = Win32_T59_MeasureDocSliceHeight(
-                    hdc, clientW, pT16, static_cast<int>(pT18 - pT16));
+                if (mT17 != nullptr && mT17 > mT18)
+                {
+                    hT18 = Win32_T60_MeasureDocSliceHeight(
+                        hdc, clientW, mT18, static_cast<int>(mT17 - mT18));
+                }
+                else
+                {
+                    hT18 = Win32_T60_MeasureDocSliceHeight(
+                        hdc, clientW, mT18, static_cast<int>(wcslen(mT18)));
+                }
             }
-            else if (pT16 != nullptr && pT17 != nullptr && pT17 > pT16 &&
-                     (pT18 == nullptr || pT18 > pT17))
+
+            if (mT17 != nullptr)
             {
-                hT16 = Win32_T59_MeasureDocSliceHeight(
-                    hdc, clientW, pT16, static_cast<int>(pT17 - pT16));
-            }
-            if (pT18 != nullptr && pT17 != nullptr && pT17 > pT18)
-            {
-                hT18 = Win32_T59_MeasureDocSliceHeight(
-                    hdc, clientW, pT18, static_cast<int>(pT17 - pT18));
-            }
-            if (pT17 != nullptr)
-            {
-                hT17 = Win32_T59_MeasureDocSliceHeight(
-                    hdc, clientW, pT17, static_cast<int>(wcslen(pT17)));
+                hT17 = Win32_T60_MeasureDocSliceHeight(
+                    hdc, clientW, mT17, static_cast<int>(wcslen(mT17)));
             }
         }
-        wchar_t t59[768] = {};
+        else
+        {
+            hT14Header = Win32_T60_MeasureDocSliceHeight(
+                hdc, clientW, p0, static_cast<int>(wcslen(p0)));
+        }
+
+        s_paintDbgT14BeforeVisibleDocH = totalBeforeVisible;
+        s_paintDbgT14VisibleBlockDocH = hVmLines;
+        s_paintDbgT14AfterVisibleDocH = (std::max)(
+            0, s_paintDbgContentHeightBase - s_paintDbgT14BeforeVisibleDocH - s_paintDbgT14VisibleBlockDocH);
+
+        wchar_t t60[1024] = {};
         swprintf_s(
-            t59,
-            _countof(t59),
-            L"[T59BUDGET] vmSplit=%d row1H=%d row2Band=%d row1Gap=%d row2ToBodyGap=%d gaps=%d "
-            L"t14ToVisHeadingDocH=%d vmLinesDocH=%d t15DocH=%d t16DocH=%d t18DocH=%d t17DocH=%d "
+            t60,
+            _countof(t60),
+            L"[T60BUDGET] vmSplit=%d row1H=%d row2Band=%d row1Gap=%d row2ToBodyGap=%d gaps=%d "
+            L"t14Header=%d vmHeading=%d vmLines=%d t15=%d t16=%d t18=%d t17=%d "
+            L"totalBeforeVisible=%d beforeVisibleDocH=%d visibleBlockDocH=%d afterVisibleDocH=%d "
             L"visibleModesStartDoc=%d docContentH=%d lineH=%d\r\n",
             vmSplitActive ? 1 : 0,
             row1H_log,
@@ -1295,16 +1364,21 @@ refill_budget:
             row1GapPx,
             row2ToBodyExtraGapPx,
             gapsPx,
-            hT14ToVis,
+            hT14Header,
+            hVmHeading,
             hVmLines,
             hT15,
             hT16,
             hT18,
             hT17,
+            totalBeforeVisible,
+            s_paintDbgT14BeforeVisibleDocH,
+            s_paintDbgT14VisibleBlockDocH,
+            s_paintDbgT14AfterVisibleDocH,
             visStartDoc,
             s_paintDbgContentHeight,
             s_paintDbgLineHeight);
-        OutputDebugStringW(t59);
+        OutputDebugStringW(t60);
 
         wchar_t t57[512] = {};
         swprintf_s(

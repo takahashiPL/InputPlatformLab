@@ -254,6 +254,10 @@ int s_paintDbgLayoutRestVpBudgetHint = -1; // T51: 最後の Fill に渡した r
 int s_paintDbgClientW = 0;
 int s_paintDbgClientH = 0;
 int s_paintDbgMaxScroll = 0;
+int s_paintDbgT14ColumnBaseY = 0;
+int s_paintDbgT14BeforeVisibleDocH = 0;
+int s_paintDbgT14VisibleBlockDocH = 0;
+int s_paintDbgT14AfterVisibleDocH = 0;
 
 #ifndef WIN32_MAIN_DEBUG_SCROLL_LINE
 #define WIN32_MAIN_DEBUG_SCROLL_LINE 16
@@ -351,7 +355,7 @@ static void Win32_LogRawInputHidGameControllersClassified();
 
 static const wchar_t* Win32_GameControllerKindFamilyLabel(GameControllerKind kind);
 static void Win32_T18_RefreshControllerIdentifySnapshot();
-static void Win32_T18_AppendPaintSection(wchar_t* buf, size_t bufCount, bool compactT59);
+static void Win32_T18_AppendPaintSection(wchar_t* buf, size_t bufCount, bool compactT59, bool ultraT60);
 
 // [2] Gamepad button label tables
 static const wchar_t* GamepadButton_GetIdName(GamepadButtonId id);
@@ -2519,13 +2523,34 @@ static void Win32_T16_AppendPaintSection(
     HWND hwnd,
     const RECT& rcClient,
     int restVpBudgetHint,
-    bool compactT59)
+    bool compactT59,
+    bool ultraT60)
 {
     // Per-Monitor DPI Aware V2: GetClientRect はクライアント領域を物理ピクセルで返す。
     // target の logical（MulDiv(mode,96,dpi)）と比較するには current も同じ式で論理化する。
     const int cw = static_cast<int>(rcClient.right - rcClient.left);
     const int ch = static_cast<int>(rcClient.bottom - rcClient.top);
     const int budgetPx = Win32_T56_ContentBudgetPxForHudFill(hwnd, ch, restVpBudgetHint);
+    if (ultraT60)
+    {
+        UINT dpiX = USER_DEFAULT_SCREEN_DPI;
+        UINT dpiY = USER_DEFAULT_SCREEN_DPI;
+        if (hwnd)
+        {
+            Win32_T16_GetDpiForWindowBest(hwnd, dpiX, dpiY);
+        }
+        wchar_t block[256] = {};
+        swprintf_s(
+            block,
+            _countof(block),
+            L"\r\nT16: %dx%d dpi:%u,%u\r\n",
+            cw,
+            ch,
+            dpiX,
+            dpiY);
+        wcscat_s(buf, bufCount, block);
+        return;
+    }
     // T51: 実効 restVp が小さいときも T16 を省略（T50 の rawClientH 極小に加える）
     if (budgetPx > 0 && budgetPx < WIN32_OVERLAY_T51_OMIT_T16_RESTVP_PX)
     {
@@ -2817,8 +2842,25 @@ static bool Win32_T18_RawInputProductLooksLikeDevicePath(const wchar_t* s)
 // T18: デバッグ表示ブロック（先頭 HID + 先頭 XInput スロット・VID/PID・parser/support）
 // ---------------------------------------------------------------------------
 
-static void Win32_T18_AppendPaintSection(wchar_t* buf, size_t bufCount, bool compactT59)
+static void Win32_T18_AppendPaintSection(wchar_t* buf, size_t bufCount, bool compactT59, bool ultraT60)
 {
+    if (ultraT60)
+    {
+        wchar_t slotStr[16] = L"-1";
+        if (s_t18.xinput_slot >= 0)
+        {
+            swprintf_s(slotStr, _countof(slotStr), L"%d", s_t18.xinput_slot);
+        }
+        wchar_t block[256] = {};
+        swprintf_s(
+            block,
+            _countof(block),
+            L"\r\nT18: slot=%s hid=%s\r\n",
+            slotStr,
+            s_t18.hid_found ? L"yes" : L"no");
+        wcscat_s(buf, bufCount, block);
+        return;
+    }
     if (compactT59)
     {
         wchar_t slotStr[16] = L"-1";
@@ -2907,8 +2949,12 @@ static void Win32_T18_AppendPaintSection(wchar_t* buf, size_t bufCount, bool com
 }
 
 // WM_PAINT 用: T17 の候補／適用結果・F5 ヒントなどを buf に追記。
-static void Win32_T17_AppendPaintSection(wchar_t* buf, size_t bufCount, bool compactT59)
+static void Win32_T17_AppendPaintSection(wchar_t* buf, size_t bufCount, bool compactT59, bool ultraT60)
 {
+    if (ultraT60)
+    {
+        return;
+    }
     if (compactT59)
     {
         wchar_t t17[512] = {};
@@ -4232,10 +4278,17 @@ static void Win32_FillMenuSamplePaintBuffers_T14T15Column(
     const int budgetPx = Win32_T56_ContentBudgetPxForHudFill(hwnd, clientH, restVpBudgetHint);
     const bool t53Windowed =
         hwnd && IsWindow(hwnd) && !Win32_MainWindow_IsFillMonitorPresentationMode(hwnd);
-    const bool t53OneRow =
+    const bool t60UltraCompact =
+        t53Windowed && clientH > 0 && clientH <= WIN32_OVERLAY_T60_SMALL_WINDOWED_CLIENT_H;
+    bool t53OneRow =
         t53Windowed && budgetPx >= 0 && budgetPx < WIN32_OVERLAY_T53_ONE_VISIBLE_ROW_BUDGET_PX;
+    if (t60UltraCompact)
+    {
+        t53OneRow = false;
+    }
     const bool t53MinimalT14 =
-        t53Windowed && budgetPx >= 0 && budgetPx < WIN32_OVERLAY_T53_MINIMAL_T14_BUDGET_PX;
+        !t60UltraCompact && t53Windowed && budgetPx >= 0 &&
+        budgetPx < WIN32_OVERLAY_T53_MINIMAL_T14_BUDGET_PX;
 
     if (!s_displayMonitorsCache.empty() && kT14SelectedMonitorIndex < s_displayMonitorsCache.size())
     {
@@ -4246,7 +4299,8 @@ static void Win32_FillMenuSamplePaintBuffers_T14T15Column(
             (budgetPx > 0 && budgetPx < WIN32_OVERLAY_T49_T14_MINIMAL_HEADER_CLIENT_H);
         // T58/T59: Windowed で prefix/T15 を短くし、visible modes 帯に縦余白を寄せる（T59 は <=760）
         const bool useShortT14Header =
-            minimalHeader || (t53Windowed && clientH <= WIN32_OVERLAY_T59_WINDOWED_COMPACT_CLIENT_H);
+            minimalHeader || (t53Windowed && clientH <= WIN32_OVERLAY_T59_WINDOWED_COMPACT_CLIENT_H) ||
+            t60UltraCompact;
         const size_t maxRowsFromList =
             (mon.modes.size() > s_t14FirstVisibleModeIndex)
                 ? (mon.modes.size() - s_t14FirstVisibleModeIndex)
@@ -4254,7 +4308,7 @@ static void Win32_FillMenuSamplePaintBuffers_T14T15Column(
         const bool t59MinRowsWindowed =
             t53Windowed && clientH <= WIN32_OVERLAY_T59_WINDOWED_COMPACT_CLIENT_H;
         size_t budgetRows = Win32_T14_VisibleModeRowsForBudgetPx(budgetPx);
-        if (t59MinRowsWindowed && !t53OneRow)
+        if ((t59MinRowsWindowed || t60UltraCompact) && !t53OneRow)
         {
             budgetRows = (std::max)(budgetRows, static_cast<size_t>(3));
         }
@@ -4351,7 +4405,31 @@ static void Win32_FillMenuSamplePaintBuffers_T14T15Column(
 
         {
             wchar_t t15Block[768] = {};
-            if (t53Windowed && budgetPx >= 0 && budgetPx < WIN32_OVERLAY_T53_OMIT_T15_BUDGET_PX)
+            if (t60UltraCompact)
+            {
+                if (s_t15MatchResult.nearestModeIndex != static_cast<size_t>(-1) &&
+                    s_t15MatchResult.nearestModeIndex < mon.modes.size())
+                {
+                    const DisplayModeInfo& nm = mon.modes[s_t15MatchResult.nearestModeIndex];
+                    swprintf_s(
+                        t15Block,
+                        _countof(t15Block),
+                        L"\r\n--- T15 nearest resolution ---\r\n"
+                        L"%dx%d ex:%d\r\n",
+                        nm.width,
+                        nm.height,
+                        s_t15MatchResult.exactMatch ? 1 : 0);
+                }
+                else
+                {
+                    swprintf_s(
+                        t15Block,
+                        _countof(t15Block),
+                        L"\r\n--- T15 nearest resolution ---\r\n"
+                        L"(none)\r\n");
+                }
+            }
+            else if (t53Windowed && budgetPx >= 0 && budgetPx < WIN32_OVERLAY_T53_OMIT_T15_BUDGET_PX)
             {
                 t15Block[0] = L'\0';
             }
@@ -4491,9 +4569,12 @@ static void Win32_FillMenuSamplePaintBuffers_AppendT16T18T17(
     const bool t59CompactHud =
         hwnd && IsWindow(hwnd) && !Win32_MainWindow_IsFillMonitorPresentationMode(hwnd) &&
         ch <= WIN32_OVERLAY_T59_WINDOWED_COMPACT_CLIENT_H;
-    Win32_T16_AppendPaintSection(t14Buf, t14BufCount, hwnd, rcClient, restVpBudgetHint, t59CompactHud);
-    Win32_T18_AppendPaintSection(t14Buf, t14BufCount, t59CompactHud);
-    Win32_T17_AppendPaintSection(t14Buf, t14BufCount, t59CompactHud);
+    const bool t60UltraCompact =
+        hwnd && IsWindow(hwnd) && !Win32_MainWindow_IsFillMonitorPresentationMode(hwnd) &&
+        ch <= WIN32_OVERLAY_T60_SMALL_WINDOWED_CLIENT_H;
+    Win32_T16_AppendPaintSection(t14Buf, t14BufCount, hwnd, rcClient, restVpBudgetHint, t59CompactHud, t60UltraCompact);
+    Win32_T18_AppendPaintSection(t14Buf, t14BufCount, t59CompactHud, t60UltraCompact);
+    Win32_T17_AppendPaintSection(t14Buf, t14BufCount, t59CompactHud, t60UltraCompact);
 }
 
 // Win32DebugOverlay が WM_PAINT で読むバッファを組み立てる。T14〜T17 本文と T18 のスナップショットを含む。
@@ -4613,6 +4694,15 @@ static void Win32_T14_TryAutoScrollSelectionIntoView(HWND hwnd)
         L"[T14VIEW] visibleModesDocStartY=%d\r\n",
         s_paintDbgT14VisibleModesDocStartY);
     OutputDebugStringW(logLine);
+    swprintf_s(
+        logLine,
+        _countof(logLine),
+        L"[T14VIEW] t14ColumnBaseY=%d beforeVisibleDocH=%d visibleBlockDocH=%d afterVisibleDocH=%d\r\n",
+        s_paintDbgT14ColumnBaseY,
+        s_paintDbgT14BeforeVisibleDocH,
+        s_paintDbgT14VisibleBlockDocH,
+        s_paintDbgT14AfterVisibleDocH);
+    OutputDebugStringW(logLine);
     swprintf_s(logLine, _countof(logLine), L"[T14VIEW] selectedRowTop=%d\r\n", selectedRowTop);
     OutputDebugStringW(logLine);
     swprintf_s(logLine, _countof(logLine), L"[T14VIEW] selectedRowBottom=%d\r\n", selectedRowBottom);
@@ -4638,7 +4728,7 @@ static void Win32_T14_TryAutoScrollSelectionIntoView(HWND hwnd)
         swprintf_s(
             logLine,
             _countof(logLine),
-            L"[T59T14VIEW] visibleRows=%d maxRowSpan=%d selectedRowTop=%d selectedRowBottom=%d "
+            L"[T60T14VIEW] visibleRows=%d maxRowSpan=%d selectedRowTop=%d selectedRowBottom=%d "
             L"visibleModesDocStartY=%d docContentH=%d\r\n",
             visibleRows,
             maxRowSpanView,

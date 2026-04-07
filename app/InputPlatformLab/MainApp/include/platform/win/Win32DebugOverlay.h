@@ -48,6 +48,14 @@ void Win32_DebugOverlay_FormatScrollDebugOverlay(
 #ifndef WIN32_OVERLAY_T59_WINDOWED_COMPACT_CLIENT_H
 #define WIN32_OVERLAY_T59_WINDOWED_COMPACT_CLIENT_H 760
 #endif
+// T60: 初期小さい Windowed 向け。visible modes を最優先し本文ブロックをさらに圧縮（T15〜T17 を 1〜2 行級）
+#ifndef WIN32_OVERLAY_T60_SMALL_WINDOWED_CLIENT_H
+#define WIN32_OVERLAY_T60_SMALL_WINDOWED_CLIENT_H 520
+#endif
+// T60: fill-monitor Fullscreen のみ、vmSplit 本文ビューポート最小を少し上げて scrollVpH を確保（Borderless は既定のまま）
+#ifndef WIN32_OVERLAY_T60_FULLSCREEN_MIN_BODY_VIEWPORT_PX
+#define WIN32_OVERLAY_T60_FULLSCREEN_MIN_BODY_VIEWPORT_PX 128
+#endif
 #ifndef WIN32_OVERLAY_T51_COMPACT_SCROLL_RESTVP_PX
 #define WIN32_OVERLAY_T51_COMPACT_SCROLL_RESTVP_PX 120
 #endif
