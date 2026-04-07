@@ -700,6 +700,21 @@ static HRESULT WindowsRenderer_DrawHudD2DOnFinalBackbuffer(
     s->d2dContext->BeginDraw();
     s->d2dContext->SetTransform(D2D1::Matrix3x2F::Identity());
 
+    // ページ式 HUD は GDI（Win32_HudPaged_PaintGdi）が全文を描く。ここで cand/act 等を描くと二重表示になる。
+    if (Win32_HudPaged_IsEnabled())
+    {
+        hr = s->d2dContext->EndDraw();
+        dstBmp->Release();
+        s->d2dContext->SetTarget(nullptr);
+        if (FAILED(hr) && hr != D2DERR_RECREATE_TARGET && !firstDiag)
+        {
+            wchar_t line[160] = {};
+            swprintf_s(line, L"[HUD] EndDraw hr=0x%08X\r\n", static_cast<unsigned int>(hr));
+            OutputDebugStringW(line);
+        }
+        return hr;
+    }
+
     static constexpr float kFinalHudMarginDip = 8.0f;
     bool drewLeftHudToD2d = false;
     const bool prefillOk =

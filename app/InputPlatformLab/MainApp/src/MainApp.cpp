@@ -819,7 +819,11 @@ static void Win32_T14_TryScrollFromKeyboardEdges(bool upEdge, bool downEdge, HWN
         s_t14FirstVisibleModeIndex = s_t14SelectedModeIndex - (kT14VisibleModeCount - 1);
     }
 
-    Win32_T58_AlignFirstVisibleToDocNoScroll(hwnd);
+    // ページ式 HUD: 表示は固定 8 行ウィンドウのみ。stacked HUD 用の T58 paint-cache 幾何には依存しない。
+    if (!Win32_HudPaged_IsEnabled())
+    {
+        Win32_T58_AlignFirstVisibleToDocNoScroll(hwnd);
+    }
 
     if (s_t14SelectedModeIndex < s_t14FirstVisibleModeIndex)
     {
@@ -831,6 +835,7 @@ static void Win32_T14_TryScrollFromKeyboardEdges(bool upEdge, bool downEdge, HWN
     }
 
     const size_t afterClampSel = s_t14SelectedModeIndex;
+    if (!Win32_HudPaged_IsEnabled())
     {
         int maxRowSpanLog = -999;
         int denomLog = -999;
@@ -882,7 +887,7 @@ static void Win32_T14_TryScrollFromKeyboardEdges(bool upEdge, bool downEdge, HWN
         OutputDebugStringW(t58);
     }
 
-    if (kT14KeyboardSelDebugLog)
+    if (kT14KeyboardSelDebugLog && !Win32_HudPaged_IsEnabled())
     {
         wchar_t sel[192] = {};
         swprintf_s(
@@ -4260,6 +4265,7 @@ static void Win32_LogVirtualInputMenuSample_StateDumpIfChanged(
         static_cast<int>(s.prevMoveX),
         static_cast<int>(s.prevMoveY));
     OutputDebugStringW(line);
+    if (!Win32_HudPaged_IsEnabled())
     {
         wchar_t t14idx[224] = {};
         swprintf_s(
@@ -5021,6 +5027,63 @@ static void Win32_HudPaged_FillT15PageBody(wchar_t* buf, size_t bufCount)
     }
 }
 
+// ページ式 HUD 専用: 本文に device path 全文は載せず、変更時のみ [T18] でデバッグ出力。
+static void Win32_HudPaged_FillT18PageBody(wchar_t* buf, size_t bufCount)
+{
+    buf[0] = L'\0';
+    Win32_T18_RefreshControllerIdentifySnapshot();
+
+    static wchar_t s_hudPagedT18LastPathLogged[512] = {};
+    if (s_t18.device_path[0] != L'\0' &&
+        wcscmp(s_t18.device_path, s_hudPagedT18LastPathLogged) != 0)
+    {
+        wcscpy_s(s_hudPagedT18LastPathLogged, s_t18.device_path);
+        wchar_t lg[2048] = {};
+        swprintf_s(lg, _countof(lg), L"[T18] device_path(full)=%s\r\n", s_t18.device_path);
+        OutputDebugStringW(lg);
+    }
+
+    wchar_t slotStr[16] = L"-1";
+    if (s_t18.xinput_slot >= 0)
+    {
+        swprintf_s(slotStr, _countof(slotStr), L"%d", s_t18.xinput_slot);
+    }
+    const unsigned vid = s_t18.hid_found ? static_cast<unsigned>(s_t18.hid.vendor_id) : 0u;
+    const unsigned pid = s_t18.hid_found ? static_cast<unsigned>(s_t18.hid.product_id) : 0u;
+    wchar_t vidPidLine[96] = {};
+    if (s_t18.hid_found)
+    {
+        swprintf_s(vidPidLine, _countof(vidPidLine), L"0x%04X/0x%04X", vid, pid);
+    }
+    else
+    {
+        wcscpy_s(vidPidLine, L"n/a");
+    }
+
+    wchar_t prodShort[80] = L"(none)";
+    if (s_t18.product_name[0] != L'\0')
+    {
+        Win32_T18_TruncateWideForPaint(s_t18.product_name, prodShort, _countof(prodShort), 48);
+    }
+
+    swprintf_s(
+        buf,
+        bufCount,
+        L"XInput slot=%s\r\n"
+        L"HID=%s  vid/pid=%s\r\n"
+        L"family=%s\r\n"
+        L"parser=%s  support=%s\r\n"
+        L"product=%s\r\n"
+        L"path: (full string in [T18] debug line)\r\n",
+        slotStr,
+        s_t18.hid_found ? L"yes" : L"no",
+        vidPidLine,
+        Win32_GameControllerKindFamilyLabel(s_t18.inferred_kind),
+        Win32_ControllerParserKindLabel(s_t18.parser_kind),
+        Win32_ControllerSupportLevelLabel(s_t18.support_level),
+        prodShort);
+}
+
 void Win32_HudPaged_ResetScrollBar(HWND hwnd)
 {
     s_paintScrollY = 0;
@@ -5179,6 +5242,7 @@ void Win32_HudPaged_PaintGdi(
         break;
     case 1:
         Win32_HudPaged_FillT15PageBody(bodyBuf, _countof(bodyBuf));
+        Win32_HudPaged_ClampTextLines(bodyBuf, _countof(bodyBuf), 5, 76);
         break;
     case 2:
         Win32_T16_AppendPaintSection(
@@ -5190,16 +5254,14 @@ void Win32_HudPaged_PaintGdi(
             false,
             false,
             false);
-        Win32_HudPaged_ClampTextLines(bodyBuf, _countof(bodyBuf), 10, 76);
+        Win32_HudPaged_ClampTextLines(bodyBuf, _countof(bodyBuf), 8, 76);
         break;
     case 3:
-        Win32_T18_RefreshControllerIdentifySnapshot();
-        Win32_T18_AppendPaintSection(bodyBuf, _countof(bodyBuf), false, false, false);
-        Win32_HudPaged_ClampTextLines(bodyBuf, _countof(bodyBuf), 10, 76);
+        Win32_HudPaged_FillT18PageBody(bodyBuf, _countof(bodyBuf));
         break;
     case 4:
         Win32_T17_AppendPaintSection(bodyBuf, _countof(bodyBuf), false, false, false);
-        Win32_HudPaged_ClampTextLines(bodyBuf, _countof(bodyBuf), 10, 76);
+        Win32_HudPaged_ClampTextLines(bodyBuf, _countof(bodyBuf), 8, 76);
         break;
     default:
         s_hudPagedIndex = 0;
@@ -5207,32 +5269,49 @@ void Win32_HudPaged_PaintGdi(
         break;
     }
 
-    TEXTMETRICW tm{};
-    int lineH = 16;
-    if (GetTextMetricsW(hdc, &tm))
-    {
-        lineH = (std::max)(static_cast<int>(tm.tmHeight), 16);
-    }
-
     SetBkMode(hdc, TRANSPARENT);
     const COLORREF prevCol = SetTextColor(hdc, RGB(235, 238, 242));
 
-    const int pad = 8;
     static constexpr int kHudLogW = 640;
     static constexpr int kHudLogH = 480;
     const float scale =
         (std::min)(static_cast<float>(clientW) / static_cast<float>(kHudLogW),
                    static_cast<float>(clientH) / static_cast<float>(kHudLogH));
-    const int margin = (std::max)(pad, static_cast<int>(8.f * scale));
+    const int margin = (std::max)(4, static_cast<int>(8.f * scale + 0.5f));
+    const int gapCol = (std::max)(2, static_cast<int>(4.f * scale + 0.5f));
+    const int headerPad = (std::max)(2, static_cast<int>(4.f * scale + 0.5f));
+    const int bandGap = (std::max)(4, static_cast<int>(8.f * scale + 0.5f));
+
+    const int fontPx = (std::max)(10, static_cast<int>(14.f * scale + 0.5f));
+
+    LOGFONTW lf{};
+    lf.lfHeight = -fontPx;
+    lf.lfWeight = FW_NORMAL;
+    lf.lfCharSet = DEFAULT_CHARSET;
+    lf.lfQuality = CLEARTYPE_QUALITY;
+    wcscpy_s(lf.lfFaceName, L"Consolas");
+
+    HFONT hfHud = CreateFontIndirectW(&lf);
+    HFONT hfOld = nullptr;
+    if (hfHud != nullptr)
+    {
+        hfOld = (HFONT)SelectObject(hdc, hfHud);
+    }
+
+    TEXTMETRICW tm{};
+    int lineH = 16;
+    if (GetTextMetricsW(hdc, &tm))
+    {
+        lineH = (std::max)(static_cast<int>(tm.tmHeight), 10);
+    }
 
     const int innerW = clientW - 2 * margin;
-    const int gapCol = 4;
     const int statW = MulDiv(innerW, 240, 640);
     const int fracW = MulDiv(innerW, 120, 640);
     const int titleW = (std::max)(0, innerW - statW - fracW - 2 * gapCol);
 
     const int headerTop = t37TopGap + margin;
-    const int headerRowH = lineH * 2 + 4;
+    const int headerRowH = lineH * 2 + headerPad;
 
     RECT rcStat = {};
     rcStat.left = margin;
@@ -5262,16 +5341,39 @@ void Win32_HudPaged_PaintGdi(
         wcscpy_s(statusCombined, statusLine1);
     }
 
-    DrawTextW(hdc, statusCombined, -1, &rcStat, DT_LEFT | DT_TOP | DT_NOPREFIX | DT_WORDBREAK);
+    {
+        const int saved = SaveDC(hdc);
+        IntersectClipRect(hdc, rcStat.left, rcStat.top, rcStat.right, rcStat.bottom);
+        DrawTextW(hdc, statusCombined, -1, &rcStat, DT_LEFT | DT_TOP | DT_NOPREFIX | DT_WORDBREAK);
+        RestoreDC(hdc, saved);
+    }
 
-    const wchar_t* title = kHudPagedPageTitles[s_hudPagedIndex];
+    wchar_t titleEll[160] = {};
+    wcscpy_s(titleEll, kHudPagedPageTitles[s_hudPagedIndex]);
+
+    {
+        const int saved = SaveDC(hdc);
+        IntersectClipRect(hdc, rcTitle.left, rcTitle.top, rcTitle.right, rcTitle.bottom);
+        DrawTextW(
+            hdc,
+            titleEll,
+            -1,
+            &rcTitle,
+            DT_LEFT | DT_TOP | DT_NOPREFIX | DT_SINGLELINE | DT_END_ELLIPSIS | DT_MODIFYSTRING);
+        RestoreDC(hdc, saved);
+    }
+
     wchar_t frac[32] = {};
     swprintf_s(frac, _countof(frac), L"%d/%d", s_hudPagedIndex + 1, kHudPagedCount);
 
-    DrawTextW(hdc, title, -1, &rcTitle, DT_LEFT | DT_TOP | DT_NOPREFIX | DT_SINGLELINE);
-    DrawTextW(hdc, frac, -1, &rcFrac, DT_RIGHT | DT_TOP | DT_NOPREFIX | DT_SINGLELINE);
+    {
+        const int saved = SaveDC(hdc);
+        IntersectClipRect(hdc, rcFrac.left, rcFrac.top, rcFrac.right, rcFrac.bottom);
+        DrawTextW(hdc, frac, -1, &rcFrac, DT_RIGHT | DT_TOP | DT_NOPREFIX | DT_SINGLELINE);
+        RestoreDC(hdc, saved);
+    }
 
-    const int menuTop = headerTop + headerRowH + margin;
+    const int menuTop = headerTop + headerRowH + bandGap;
     RECT rcMenuMeasure = {};
     rcMenuMeasure.left = margin;
     rcMenuMeasure.top = menuTop;
@@ -5286,7 +5388,7 @@ void Win32_HudPaged_PaintGdi(
     rcMenuDraw.bottom = menuTop + menuH;
     DrawTextW(hdc, menuBuf, -1, &rcMenuDraw, DT_LEFT | DT_TOP | DT_NOPREFIX);
 
-    const int bodyTop = menuTop + menuH + margin;
+    const int bodyTop = menuTop + menuH + bandGap;
     RECT rcBody = {};
     rcBody.left = margin;
     rcBody.top = bodyTop;
@@ -5295,6 +5397,15 @@ void Win32_HudPaged_PaintGdi(
     if (rcBody.bottom > rcBody.top)
     {
         DrawTextW(hdc, bodyBuf, -1, &rcBody, DT_LEFT | DT_TOP | DT_NOPREFIX | DT_WORDBREAK);
+    }
+
+    if (hfOld != nullptr)
+    {
+        SelectObject(hdc, hfOld);
+    }
+    if (hfHud != nullptr)
+    {
+        DeleteObject(hfHud);
     }
 
     SetTextColor(hdc, prevCol);
