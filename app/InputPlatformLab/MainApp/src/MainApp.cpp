@@ -4433,6 +4433,9 @@ static void Win32_FillMenuSamplePaintBuffers_T14T15Column(
     if (!s_displayMonitorsCache.empty() && kT14SelectedMonitorIndex < s_displayMonitorsCache.size())
     {
         const DisplayMonitorInfo& mon = s_displayMonitorsCache[kT14SelectedMonitorIndex];
+        const bool t65FullscreenFill =
+            hwnd && IsWindow(hwnd) && Win32_MainWindow_IsFillMonitorPresentationMode(hwnd) &&
+            Win32_MainWindow_IsFullscreenPresentationMode(hwnd);
         const bool tinyBudget =
             (budgetForT53Omit > 0 && budgetForT53Omit < WIN32_OVERLAY_T50_TINY_CLIENT_H);
         const bool minimalHeader =
@@ -4452,9 +4455,14 @@ static void Win32_FillMenuSamplePaintBuffers_T14T15Column(
         {
             budgetRows = (std::max)(budgetRows, static_cast<size_t>(3));
         }
-        const size_t rowsToPaint = t53OneRow
+        size_t rowsToPaint = t53OneRow
             ? 1u
             : (std::min)((std::min)(budgetRows, kT14VisibleModeCount), maxRowsFromList);
+        if (t65FullscreenFill && !t53OneRow)
+        {
+            rowsToPaint = (std::min)(
+                rowsToPaint, static_cast<size_t>(WIN32_OVERLAY_T65_FULLSCREEN_VISIBLE_MODE_ROWS_MAX));
+        }
 
         if (t53MinimalT14 || tinyBudget)
         {
@@ -4463,6 +4471,11 @@ static void Win32_FillMenuSamplePaintBuffers_T14T15Column(
                 t14BufCount,
                 L"--- T14 ---\r\n"
                 L"visible modes:\r\n");
+        }
+        else if (t65FullscreenFill)
+        {
+            // T65: vmSplit マーカー visible modes: は維持し、splitHPrefix を T59 よりさらに削る
+            swprintf_s(t14Buf, t14BufCount, L"T14\r\nvisible modes:\r\n");
         }
         else if (useShortT14Header)
         {
@@ -4518,7 +4531,7 @@ static void Win32_FillMenuSamplePaintBuffers_T14T15Column(
                 (s_t15MatchResult.nearestModeIndex != static_cast<size_t>(-1)) &&
                 (mi == s_t15MatchResult.nearestModeIndex);
             wchar_t line[192] = {};
-            if (tinyBudget)
+            if (tinyBudget || t65FullscreenFill)
             {
                 swprintf_s(line, _countof(line),
                     L"%s%s[%zu]%dx%d\r\n",
@@ -4620,7 +4633,7 @@ static void Win32_FillMenuSamplePaintBuffers_T14T15Column(
                         L"T15 (none)\r\n");
                 }
             }
-            else if (useShortT14Header)
+            else if (useShortT14Header || t65FullscreenFill)
             {
                 if (s_t15MatchResult.nearestModeIndex != static_cast<size_t>(-1) &&
                     s_t15MatchResult.nearestModeIndex < mon.modes.size())

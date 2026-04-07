@@ -66,6 +66,10 @@ void Win32_DebugOverlay_FormatScrollDebugOverlay(
 #ifndef WIN32_OVERLAY_T64_FULLSCREEN_MENU_TO_T14_GAP_PX
 #define WIN32_OVERLAY_T64_FULLSCREEN_MENU_TO_T14_GAP_PX 4
 #endif
+// T65: fill-monitor Fullscreen のみ、splitHPrefix / splitHVmBand を抑える（T14 先頭と visible modes 行を短く・行数を上限）
+#ifndef WIN32_OVERLAY_T65_FULLSCREEN_VISIBLE_MODE_ROWS_MAX
+#define WIN32_OVERLAY_T65_FULLSCREEN_VISIBLE_MODE_ROWS_MAX 4
+#endif
 #ifndef WIN32_OVERLAY_T51_COMPACT_SCROLL_RESTVP_PX
 #define WIN32_OVERLAY_T51_COMPACT_SCROLL_RESTVP_PX 120
 #endif
