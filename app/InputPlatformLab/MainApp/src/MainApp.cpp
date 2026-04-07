@@ -144,9 +144,9 @@ static constexpr size_t kT14VisibleModeCount = 8;
 static constexpr size_t kT14SelectedMonitorIndex = 0;
 static size_t s_t14SelectedModeIndex = 0;
 static size_t s_t14FirstVisibleModeIndex = 0;
-// ページ式 HUD: 0=T14 … 4=T17。既定は T14（表示モード一覧）。
+// ページ式 HUD: 0=T14,1=T15,2=T16,3=T18,4=T19,5=T17。既定は T14（表示モード一覧）。
 static int s_hudPagedIndex = 0;
-static constexpr int kHudPagedCount = 5;
+static constexpr int kHudPagedCount = 6;
 
 // T15: 希望解像度 → 最近似 mode（列挙キャッシュのみ。適用はしない）
 struct DisplayModeMatchResult
@@ -4848,6 +4848,7 @@ static const wchar_t* const kHudPagedPageTitles[kHudPagedCount] = {
     L"T15 — Nearest resolution vs desired",
     L"T16 — Window metrics (client size & recreate)",
     L"T18 — Controller identify (HID / XInput)",
+    L"T19 — Input state (logical buttons / analog)",
     L"T17 — Presentation (windowed / borderless / fullscreen)",
 };
 
@@ -4856,6 +4857,7 @@ static const wchar_t* const kHudPagedPageIds[kHudPagedCount] = {
     L"T15",
     L"T16",
     L"T18",
+    L"T19",
     L"T17",
 };
 
@@ -5091,6 +5093,172 @@ static void Win32_HudPaged_FillT18PageBody(wchar_t* buf, size_t bufCount)
         prodShort);
 }
 
+// T19: 論理ボタン + アナログ（ページ式 HUD 専用。表記は LogicalInput_FillCurrentDownFromSources と揃える）
+static float Win32_HudPaged_T19NormalizeStickAxis(INT16 x)
+{
+    float v = static_cast<float>(x) / 32768.0f;
+    if (v > 1.0f)
+    {
+        return 1.0f;
+    }
+    if (v < -1.0f)
+    {
+        return -1.0f;
+    }
+    return v;
+}
+
+static float Win32_HudPaged_T19NormalizeTrigger(UINT8 t)
+{
+    return static_cast<float>(t) / 255.0f;
+}
+
+static const wchar_t* Win32_HudPaged_T19FormatCircle(bool on)
+{
+    return on ? L"\u3007" : L" ";
+}
+
+static void Win32_HudPaged_T19FormatStickAxisBar(float v, wchar_t* out, size_t outCount)
+{
+    int pos = static_cast<int>(std::lround((v + 1.0f) * 3.5f));
+    if (pos < 0)
+    {
+        pos = 0;
+    }
+    if (pos > 7)
+    {
+        pos = 7;
+    }
+    wchar_t left[5] = {L'.', L'.', L'.', L'.', L'\0'};
+    wchar_t right[5] = {L'.', L'.', L'.', L'.', L'\0'};
+    if (pos < 4)
+    {
+        left[pos] = L'*';
+    }
+    else
+    {
+        right[pos - 4] = L'*';
+    }
+    swprintf_s(out, outCount, L"[%s|%s]", left, right);
+}
+
+static void Win32_HudPaged_T19FormatTriggerBar(float v, wchar_t* out, size_t outCount)
+{
+    int filled = static_cast<int>(std::lround(v * 8.0f));
+    if (filled < 0)
+    {
+        filled = 0;
+    }
+    if (filled > 8)
+    {
+        filled = 8;
+    }
+    wchar_t w[12] = {};
+    for (int i = 0; i < 8; ++i)
+    {
+        w[i] = (i < filled) ? L'#' : L'.';
+    }
+    swprintf_s(out, outCount, L"[%s]", w);
+}
+
+static void Win32_HudPaged_AppendBodyLine(wchar_t* buf, size_t bufCount, const wchar_t* line)
+{
+    if (!buf || bufCount < 2 || !line)
+    {
+        return;
+    }
+    const size_t need = wcslen(buf) + wcslen(line) + 3;
+    if (need >= bufCount)
+    {
+        return;
+    }
+    wcscat_s(buf, bufCount, line);
+    wcscat_s(buf, bufCount, L"\r\n");
+}
+
+static void Win32_HudPaged_FillT19PageBody(wchar_t* buf, size_t bufCount)
+{
+    buf[0] = L'\0';
+    const LogicalInputState* li = InputCore_LogicalInputState();
+    if (!li)
+    {
+        wcscpy_s(buf, bufCount, L"(LogicalInputState unavailable)\r\n");
+        return;
+    }
+
+    static const struct
+    {
+        LogicalButtonId id;
+        const wchar_t* shortName;
+        const wchar_t* kbd;
+        const wchar_t* pad;
+    } kRows[] = {
+        {LogicalButtonId::South, L"South", L"Enter", L"A/Cross"},
+        {LogicalButtonId::East, L"East", L"Backspace", L"B/Circle"},
+        {LogicalButtonId::Start, L"Start", L"Tab", L"Start/Options"},
+        {LogicalButtonId::DPadUp, L"Up", L"\u2191", L"DPad Up"},
+        {LogicalButtonId::DPadDown, L"Down", L"\u2193", L"DPad Down"},
+        {LogicalButtonId::DPadLeft, L"Left", L"\u2190", L"DPad Left"},
+        {LogicalButtonId::DPadRight, L"Right", L"\u2192", L"DPad Right"},
+    };
+
+    wchar_t line[384] = {};
+    for (const auto& row : kRows)
+    {
+        const LogicalButtonFrameState& f = LogicalInputState_Frame(*li, row.id);
+        swprintf_s(
+            line,
+            _countof(line),
+            L"%-6s  key:%-10s  pad:%-16s  press:%s release:%s push:%s hold:%u",
+            row.shortName,
+            row.kbd,
+            row.pad,
+            Win32_HudPaged_T19FormatCircle(f.press),
+            Win32_HudPaged_T19FormatCircle(f.release),
+            Win32_HudPaged_T19FormatCircle(f.push),
+            static_cast<unsigned int>(f.holdFrames));
+        Win32_HudPaged_AppendBodyLine(buf, bufCount, line);
+    }
+
+    Win32_HudPaged_AppendBodyLine(buf, bufCount, L"");
+    Win32_HudPaged_AppendBodyLine(buf, bufCount, L"analog:");
+
+    const VirtualInputSnapshot& v = s_virtualInputCurr;
+    const float lsx = Win32_HudPaged_T19NormalizeStickAxis(v.leftStickX);
+    const float lsy = Win32_HudPaged_T19NormalizeStickAxis(v.leftStickY);
+    const float rsx = Win32_HudPaged_T19NormalizeStickAxis(v.rightStickX);
+    const float rsy = Win32_HudPaged_T19NormalizeStickAxis(v.rightStickY);
+    const float lt = Win32_HudPaged_T19NormalizeTrigger(v.leftTriggerRaw);
+    const float rt = Win32_HudPaged_T19NormalizeTrigger(v.rightTriggerRaw);
+
+    wchar_t bar[32] = {};
+
+    swprintf_s(line, _countof(line), L"LS  x:%+.2f  y:%+.2f", static_cast<double>(lsx), static_cast<double>(lsy));
+    Win32_HudPaged_AppendBodyLine(buf, bufCount, line);
+    Win32_HudPaged_T19FormatStickAxisBar(lsx, bar, _countof(bar));
+    swprintf_s(line, _countof(line), L"LSx %+.2f  %s", static_cast<double>(lsx), bar);
+    Win32_HudPaged_AppendBodyLine(buf, bufCount, line);
+    Win32_HudPaged_T19FormatStickAxisBar(lsy, bar, _countof(bar));
+    swprintf_s(line, _countof(line), L"LSy %+.2f  %s", static_cast<double>(lsy), bar);
+    Win32_HudPaged_AppendBodyLine(buf, bufCount, line);
+
+    swprintf_s(line, _countof(line), L"RS  x:%+.2f  y:%+.2f", static_cast<double>(rsx), static_cast<double>(rsy));
+    Win32_HudPaged_AppendBodyLine(buf, bufCount, line);
+    Win32_HudPaged_T19FormatStickAxisBar(rsx, bar, _countof(bar));
+    swprintf_s(line, _countof(line), L"RSx %+.2f  %s", static_cast<double>(rsx), bar);
+    Win32_HudPaged_AppendBodyLine(buf, bufCount, line);
+    Win32_HudPaged_T19FormatStickAxisBar(rsy, bar, _countof(bar));
+    swprintf_s(line, _countof(line), L"RSy %+.2f  %s", static_cast<double>(rsy), bar);
+    Win32_HudPaged_AppendBodyLine(buf, bufCount, line);
+
+    Win32_HudPaged_T19FormatTriggerBar(lt, bar, _countof(bar));
+    swprintf_s(line, _countof(line), L"LT  %.2f   %s", static_cast<double>(lt), bar);
+    Win32_HudPaged_AppendBodyLine(buf, bufCount, line);
+    Win32_HudPaged_T19FormatTriggerBar(rt, bar, _countof(bar));
+    swprintf_s(line, _countof(line), L"RT  %.2f   %s", static_cast<double>(rt), bar);
+    Win32_HudPaged_AppendBodyLine(buf, bufCount, line);
+}
+
 void Win32_HudPaged_ResetScrollBar(HWND hwnd)
 {
     s_paintScrollY = 0;
@@ -5261,6 +5429,10 @@ void Win32_HudPaged_PaintGdi(
         Win32_HudPaged_FillT18PageBody(bodyBuf, _countof(bodyBuf));
         break;
     case 4:
+        Win32_HudPaged_FillT19PageBody(bodyBuf, _countof(bodyBuf));
+        Win32_HudPaged_ClampTextLines(bodyBuf, _countof(bodyBuf), 32, 80);
+        break;
+    case 5:
         Win32_T17_AppendPaintSection(bodyBuf, _countof(bodyBuf), false, false, false);
         Win32_HudPaged_ClampTextLines(bodyBuf, _countof(bodyBuf), 8, 76);
         break;
@@ -5315,6 +5487,9 @@ void Win32_HudPaged_PaintGdi(
     const int titleW = (std::max)(0, innerW - statW - fracW - 2 * gapCol);
     // メニュー・本文の左端をタイトル帯と揃え、左カラム（status）より右のブロックに重心を寄せる。
     const int contentLeft = margin + statW + gapCol;
+    // T19 本文のみ: ウィンドウ左寄り（margin + 余白）で一覧を読みやすく。メニュー帯・3 帯は従来どおり contentLeft。
+    const int bodyLeft =
+        (s_hudPagedIndex == 4) ? (margin + gapCol) : contentLeft;
 
     const int headerTop = t37TopGap + margin;
     const int headerRowH = lineH * 2 + headerPad;
@@ -5400,7 +5575,7 @@ void Win32_HudPaged_PaintGdi(
 
     const int bodyTop = menuTop + menuH + bandGap + bodyExtraTopPad;
     RECT rcBody = {};
-    rcBody.left = contentLeft;
+    rcBody.left = bodyLeft;
     rcBody.top = bodyTop;
     rcBody.right = clientW - margin;
     rcBody.bottom = clientH - margin;
@@ -7182,6 +7357,11 @@ static void Win32_WndProc_OnXInputPollTimer(HWND hWnd)
 {
     Win32_XInputPollDigitalEdgesOnTimer(hWnd);
     Win32_LogicalInputTick_AfterPadAndKeyboardCurrent();
+    // T19 はタイマーごとに論理/アナログ表示を更新するため、当該ページ表示中だけ再描画を要求する。
+    if (Win32_HudPaged_IsEnabled() && s_hudPagedIndex == 4)
+    {
+        InvalidateRect(hWnd, nullptr, FALSE);
+    }
     Win32_UnifiedInputConsumerMenuTick(hWnd);
 }
 

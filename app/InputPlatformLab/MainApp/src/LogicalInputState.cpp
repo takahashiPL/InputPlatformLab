@@ -2,7 +2,7 @@
 
 // 1 にすると South の press/release/push/hold を 1 行で OutputDebugString（非アイドル時のみ）
 #ifndef LOGICAL_INPUT_DEBUG_SOUTH_LINE
-#define LOGICAL_INPUT_DEBUG_SOUTH_LINE 0
+#define LOGICAL_INPUT_DEBUG_SOUTH_LINE 1
 #endif
 
 #include <algorithm>
