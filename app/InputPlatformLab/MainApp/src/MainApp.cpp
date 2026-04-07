@@ -2599,17 +2599,52 @@ static void Win32_T16_AppendPaintSection(
         wcscat_s(buf, bufCount, block);
         return;
     }
-    // T51: 実効 restVp が小さいときも T16 を省略（T50 の rawClientH 極小に加える）
-    if (budgetPx > 0 && budgetPx < WIN32_OVERLAY_T51_OMIT_T16_RESTVP_PX)
+    static int s_t16OmitLogLastHash = 0;
+    const bool omitT51 = budgetPx > 0 && budgetPx < WIN32_OVERLAY_T51_OMIT_T16_RESTVP_PX;
+    const bool omitT50 = budgetPx > 0 && budgetPx < WIN32_OVERLAY_T50_TINY_CLIENT_H;
+    if (!omitT51 && !omitT50)
     {
+        s_t16OmitLogLastHash = 0;
+    }
+    if (omitT51)
+    {
+        const int logHash = (budgetPx * 31 + ch) ^ (restVpBudgetHint * 13) ^ 0x51;
+        if (logHash != s_t16OmitLogLastHash)
+        {
+            wchar_t dbg[256] = {};
+            swprintf_s(
+                dbg,
+                _countof(dbg),
+                L"[T51T16OMIT] budgetPx=%d clientH=%d threshold=%d reason=restvp_below_threshold restVpHint=%d\r\n",
+                budgetPx,
+                ch,
+                WIN32_OVERLAY_T51_OMIT_T16_RESTVP_PX,
+                restVpBudgetHint);
+            OutputDebugStringW(dbg);
+            s_t16OmitLogLastHash = logHash;
+        }
         return;
     }
-    // T50: 極小 Windowed では T16 ブロックを生成しない（文字列生成で予算を節約）
-    // T56: fill-monitor では contentBudgetPx が committed 仮想高を含むため、client だけの極小判定を避ける
-    if (budgetPx > 0 && budgetPx < WIN32_OVERLAY_T50_TINY_CLIENT_H)
+    if (omitT50)
     {
+        const int logHash = (budgetPx * 31 + ch) ^ (restVpBudgetHint * 13) ^ 0x50;
+        if (logHash != s_t16OmitLogLastHash)
+        {
+            wchar_t dbg[256] = {};
+            swprintf_s(
+                dbg,
+                _countof(dbg),
+                L"[T50T16OMIT] budgetPx=%d clientH=%d threshold=%d reason=tiny_client_h restVpHint=%d\r\n",
+                budgetPx,
+                ch,
+                WIN32_OVERLAY_T50_TINY_CLIENT_H,
+                restVpBudgetHint);
+            OutputDebugStringW(dbg);
+            s_t16OmitLogLastHash = logHash;
+        }
         return;
     }
+    // T51/T50: 上で omitT51 / omitT50 を処理（省略時は [T51T16OMIT] / [T50T16OMIT] を 1 行出す）
     // T64: fill-monitor Fullscreen のみ T16 を短縮（Borderless は full のまま）
     if (compactT64Fullscreen)
     {
