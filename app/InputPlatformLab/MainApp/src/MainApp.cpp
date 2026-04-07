@@ -147,9 +147,9 @@ static size_t s_t14FirstVisibleModeIndex = 0;
 // ページ式 HUD: 0=T14,1=T15,2=T16,3=T18,4=T19,5=T17。既定は T14（表示モード一覧）。
 static int s_hudPagedIndex = 0;
 static constexpr int kHudPagedCount = 6;
-// T19: タイマーで本文のみ部分 invalidation するため、直近 WM_PAINT で計算した本文矩形（クライアント座標）
-static RECT s_hudPagedT19BodyClientRect = {};
-static bool s_hudPagedT19BodyRectValid = false;
+// T19: 表示内容が変わったときだけ WM_PAINT を誘発するための直前スナップショット
+static wchar_t s_hudPagedT19LastBody[16384] = {};
+static bool s_hudPagedT19LastBodyHasSnapshot = false;
 
 // T15: 希望解像度 → 最近似 mode（列挙キャッシュのみ。適用はしない）
 struct DisplayModeMatchResult
@@ -5370,8 +5370,6 @@ void Win32_HudPaged_PaintGdi(
     {
         return;
     }
-    // 部分 invalidation（T19 本文のみ）でもヘッダ〜本文を一括描画する（BeginPaint のクリップを解除）
-    SelectClipRgn(hdc, nullptr);
 
     const int t37TopGap =
         Win32_IsT37VirtualBodyOverlayActiveForLayout() ? WIN32_OVERLAY_T37_MENU_TOP_GAP_PX : 0;
@@ -5597,16 +5595,6 @@ void Win32_HudPaged_PaintGdi(
     rcBody.top = bodyTop;
     rcBody.right = clientW - margin;
     rcBody.bottom = clientH - margin;
-    if (s_hudPagedIndex == 4)
-    {
-        s_hudPagedT19BodyClientRect = rcBody;
-        s_hudPagedT19BodyRectValid =
-            (rcBody.right > rcBody.left) && (rcBody.bottom > rcBody.top);
-    }
-    else
-    {
-        s_hudPagedT19BodyRectValid = false;
-    }
     if (rcBody.bottom > rcBody.top)
     {
         DrawTextW(hdc, bodyBuf, -1, &rcBody, DT_LEFT | DT_TOP | DT_NOPREFIX | DT_WORDBREAK);
@@ -7385,17 +7373,22 @@ static void Win32_WndProc_OnXInputPollTimer(HWND hWnd)
 {
     Win32_XInputPollDigitalEdgesOnTimer(hWnd);
     Win32_LogicalInputTick_AfterPadAndKeyboardCurrent();
-    // T19 はタイマーごとに論理/アナログ表示を更新する。本文矩形だけ invalidation（ヘッダ 3 帯は毎 tick 描画しない）。
+    // T19: 論理＋アナログの表示文字列が前回と異なるときだけ再描画（毎 tick の全画面 invalidation はしない）
     if (Win32_HudPaged_IsEnabled() && s_hudPagedIndex == 4)
     {
-        if (s_hudPagedT19BodyRectValid)
+        wchar_t t19Now[16384] = {};
+        Win32_HudPaged_FillT19PageBody(t19Now, _countof(t19Now));
+        Win32_HudPaged_ClampTextLines(t19Now, _countof(t19Now), 32, 80);
+        if (!s_hudPagedT19LastBodyHasSnapshot || wcscmp(t19Now, s_hudPagedT19LastBody) != 0)
         {
-            InvalidateRect(hWnd, &s_hudPagedT19BodyClientRect, FALSE);
-        }
-        else
-        {
+            wcscpy_s(s_hudPagedT19LastBody, t19Now);
+            s_hudPagedT19LastBodyHasSnapshot = true;
             InvalidateRect(hWnd, nullptr, FALSE);
         }
+    }
+    else
+    {
+        s_hudPagedT19LastBodyHasSnapshot = false;
     }
     Win32_UnifiedInputConsumerMenuTick(hWnd);
 }
