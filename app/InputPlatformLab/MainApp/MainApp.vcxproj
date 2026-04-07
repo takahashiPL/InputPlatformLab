@@ -153,6 +153,7 @@
     <ClInclude Include="include\platform\win\Win32HudPaged.h" />
     <ClInclude Include="include\VirtualInputMenuSample.h" />
     <ClInclude Include="include\VirtualInputNeutral.h" />
+    <ClInclude Include="include\LogicalInputState.h" />
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="src\ControllerClassification.cpp" />
@@ -160,6 +161,7 @@
     <ClCompile Include="src\platform\win\Win32DebugOverlay.cpp" />
     <ClCompile Include="src\MainApp.cpp" />
     <ClCompile Include="src\VirtualInputNeutral.cpp" />
+    <ClCompile Include="src\LogicalInputState.cpp" />
   </ItemGroup>
   <ItemGroup>
     <ResourceCompile Include="resources\MainApp.rc" />

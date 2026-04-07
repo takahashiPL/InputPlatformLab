@@ -102,6 +102,12 @@ struct ControllerSlotProbeResult
 // T20: VirtualInputSnapshot / policy / keyboard→consumer — VirtualInputNeutral.h / VirtualInputNeutral.cpp
 
 static KeyboardActionState s_keyboardActionState{};
+static LogicalInputState s_logicalInputState{};
+
+const LogicalInputState* InputCore_LogicalInputState()
+{
+    return &s_logicalInputState;
+}
 static KeyboardActionState s_keyboardActionStateAtLastTimer{};
 
 // グローバル変数:
@@ -5801,6 +5807,15 @@ static void Win32_UnifiedInputMenuTick_MergeAndApply(HWND hwndForPaint)
     s_keyboardActionStateAtLastTimer = s_keyboardActionState;
 }
 
+// s_keyboardActionState と s_virtualInputCurr が同一タイマー境界で揃った直後、
+// VirtualInputPolicy / VirtualInputConsumer（メニュー用）より前にアプリ共通の論理ボタン状態を更新する。
+static void Win32_LogicalInputTick_AfterPadAndKeyboardCurrent()
+{
+    bool logicalDown[static_cast<size_t>(LogicalButtonId::Count)]{};
+    LogicalInput_FillCurrentDownFromSources(logicalDown, s_keyboardActionState, s_virtualInputCurr);
+    LogicalInputState_Update(s_logicalInputState, logicalDown);
+}
+
 // menuOpen が true の間は T14/T15/T17 のキーボード操作を抑止（矢印は 2x2 メニュー用）。閉じているときだけ表示系デバッグ操作を処理。
 static void Win32_UnifiedInputConsumerMenuTick(HWND hwndForPaint)
 {
@@ -7161,10 +7176,11 @@ static void Win32_WndProc_OnRawInput(LPARAM lParam)
     }
 }
 
-// WM_TIMER: 先に XInput（内部で DS4 Raw 優先など）、続けてキー+パッドの統合メニュー 1 フレーム。
+// WM_TIMER: XInput（内部で DS4 Raw 優先など）→ 共通論理ボタン → メニュー用 Consumer 統合。
 static void Win32_WndProc_OnXInputPollTimer(HWND hWnd)
 {
     Win32_XInputPollDigitalEdgesOnTimer(hWnd);
+    Win32_LogicalInputTick_AfterPadAndKeyboardCurrent();
     Win32_UnifiedInputConsumerMenuTick(hWnd);
 }
 

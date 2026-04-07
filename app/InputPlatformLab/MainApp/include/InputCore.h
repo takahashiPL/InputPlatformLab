@@ -5,13 +5,15 @@
 //   - VirtualInputSnapshot, VirtualInputPolicyHeld, VirtualInputPolicyMenuEdges,
 //     KeyboardActionState — VirtualInputNeutral.h
 //   - VirtualInputConsumerFrame — VirtualInputMenuSample.h
+//   - LogicalButtonId, LogicalInputState, InputCore_LogicalInputState — LogicalInputState.h
 //   - ControllerParserKind, ControllerSupportLevel, GameControllerHidSummary — ControllerClassification.h
 //
-// 実装は VirtualInputNeutral.cpp / ControllerClassification.cpp をリンクすること。
+// 実装は VirtualInputNeutral.cpp / LogicalInputState.cpp / ControllerClassification.cpp をリンクすること。
 #pragma once
 
 #include "CommonTypes.h"
 #include "GamepadTypes.h"
 #include "VirtualInputMenuSample.h"
 #include "VirtualInputNeutral.h"
+#include "LogicalInputState.h"
 #include "ControllerClassification.h"
