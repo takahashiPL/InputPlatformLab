@@ -4,8 +4,11 @@
 
 struct WindowsRendererState;
 
-// ページ式デバッグ HUD（運用の正式仕様）。WIN32_HUD_USE_PAGED_HUD=0 のときのみ
-// Win32_DebugOverlay_PaintStackedLegacy（縦積み・vmSplit 等）が通常描画経路になるレガシー参照。
+// ページ式デバッグ HUD（運用の正式仕様）。
+// - 文字（status / title / page / 本文 / cand・act 相当）は GDI（Win32_HudPaged_PaintGdi）のみ。
+// - D2D はグリッド・背景・非 HUD 描画のみ。ページ式有効時は HUD 文字を D2D で描かない。
+// - WIN32_HUD_USE_PAGED_HUD=0 のときのみ Win32_DebugOverlay_PaintStackedLegacy（縦積み）が
+//   通常描画経路になるレガシー参照。ページ式有効時はその経路・専用ログは原則通らない。
 #ifndef WIN32_HUD_USE_PAGED_HUD
 #define WIN32_HUD_USE_PAGED_HUD 1
 #endif

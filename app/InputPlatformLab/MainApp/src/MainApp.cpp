@@ -1066,6 +1066,10 @@ static void Win32_T15_ApplyDesiredPresetAndRecompute()
 
 static void Win32_T15_LogDesiredNearestLine()
 {
+    if (Win32_HudPaged_IsEnabled())
+    {
+        return;
+    }
     wchar_t line[384] = {};
     if (s_t15MatchResult.nearestModeIndex == static_cast<size_t>(-1) ||
         s_displayMonitorsCache.empty() ||
@@ -5033,21 +5037,12 @@ static void Win32_HudPaged_FillT15PageBody(wchar_t* buf, size_t bufCount)
     }
 }
 
-// ページ式 HUD 専用: 本文に device path 全文は載せず、変更時のみ [T18] でデバッグ出力。
+// ページ式 HUD 専用: 本文に device path 全文は載せない。フルパスは Win32_T18_LogIfChanged の
+// [T18] device_path(full)=... のみ（スナップショット更新時・パス変更時）。
 static void Win32_HudPaged_FillT18PageBody(wchar_t* buf, size_t bufCount)
 {
     buf[0] = L'\0';
     Win32_T18_RefreshControllerIdentifySnapshot();
-
-    static wchar_t s_hudPagedT18LastPathLogged[512] = {};
-    if (s_t18.device_path[0] != L'\0' &&
-        wcscmp(s_t18.device_path, s_hudPagedT18LastPathLogged) != 0)
-    {
-        wcscpy_s(s_hudPagedT18LastPathLogged, s_t18.device_path);
-        wchar_t lg[2048] = {};
-        swprintf_s(lg, _countof(lg), L"[T18] device_path(full)=%s\r\n", s_t18.device_path);
-        OutputDebugStringW(lg);
-    }
 
     wchar_t slotStr[16] = L"-1";
     if (s_t18.xinput_slot >= 0)
@@ -5137,6 +5132,15 @@ void Win32_HudPaged_AdvancePage(int delta)
         old + 1,
         n + 1);
     OutputDebugStringW(log);
+    wchar_t logPage[160] = {};
+    swprintf_s(
+        logPage,
+        _countof(logPage),
+        L"[HUDPAGE] page=%d/%d id=%s\r\n",
+        n + 1,
+        kHudPagedCount,
+        kHudPagedPageIds[n]);
+    OutputDebugStringW(logPage);
 }
 
 void Win32_HudPaged_PrefillD2d(WindowsRendererState* st, UINT clientW, UINT clientH)
@@ -5175,21 +5179,6 @@ void Win32_HudPaged_PaintGdi(
     if (clientW < 1 || clientH < 1)
     {
         return;
-    }
-
-    static int s_hudPagedLastNotifiedPage = -1;
-    if (s_hudPagedIndex != s_hudPagedLastNotifiedPage)
-    {
-        wchar_t lg[160] = {};
-        swprintf_s(
-            lg,
-            _countof(lg),
-            L"[HUDPAGE] page=%d/%d id=%s\r\n",
-            s_hudPagedIndex + 1,
-            kHudPagedCount,
-            kHudPagedPageIds[s_hudPagedIndex]);
-        OutputDebugStringW(lg);
-        s_hudPagedLastNotifiedPage = s_hudPagedIndex;
     }
 
     const int t37TopGap =
@@ -6318,11 +6307,23 @@ static void Win32_T18_LogIfChanged()
     {
         return;
     }
+
+    const bool pathChanged =
+        !s_t18HasLogPrev || wcscmp(s_t18.device_path, s_t18LogPrev.device_path) != 0;
+    if (pathChanged && s_t18.device_path[0] != L'\0')
+    {
+        wchar_t lg[2048] = {};
+        swprintf_s(lg, _countof(lg), L"[T18] device_path(full)=%s\r\n", s_t18.device_path);
+        OutputDebugStringW(lg);
+    }
+
     s_t18LogPrev = s_t18;
     s_t18HasLogPrev = true;
 
     const unsigned vid = s_t18.hid_found ? static_cast<unsigned>(s_t18.hid.vendor_id) : 0u;
     const unsigned pid = s_t18.hid_found ? static_cast<unsigned>(s_t18.hid.product_id) : 0u;
+    const wchar_t* const pathHint =
+        (s_t18.device_path[0] != L'\0') ? L"(see device_path(full))" : L"";
     wchar_t line[2048] = {};
     swprintf_s(
         line,
@@ -6336,7 +6337,7 @@ static void Win32_T18_LogIfChanged()
         Win32_ControllerParserKindLabel(s_t18.parser_kind),
         Win32_ControllerSupportLevelLabel(s_t18.support_level),
         (s_t18.product_name[0] != L'\0') ? s_t18.product_name : L"",
-        (s_t18.device_path[0] != L'\0') ? s_t18.device_path : L"");
+        pathHint);
     OutputDebugStringW(line);
 }
 
