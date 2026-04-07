@@ -147,6 +147,9 @@ static size_t s_t14FirstVisibleModeIndex = 0;
 // ページ式 HUD: 0=T14,1=T15,2=T16,3=T18,4=T19,5=T17。既定は T14（表示モード一覧）。
 static int s_hudPagedIndex = 0;
 static constexpr int kHudPagedCount = 6;
+// T19: タイマーで本文のみ部分 invalidation するため、直近 WM_PAINT で計算した本文矩形（クライアント座標）
+static RECT s_hudPagedT19BodyClientRect = {};
+static bool s_hudPagedT19BodyRectValid = false;
 
 // T15: 希望解像度 → 最近似 mode（列挙キャッシュのみ。適用はしない）
 struct DisplayModeMatchResult
@@ -5113,7 +5116,7 @@ static float Win32_HudPaged_T19NormalizeTrigger(UINT8 t)
     return static_cast<float>(t) / 255.0f;
 }
 
-static const wchar_t* Win32_HudPaged_T19FormatCircle(bool on)
+static const wchar_t* Win32_HudPaged_T19Mark(bool on)
 {
     return on ? L"\u3007" : L" ";
 }
@@ -5203,19 +5206,32 @@ static void Win32_HudPaged_FillT19PageBody(wchar_t* buf, size_t bufCount)
     };
 
     wchar_t line[384] = {};
+    swprintf_s(
+        line,
+        _countof(line),
+        L"%-6s %-10s %-16s  %s %s %s %s",
+        L"",
+        L"",
+        L"",
+        L"press",
+        L"release",
+        L"push",
+        L"hold");
+    Win32_HudPaged_AppendBodyLine(buf, bufCount, line);
+
     for (const auto& row : kRows)
     {
         const LogicalButtonFrameState& f = LogicalInputState_Frame(*li, row.id);
         swprintf_s(
             line,
             _countof(line),
-            L"%-6s  key:%-10s  pad:%-16s  press:%s release:%s push:%s hold:%u",
+            L"%-6s %-10s %-16s  %s %s %s %u",
             row.shortName,
             row.kbd,
             row.pad,
-            Win32_HudPaged_T19FormatCircle(f.press),
-            Win32_HudPaged_T19FormatCircle(f.release),
-            Win32_HudPaged_T19FormatCircle(f.push),
+            Win32_HudPaged_T19Mark(f.press),
+            Win32_HudPaged_T19Mark(f.release),
+            Win32_HudPaged_T19Mark(f.push),
             static_cast<unsigned int>(f.holdFrames));
         Win32_HudPaged_AppendBodyLine(buf, bufCount, line);
     }
@@ -5354,6 +5370,8 @@ void Win32_HudPaged_PaintGdi(
     {
         return;
     }
+    // 部分 invalidation（T19 本文のみ）でもヘッダ〜本文を一括描画する（BeginPaint のクリップを解除）
+    SelectClipRgn(hdc, nullptr);
 
     const int t37TopGap =
         Win32_IsT37VirtualBodyOverlayActiveForLayout() ? WIN32_OVERLAY_T37_MENU_TOP_GAP_PX : 0;
@@ -5579,6 +5597,16 @@ void Win32_HudPaged_PaintGdi(
     rcBody.top = bodyTop;
     rcBody.right = clientW - margin;
     rcBody.bottom = clientH - margin;
+    if (s_hudPagedIndex == 4)
+    {
+        s_hudPagedT19BodyClientRect = rcBody;
+        s_hudPagedT19BodyRectValid =
+            (rcBody.right > rcBody.left) && (rcBody.bottom > rcBody.top);
+    }
+    else
+    {
+        s_hudPagedT19BodyRectValid = false;
+    }
     if (rcBody.bottom > rcBody.top)
     {
         DrawTextW(hdc, bodyBuf, -1, &rcBody, DT_LEFT | DT_TOP | DT_NOPREFIX | DT_WORDBREAK);
@@ -7357,10 +7385,17 @@ static void Win32_WndProc_OnXInputPollTimer(HWND hWnd)
 {
     Win32_XInputPollDigitalEdgesOnTimer(hWnd);
     Win32_LogicalInputTick_AfterPadAndKeyboardCurrent();
-    // T19 はタイマーごとに論理/アナログ表示を更新するため、当該ページ表示中だけ再描画を要求する。
+    // T19 はタイマーごとに論理/アナログ表示を更新する。本文矩形だけ invalidation（ヘッダ 3 帯は毎 tick 描画しない）。
     if (Win32_HudPaged_IsEnabled() && s_hudPagedIndex == 4)
     {
-        InvalidateRect(hWnd, nullptr, FALSE);
+        if (s_hudPagedT19BodyRectValid)
+        {
+            InvalidateRect(hWnd, &s_hudPagedT19BodyClientRect, FALSE);
+        }
+        else
+        {
+            InvalidateRect(hWnd, nullptr, FALSE);
+        }
     }
     Win32_UnifiedInputConsumerMenuTick(hWnd);
 }
