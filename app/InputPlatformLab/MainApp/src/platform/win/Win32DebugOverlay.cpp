@@ -20,6 +20,9 @@
 #ifndef WIN32_HUD_DBG_FINAL_ROW2_TO_BODY_EXTRA_GAP_PX
 #define WIN32_HUD_DBG_FINAL_ROW2_TO_BODY_EXTRA_GAP_PX 28
 #endif
+#ifndef WIN32_HUD_DBG_MENU_TO_T14_GAP_PX
+#define WIN32_HUD_DBG_MENU_TO_T14_GAP_PX 8
+#endif
 
 // T48: body（vmSplit rest）スクロールビューポートの最小高さ（scrollVpH / [scroll] と GDI/D2D クリップを一致させる）
 #ifndef WIN32_OVERLAY_MIN_BODY_VIEWPORT_PX
@@ -95,7 +98,8 @@ static void Win32_MenuSampleMeasurePaintLayout(
     const wchar_t* menuBuf,
     const wchar_t* t14Buf,
     RECT& outMenuDoc,
-    RECT& outT14Doc)
+    RECT& outT14Doc,
+    int menuToT14GapPx)
 {
     outMenuDoc.left = 0;
     outMenuDoc.top = 0;
@@ -104,7 +108,7 @@ static void Win32_MenuSampleMeasurePaintLayout(
     DrawTextW(hdc, menuBuf, -1, &outMenuDoc, DT_LEFT | DT_TOP | DT_NOPREFIX | DT_CALCRECT);
 
     outT14Doc.left = 0;
-    outT14Doc.top = outMenuDoc.bottom + 8;
+    outT14Doc.top = outMenuDoc.bottom + menuToT14GapPx;
     outT14Doc.right = clientW;
     outT14Doc.bottom = outT14Doc.top + 1000000;
     DrawTextW(
@@ -785,7 +789,13 @@ refill_budget:
 
     RECT rcMenuDoc{};
     RECT rcT14Doc{};
-    Win32_MenuSampleMeasurePaintLayout(hdc, clientW, menuBuf, t14Buf, rcMenuDoc, rcT14Doc);
+    const bool t64FullscreenContent =
+        Win32_IsMainWindowFillMonitorPresentation(hwnd) &&
+        Win32_MainWindow_IsFullscreenPresentationMode(hwnd);
+    const int menuT14GapPx =
+        t64FullscreenContent ? WIN32_OVERLAY_T64_FULLSCREEN_MENU_TO_T14_GAP_PX
+                             : WIN32_HUD_DBG_MENU_TO_T14_GAP_PX;
+    Win32_MenuSampleMeasurePaintLayout(hdc, clientW, menuBuf, t14Buf, rcMenuDoc, rcT14Doc, menuT14GapPx);
     const int t37TopGap =
         Win32_IsT37VirtualBodyOverlayActiveForLayout() ? WIN32_OVERLAY_T37_MENU_TOP_GAP_PX : 0;
 
@@ -813,6 +823,13 @@ refill_budget:
     {
         row1GapPx = (std::min)(row1GapPx, 4);
         row2ToBodyExtraGapPx = (std::min)(row2ToBodyExtraGapPx, 12);
+    }
+    // T64: fill-monitor Fullscreen のみ（Borderless は除外）
+    if (t64FullscreenContent)
+    {
+        row1GapPx = (std::min)(row1GapPx, WIN32_OVERLAY_T64_FULLSCREEN_ROW1_GAP_PX);
+        row2ToBodyExtraGapPx =
+            (std::min)(row2ToBodyExtraGapPx, WIN32_OVERLAY_T64_FULLSCREEN_ROW2_TO_BODY_GAP_PX);
     }
     const int row2TopPx = row1H + row1GapPx + t37TopGap;
     const int t14DocTopAbsPx = static_cast<int>(rcT14Doc.top) + t37TopGap;
@@ -1555,7 +1572,14 @@ void Win32DebugOverlay_Paint(
         s_paintDbgLayoutRestVpBudgetHint);
     RECT rcMenuDoc{};
     RECT rcT14Doc{};
-    Win32_MenuSampleMeasurePaintLayout(hdc, clientW, menuBuf, t14Buf, rcMenuDoc, rcT14Doc);
+    const bool t64FullscreenContentPaint =
+        Win32_IsMainWindowFillMonitorPresentation(hwnd) &&
+        Win32_MainWindow_IsFullscreenPresentationMode(hwnd);
+    const int menuT14GapPxPaint =
+        t64FullscreenContentPaint ? WIN32_OVERLAY_T64_FULLSCREEN_MENU_TO_T14_GAP_PX
+                                  : WIN32_HUD_DBG_MENU_TO_T14_GAP_PX;
+    Win32_MenuSampleMeasurePaintLayout(
+        hdc, clientW, menuBuf, t14Buf, rcMenuDoc, rcT14Doc, menuT14GapPxPaint);
     const int t37TopGap =
         Win32_IsT37VirtualBodyOverlayActiveForLayout() ? WIN32_OVERLAY_T37_MENU_TOP_GAP_PX : 0;
 

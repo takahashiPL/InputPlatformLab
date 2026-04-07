@@ -356,7 +356,8 @@ static void Win32_LogRawInputHidGameControllersClassified();
 
 static const wchar_t* Win32_GameControllerKindFamilyLabel(GameControllerKind kind);
 static void Win32_T18_RefreshControllerIdentifySnapshot();
-static void Win32_T18_AppendPaintSection(wchar_t* buf, size_t bufCount, bool compactT59, bool ultraT60);
+static void Win32_T18_AppendPaintSection(
+    wchar_t* buf, size_t bufCount, bool compactT59, bool ultraT60, bool compactT64Fullscreen);
 
 // [2] Gamepad button label tables
 static const wchar_t* GamepadButton_GetIdName(GamepadButtonId id);
@@ -2570,7 +2571,8 @@ static void Win32_T16_AppendPaintSection(
     const RECT& rcClient,
     int restVpBudgetHint,
     bool compactT59,
-    bool ultraT60)
+    bool ultraT60,
+    bool compactT64Fullscreen)
 {
     // Per-Monitor DPI Aware V2: GetClientRect はクライアント領域を物理ピクセルで返す。
     // target の logical（MulDiv(mode,96,dpi)）と比較するには current も同じ式で論理化する。
@@ -2606,6 +2608,43 @@ static void Win32_T16_AppendPaintSection(
     // T56: fill-monitor では contentBudgetPx が committed 仮想高を含むため、client だけの極小判定を避ける
     if (budgetPx > 0 && budgetPx < WIN32_OVERLAY_T50_TINY_CLIENT_H)
     {
+        return;
+    }
+    // T64: fill-monitor Fullscreen のみ T16 を短縮（Borderless は full のまま）
+    if (compactT64Fullscreen)
+    {
+        UINT dpiX = USER_DEFAULT_SCREEN_DPI;
+        UINT dpiY = USER_DEFAULT_SCREEN_DPI;
+        if (hwnd)
+        {
+            Win32_T16_GetDpiForWindowBest(hwnd, dpiX, dpiY);
+        }
+        int zoomed01 = 0;
+        UINT showCmd = 0;
+        if (hwnd && IsWindow(hwnd))
+        {
+            zoomed01 = IsZoomed(hwnd) ? 1 : 0;
+            WINDOWPLACEMENT wp{};
+            wp.length = sizeof(wp);
+            if (GetWindowPlacement(hwnd, &wp))
+            {
+                showCmd = wp.showCmd;
+            }
+        }
+        wchar_t block[768] = {};
+        swprintf_s(
+            block,
+            _countof(block),
+            L"\r\n--- T16 window [fullscreen fill compact] ---\r\n"
+            L"client(raw): %dx%d  dpi: %u x %u  zoomed: %d  showCmd: %u\r\n"
+            L"(full T16 omitted — T14/T15 priority)\r\n",
+            cw,
+            ch,
+            dpiX,
+            dpiY,
+            zoomed01,
+            showCmd);
+        wcscat_s(buf, bufCount, block);
         return;
     }
     // T59: Windowed では T14 visible modes を優先し T16 を短縮
@@ -2888,7 +2927,8 @@ static bool Win32_T18_RawInputProductLooksLikeDevicePath(const wchar_t* s)
 // T18: デバッグ表示ブロック（先頭 HID + 先頭 XInput スロット・VID/PID・parser/support）
 // ---------------------------------------------------------------------------
 
-static void Win32_T18_AppendPaintSection(wchar_t* buf, size_t bufCount, bool compactT59, bool ultraT60)
+static void Win32_T18_AppendPaintSection(
+    wchar_t* buf, size_t bufCount, bool compactT59, bool ultraT60, bool compactT64Fullscreen)
 {
     if (ultraT60)
     {
@@ -2904,6 +2944,40 @@ static void Win32_T18_AppendPaintSection(wchar_t* buf, size_t bufCount, bool com
             L"\r\nT18: slot=%s hid=%s\r\n",
             slotStr,
             s_t18.hid_found ? L"yes" : L"no");
+        wcscat_s(buf, bufCount, block);
+        return;
+    }
+    if (compactT64Fullscreen)
+    {
+        wchar_t slotStr[16] = L"-1";
+        if (s_t18.xinput_slot >= 0)
+        {
+            swprintf_s(slotStr, _countof(slotStr), L"%d", s_t18.xinput_slot);
+        }
+        const unsigned vid = s_t18.hid_found ? static_cast<unsigned>(s_t18.hid.vendor_id) : 0u;
+        const unsigned pid = s_t18.hid_found ? static_cast<unsigned>(s_t18.hid.product_id) : 0u;
+        wchar_t vidPidLine[96] = {};
+        if (s_t18.hid_found)
+        {
+            swprintf_s(vidPidLine, _countof(vidPidLine), L"0x%04X/0x%04X", vid, pid);
+        }
+        else
+        {
+            wcscpy_s(vidPidLine, L"n/a");
+        }
+        wchar_t block[512] = {};
+        swprintf_s(
+            block,
+            _countof(block),
+            L"\r\n--- T18 controller identify [fullscreen fill compact] ---\r\n"
+            L"slot=%s  HID=%s  vid/pid=%s  family=%s  parser:%s support:%s\r\n"
+            L"(full T18 omitted — T14 priority)\r\n",
+            slotStr,
+            s_t18.hid_found ? L"yes" : L"no",
+            vidPidLine,
+            Win32_GameControllerKindFamilyLabel(s_t18.inferred_kind),
+            Win32_ControllerParserKindLabel(s_t18.parser_kind),
+            Win32_ControllerSupportLevelLabel(s_t18.support_level));
         wcscat_s(buf, bufCount, block);
         return;
     }
@@ -2995,10 +3069,27 @@ static void Win32_T18_AppendPaintSection(wchar_t* buf, size_t bufCount, bool com
 }
 
 // WM_PAINT 用: T17 の候補／適用結果・F5 ヒントなどを buf に追記。
-static void Win32_T17_AppendPaintSection(wchar_t* buf, size_t bufCount, bool compactT59, bool ultraT60)
+static void Win32_T17_AppendPaintSection(
+    wchar_t* buf, size_t bufCount, bool compactT59, bool ultraT60, bool compactT64Fullscreen)
 {
     if (ultraT60)
     {
+        return;
+    }
+    if (compactT64Fullscreen)
+    {
+        wchar_t t17[512] = {};
+        swprintf_s(
+            t17,
+            _countof(t17),
+            L"\r\n--- T17 presentation [fullscreen fill compact] ---\r\n"
+            L"F6 cycle / Enter apply  cand=%s  applied=%s  ok=%d  CDS:%s\r\n"
+            L"(full T17 omitted — T14 priority)\r\n",
+            Win32_T17_ModeLabel(s_t17CurrentPresentationMode),
+            Win32_T17_ModeLabel(s_t17LastAppliedPresentationMode),
+            s_t17LastWindowApplySuccess ? 1 : 0,
+            s_t17FullscreenDisplayAppliedNow ? L"yes" : L"no");
+        wcscat_s(buf, bufCount, t17);
         return;
     }
     if (compactT59)
@@ -4628,9 +4719,13 @@ static void Win32_FillMenuSamplePaintBuffers_AppendT16T18T17(
     const bool t59CompactHud =
         hwnd && IsWindow(hwnd) && !Win32_MainWindow_IsFillMonitorPresentationMode(hwnd) &&
         ch <= WIN32_OVERLAY_T59_WINDOWED_COMPACT_CLIENT_H;
-    Win32_T16_AppendPaintSection(t14Buf, t14BufCount, hwnd, rcClient, restVpBudgetHint, t59CompactHud, t60UltraCompact);
-    Win32_T18_AppendPaintSection(t14Buf, t14BufCount, t59CompactHud, t60UltraCompact);
-    Win32_T17_AppendPaintSection(t14Buf, t14BufCount, t59CompactHud, t60UltraCompact);
+    const bool t64FullscreenCompact =
+        hwnd && IsWindow(hwnd) && Win32_MainWindow_IsFillMonitorPresentationMode(hwnd) &&
+        Win32_MainWindow_IsFullscreenPresentationMode(hwnd);
+    Win32_T16_AppendPaintSection(
+        t14Buf, t14BufCount, hwnd, rcClient, restVpBudgetHint, t59CompactHud, t60UltraCompact, t64FullscreenCompact);
+    Win32_T18_AppendPaintSection(t14Buf, t14BufCount, t59CompactHud, t60UltraCompact, t64FullscreenCompact);
+    Win32_T17_AppendPaintSection(t14Buf, t14BufCount, t59CompactHud, t60UltraCompact, t64FullscreenCompact);
 }
 
 // Win32DebugOverlay が WM_PAINT で読むバッファを組み立てる。T14〜T17 本文と T18 のスナップショットを含む。
