@@ -4607,17 +4607,19 @@ static void Win32_FillMenuSamplePaintBuffers_AppendT16T18T17(
 {
     const int ch = static_cast<int>(rcClient.bottom - rcClient.top);
     const int budgetPx = Win32_T56_ContentBudgetPxForHudFill(hwnd, ch, restVpBudgetHint);
-    if (hwnd && IsWindow(hwnd) && !Win32_MainWindow_IsFillMonitorPresentationMode(hwnd) &&
-        budgetPx >= 0 && budgetPx < WIN32_OVERLAY_T53_OMIT_T16_BUDGET_PX)
+    const bool t60UltraCompact =
+        hwnd && IsWindow(hwnd) && !Win32_MainWindow_IsFillMonitorPresentationMode(hwnd) &&
+        ch > 0 && ch <= WIN32_OVERLAY_T60_SMALL_WINDOWED_CLIENT_H;
+    // T53: restVp 等で budgetPx<140 のとき全文 T16 を省略するが、T62: small Windowed では ultra 1 行 T16/T18 を必ず付与（T60BUDGET マーカー用）
+    if (!t60UltraCompact && hwnd && IsWindow(hwnd) &&
+        !Win32_MainWindow_IsFillMonitorPresentationMode(hwnd) && budgetPx >= 0 &&
+        budgetPx < WIN32_OVERLAY_T53_OMIT_T16_BUDGET_PX)
     {
         return;
     }
     const bool t59CompactHud =
         hwnd && IsWindow(hwnd) && !Win32_MainWindow_IsFillMonitorPresentationMode(hwnd) &&
         ch <= WIN32_OVERLAY_T59_WINDOWED_COMPACT_CLIENT_H;
-    const bool t60UltraCompact =
-        hwnd && IsWindow(hwnd) && !Win32_MainWindow_IsFillMonitorPresentationMode(hwnd) &&
-        ch <= WIN32_OVERLAY_T60_SMALL_WINDOWED_CLIENT_H;
     Win32_T16_AppendPaintSection(t14Buf, t14BufCount, hwnd, rcClient, restVpBudgetHint, t59CompactHud, t60UltraCompact);
     Win32_T18_AppendPaintSection(t14Buf, t14BufCount, t59CompactHud, t60UltraCompact);
     Win32_T17_AppendPaintSection(t14Buf, t14BufCount, t59CompactHud, t60UltraCompact);

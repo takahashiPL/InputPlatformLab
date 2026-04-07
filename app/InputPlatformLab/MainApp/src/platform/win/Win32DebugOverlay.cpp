@@ -724,6 +724,25 @@ static void Win32_T60_FindT14AppendixMarkers(
     }
     const wchar_t* scan17 = outT18 ? outT18 : scan18;
     outT17 = wcsstr(scan17, L"\r\n--- T17");
+    // T61: 非 CRLF の行末のみの環境向け（通常は swprintf が \r\n を出す）
+    if (!outT16)
+    {
+        const wchar_t* scan16b = outT15 ? outT15 : pAfterVis;
+        outT16 = wcsstr(scan16b, L"\nT16:");
+        if (!outT16)
+        {
+            outT16 = wcsstr(scan16b, L"\n--- T16");
+        }
+    }
+    if (!outT18)
+    {
+        const wchar_t* scan18b = outT16 ? outT16 : (outT15 ? outT15 : pAfterVis);
+        outT18 = wcsstr(scan18b, L"\nT18:");
+        if (!outT18)
+        {
+            outT18 = wcsstr(scan18b, L"\n--- T18");
+        }
+    }
 }
 
 // Prefill / WM_PAINT 共通: スクロール・[scroll] 帯の高さ・T17 行位置などを計測。
@@ -1270,6 +1289,7 @@ refill_budget:
 
         const wchar_t* pVis = wcsstr(t14Buf, L"visible modes:\r\n");
         const wchar_t* p0 = t14Buf;
+        const wchar_t* const pEndT14 = t14Buf + wcslen(t14Buf);
         if (pVis != nullptr)
         {
             const int nVisHead = static_cast<int>(wcslen(L"visible modes:\r\n"));
@@ -1285,6 +1305,74 @@ refill_budget:
             const wchar_t* mT18 = nullptr;
             const wchar_t* mT17 = nullptr;
             Win32_T60_FindT14AppendixMarkers(pAfterVis, mT15, mT16, mT18, mT17);
+
+            {
+                const int offEnd = static_cast<int>(pEndT14 - t14Buf);
+                const int t15BegOff = mT15 ? static_cast<int>(mT15 - t14Buf) : -1;
+                int t15EndOff = -1;
+                if (mT15 != nullptr)
+                {
+                    t15EndOff = offEnd;
+                    if (mT16 != nullptr && mT16 > mT15)
+                    {
+                        t15EndOff = static_cast<int>(mT16 - t14Buf);
+                    }
+                    else if (mT18 != nullptr && mT18 > mT15)
+                    {
+                        t15EndOff = static_cast<int>(mT18 - t14Buf);
+                    }
+                    else if (mT17 != nullptr && mT17 > mT15)
+                    {
+                        t15EndOff = static_cast<int>(mT17 - t14Buf);
+                    }
+                }
+                const int t16BegOff = mT16 ? static_cast<int>(mT16 - t14Buf) : -1;
+                int t16EndOff = -1;
+                if (mT16 != nullptr)
+                {
+                    t16EndOff = offEnd;
+                    if (mT18 != nullptr && mT18 > mT16)
+                    {
+                        t16EndOff = static_cast<int>(mT18 - t14Buf);
+                    }
+                    else if (mT17 != nullptr && mT17 > mT16)
+                    {
+                        t16EndOff = static_cast<int>(mT17 - t14Buf);
+                    }
+                }
+                const int t18BegOff = mT18 ? static_cast<int>(mT18 - t14Buf) : -1;
+                int t18EndOff = -1;
+                if (mT18 != nullptr)
+                {
+                    t18EndOff = offEnd;
+                    if (mT17 != nullptr && mT17 > mT18)
+                    {
+                        t18EndOff = static_cast<int>(mT17 - t14Buf);
+                    }
+                }
+                const int t17BegOff = mT17 ? static_cast<int>(mT17 - t14Buf) : -1;
+                const int t17EndOff = mT17 ? offEnd : -1;
+
+                wchar_t t60mk[768];
+                swprintf_s(
+                    t60mk,
+                    _countof(t60mk),
+                    L"[T60MARK] vmSplit=%d bufLen=%d visOff=%d "
+                    L"t15[%d,%d) t16[%d,%d) t18[%d,%d) t17[%d,%d) restVpBudgetHint=%d\r\n",
+                    vmSplitActive ? 1 : 0,
+                    static_cast<int>(wcslen(t14Buf)),
+                    pVis ? static_cast<int>(pVis - t14Buf) : -1,
+                    t15BegOff,
+                    t15EndOff,
+                    t16BegOff,
+                    t16EndOff,
+                    t18BegOff,
+                    t18EndOff,
+                    t17BegOff,
+                    t17EndOff,
+                    restVpBudgetHint);
+                OutputDebugStringW(t60mk);
+            }
 
             const wchar_t* pVmEnd = mT15 ? mT15 : (mT16 ? mT16 : (mT18 ? mT18 : mT17));
             if (pVmEnd != nullptr && pVmEnd > pAfterVis)
@@ -1316,7 +1404,12 @@ refill_budget:
                 {
                     endT15 = mT17;
                 }
-                if (endT15 != nullptr)
+                else
+                {
+                    // T61: 次マーカーが無い／バッファ末尾までが T15 ブロック（ultra 1 行 T15 のみ等）
+                    endT15 = pEndT14;
+                }
+                if (endT15 != nullptr && endT15 > mT15)
                 {
                     hT15 = Win32_T60_MeasureDocSliceHeight(
                         hdc, clientW, mT15, static_cast<int>(endT15 - mT15));
@@ -1334,7 +1427,11 @@ refill_budget:
                 {
                     endT16 = mT17;
                 }
-                if (endT16 != nullptr)
+                else
+                {
+                    endT16 = pEndT14;
+                }
+                if (endT16 != nullptr && endT16 > mT16)
                 {
                     hT16 = Win32_T60_MeasureDocSliceHeight(
                         hdc, clientW, mT16, static_cast<int>(endT16 - mT16));
