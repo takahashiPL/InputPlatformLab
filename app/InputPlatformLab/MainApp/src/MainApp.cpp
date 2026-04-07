@@ -254,6 +254,7 @@ int s_paintDbgLayoutRestVpBudgetHint = -1; // T51: 最後の Fill に渡した r
 int s_paintDbgClientW = 0;
 int s_paintDbgClientH = 0;
 int s_paintDbgMaxScroll = 0;
+int s_paintDbgRestViewportClientH = 0; // vmSplit 時の本文帯 scrollVpH（T15+ スクロール領域）
 int s_paintDbgT14ColumnBaseY = 0;
 int s_paintDbgT14BeforeVisibleDocH = 0;
 int s_paintDbgT14VisibleBlockDocH = 0;
@@ -674,7 +675,8 @@ static void Win32_T14_ClampIndicesAfterEnumerate()
 
 static void Win32_T14_TryAutoScrollSelectionIntoView(HWND hwnd);
 
-// T58: maxScroll==0 かつ非 vmSplit 時、doc に収まる rowSpan に合わせて firstVisible のみ調整する（selectedModeIndex は変更しない）。
+// T58: doc に収まる rowSpan に合わせて firstVisible のみ調整（selectedModeIndex は変更しない）。
+// 非 vmSplit: maxScroll==0 のとき、firstModeLineDocY 基準の本文 doc。vmSplit: visible modes 帯ローカル高さのみ。
 static void Win32_T58_AlignFirstVisibleToDocNoScroll(HWND hwnd)
 {
     if (!hwnd || !IsWindow(hwnd))
@@ -699,22 +701,50 @@ static void Win32_T58_AlignFirstVisibleToDocNoScroll(HWND hwnd)
     {
         return;
     }
+    const int lineHeight = s_paintDbgLineHeight;
+    if (lineHeight <= 0)
+    {
+        return;
+    }
+    const int docContentH = s_paintDbgContentHeight;
     if (Win32DebugOverlay_IsT14VmSplitActive())
     {
+        // T60: vmSplit 時は T58 の rowSpan は「visible modes 帯ローカル座標」だけで完結（rest 本文 scroll と混ぜない）
+        const int vmBlockH = s_paintDbgT14VisibleBlockDocH;
+        if (vmBlockH <= 0)
+        {
+            return;
+        }
+        const int visibleRowsInBand = (std::max)(1, vmBlockH / lineHeight);
+        const ptrdiff_t maxRowSpan = visibleRowsInBand - 1;
+        const ptrdiff_t rowSpan =
+            static_cast<ptrdiff_t>(s_t14SelectedModeIndex) - static_cast<ptrdiff_t>(s_t14FirstVisibleModeIndex);
+        if (rowSpan < 0 || rowSpan >= static_cast<ptrdiff_t>(kT14VisibleModeCount))
+        {
+            return;
+        }
+        if (rowSpan <= maxRowSpan)
+        {
+            return;
+        }
+        const size_t newFirst = s_t14SelectedModeIndex - static_cast<size_t>(maxRowSpan);
+        s_t14FirstVisibleModeIndex = newFirst;
+        if (s_t14FirstVisibleModeIndex > n - 1)
+        {
+            s_t14FirstVisibleModeIndex = n - 1;
+        }
         return;
     }
     if ((std::max)(0, s_paintDbgMaxScroll) != 0)
     {
         return;
     }
-    const int docContentH = s_paintDbgContentHeight;
-    const int lineHeight = s_paintDbgLineHeight;
-    if (docContentH <= 0 || lineHeight <= 0)
+    if (docContentH <= 0)
     {
         return;
     }
-    const int startY = s_paintDbgT14VisibleModesDocStartY;
-    const int denom = docContentH - startY - lineHeight;
+    const int firstModeLineDocY = s_paintDbgT14BeforeVisibleDocH;
+    const int denom = docContentH - firstModeLineDocY - lineHeight;
     if (denom < 0)
     {
         return;
@@ -803,31 +833,47 @@ static void Win32_T14_TryScrollFromKeyboardEdges(bool upEdge, bool downEdge, HWN
         {
             const int docContentH = s_paintDbgContentHeight;
             const int lineHeight = s_paintDbgLineHeight;
-            const int startY = s_paintDbgT14VisibleModesDocStartY;
-            if (docContentH > 0 && lineHeight > 0)
+            const int firstModeLineDocY = s_paintDbgT14BeforeVisibleDocH;
+            const int vmBandH = s_paintDbgT14VisibleBlockDocH;
+            const int scrollVpH = s_paintDbgRestViewportClientH;
+            if (lineHeight > 0)
             {
-                denomLog = docContentH - startY - lineHeight;
-                maxRowSpanLog = (denomLog >= 0) ? (denomLog / lineHeight) : -1;
+                if (Win32DebugOverlay_IsT14VmSplitActive())
+                {
+                    if (vmBandH > 0)
+                    {
+                        denomLog = vmBandH - lineHeight;
+                        maxRowSpanLog = (denomLog >= 0) ? (denomLog / lineHeight) : -1;
+                    }
+                }
+                else if (docContentH > 0)
+                {
+                    denomLog = docContentH - firstModeLineDocY - lineHeight;
+                    maxRowSpanLog = (denomLog >= 0) ? (denomLog / lineHeight) : -1;
+                }
             }
         }
-        wchar_t t58[512] = {};
+        wchar_t t58[768] = {};
         swprintf_s(
             t58,
             _countof(t58),
             L"[T58T14SRC] beforeSel=%zu afterInputSel=%zu afterClampSel=%zu firstVisible=%zu "
-            L"maxRowSpan=%d docStartY=%d docContentH=%d lineH=%d maxScroll=%d scrollY=%d "
-            L"(denom=%d)\r\n",
+            L"maxRowSpan=%d firstModeLineDocY=%d vmBandDocH=%d scrollVpH=%d docContentH=%d lineH=%d "
+            L"maxScroll=%d scrollY=%d (denom=%d vmSplit=%d)\r\n",
             beforeSel,
             afterInputSel,
             afterClampSel,
             s_t14FirstVisibleModeIndex,
             maxRowSpanLog,
-            s_paintDbgT14VisibleModesDocStartY,
+            s_paintDbgT14BeforeVisibleDocH,
+            s_paintDbgT14VisibleBlockDocH,
+            s_paintDbgRestViewportClientH,
             s_paintDbgContentHeight,
             s_paintDbgLineHeight,
             s_paintDbgMaxScroll,
             s_paintScrollY,
-            denomLog);
+            denomLog,
+            Win32DebugOverlay_IsT14VmSplitActive() ? 1 : 0);
         OutputDebugStringW(t58);
     }
 
@@ -4641,12 +4687,6 @@ static void Win32_T14_TryAutoScrollSelectionIntoView(HWND hwnd)
             L"[T14VIEW] source=paint-cache (skip; not ready or client size mismatch)\r\n");
         return;
     }
-    if (Win32DebugOverlay_IsT14VmSplitActive())
-    {
-        OutputDebugStringW(L"[T14VIEW] T40 vmSplit: autoFollow uses visible-modes band only (no main scroll)\r\n");
-        return;
-    }
-
     // T56: scroll 幾何は overlay 計算（SCROLL ログと同じ s_paintDbgMaxScroll / s_paintScrollY）
     const int maxScroll = (std::max)(0, s_paintDbgMaxScroll);
     const int scrollY = s_paintScrollY;
@@ -4659,11 +4699,77 @@ static void Win32_T14_TryAutoScrollSelectionIntoView(HWND hwnd)
     }
 
     const int lineHeight = s_paintDbgLineHeight;
-    const int selectedRowTop =
-        s_paintDbgT14VisibleModesDocStartY + static_cast<int>(rowSpan) * lineHeight;
+    const int firstModeLineDocY = s_paintDbgT14BeforeVisibleDocH;
+    const int vmBandDocH = s_paintDbgT14VisibleBlockDocH;
+    const int scrollVpH = s_paintDbgRestViewportClientH;
+    const int docContentH = s_paintDbgContentHeight;
+
+    if (Win32DebugOverlay_IsT14VmSplitActive())
+    {
+        // T40/T60: vmSplit 時は本文 main scroll を動かさず、座標は「visible modes 帯ローカル doc」のみで統一する
+        const int selectedRowTopLocal = static_cast<int>(rowSpan) * lineHeight;
+        const int selectedRowBottomLocal = selectedRowTopLocal + lineHeight;
+        int effRowTopLocal = selectedRowTopLocal;
+        int effRowBottomLocal = selectedRowBottomLocal;
+        if (vmBandDocH > 0 && selectedRowBottomLocal > vmBandDocH)
+        {
+            effRowBottomLocal = vmBandDocH;
+            effRowTopLocal = (std::max)(0, effRowBottomLocal - lineHeight);
+        }
+        const int denomVm =
+            (vmBandDocH > 0 && lineHeight > 0) ? (vmBandDocH - lineHeight) : -1;
+        const int maxRowSpanVm = (denomVm >= 0) ? (denomVm / lineHeight) : -1;
+        const int visibleRowsVmBand =
+            (vmBandDocH > 0 && lineHeight > 0) ? (vmBandDocH / lineHeight) : 0;
+        const int visibleRowsScrollVp =
+            (scrollVpH > 0 && lineHeight > 0) ? (scrollVpH / lineHeight) : 0;
+
+        wchar_t logLine[512] = {};
+        OutputDebugStringW(L"[T14VIEW] source=paint-cache\r\n");
+        OutputDebugStringW(L"[T14VIEW] vmSplit=1 coord=vmBandLocal (no main scroll)\r\n");
+        swprintf_s(
+            logLine,
+            _countof(logLine),
+            L"[T14VIEW] vmBandDocH=%d beforeVisibleDocH(fullT14)=%d scrollVpH=%d\r\n",
+            vmBandDocH,
+            firstModeLineDocY,
+            scrollVpH);
+        OutputDebugStringW(logLine);
+        swprintf_s(
+            logLine,
+            _countof(logLine),
+            L"[T14VIEW] selectedRowTop=%d selectedRowBottom=%d (vm-local)\r\n",
+            selectedRowTopLocal,
+            selectedRowBottomLocal);
+        OutputDebugStringW(logLine);
+        swprintf_s(
+            logLine,
+            _countof(logLine),
+            L"[T14VIEW] docContentH(vmBand)=%d effRowTop=%d effRowBottom=%d\r\n",
+            vmBandDocH,
+            effRowTopLocal,
+            effRowBottomLocal);
+        OutputDebugStringW(logLine);
+        swprintf_s(
+            logLine,
+            _countof(logLine),
+            L"[T60T14VIEW] visibleRowsVmBand=%d visibleRowsFromScrollVpH=%d maxRowSpan=%d denom=%d "
+            L"selectedRowTop=%d selectedRowBottom=%d firstModeLineDocY=%d docContentH=%d\r\n",
+            visibleRowsVmBand,
+            visibleRowsScrollVp,
+            maxRowSpanVm,
+            denomVm,
+            selectedRowTopLocal,
+            selectedRowBottomLocal,
+            firstModeLineDocY,
+            vmBandDocH);
+        OutputDebugStringW(logLine);
+        return;
+    }
+
+    const int selectedRowTop = firstModeLineDocY + static_cast<int>(rowSpan) * lineHeight;
     const int selectedRowBottom = selectedRowTop + lineHeight;
     // T56: doc 座標を contentH(with padding) と整合（極小ウィンドウで行が本文外に出る不整合を抑止）
-    const int docContentH = s_paintDbgContentHeight;
     int effRowTop = selectedRowTop;
     int effRowBottom = selectedRowBottom;
     if (docContentH > 0 && selectedRowBottom > docContentH)
@@ -4719,22 +4825,22 @@ static void Win32_T14_TryAutoScrollSelectionIntoView(HWND hwnd)
         OutputDebugStringW(logLine);
     }
     {
-        const int denom = docContentH - s_paintDbgT14VisibleModesDocStartY - lineHeight;
+        const int denom = docContentH - firstModeLineDocY - lineHeight;
         const int maxRowSpanView = (denom >= 0) ? (denom / lineHeight) : -1;
         const int visibleRows =
             (docContentH > 0 && lineHeight > 0)
-                ? (std::max)(0, (docContentH - s_paintDbgT14VisibleModesDocStartY) / lineHeight)
+                ? (std::max)(0, (docContentH - firstModeLineDocY) / lineHeight)
                 : 0;
         swprintf_s(
             logLine,
             _countof(logLine),
-            L"[T60T14VIEW] visibleRows=%d maxRowSpan=%d selectedRowTop=%d selectedRowBottom=%d "
-            L"visibleModesDocStartY=%d docContentH=%d\r\n",
+            L"[T60T14VIEW] vmSplit=0 visibleRows=%d maxRowSpan=%d selectedRowTop=%d selectedRowBottom=%d "
+            L"firstModeLineDocY=%d docContentH=%d\r\n",
             visibleRows,
             maxRowSpanView,
             selectedRowTop,
             selectedRowBottom,
-            s_paintDbgT14VisibleModesDocStartY,
+            firstModeLineDocY,
             docContentH);
         OutputDebugStringW(logLine);
     }

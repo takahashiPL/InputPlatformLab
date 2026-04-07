@@ -35,7 +35,6 @@ static int s_paintDbgRow2TopPx = 0;
 // T40: visible modes 帯を本文スクロールから分離
 static bool s_paintDbgT14VmSplitActive = false;
 static int s_paintDbgT17DocYRestScroll = 0;
-static int s_paintDbgRestViewportClientH = 0;
 static int s_paintDbgRestViewportTopPx = 0;
 
 // T53: 極小 Windowed で [scroll] 帯の GDI 重ね描きを止める（レイアウト予約は維持）
@@ -73,6 +72,7 @@ extern int s_paintDbgT14ColumnBaseY;
 extern int s_paintDbgT14BeforeVisibleDocH;
 extern int s_paintDbgT14VisibleBlockDocH;
 extern int s_paintDbgT14AfterVisibleDocH;
+extern int s_paintDbgRestViewportClientH;
 
 // メニュー列のみ CALCRECT（左列 D2D 用。幅は committed / client のレイアウト幅に合わせる）
 static void Win32_MenuSampleMeasureMenuColumnOnly(
@@ -697,9 +697,31 @@ static void Win32_T60_FindT14AppendixMarkers(
         outT15 = wcsstr(pAfterVis, L"\r\nT15:");
     }
     const wchar_t* scan16 = outT15 ? outT15 : pAfterVis;
-    outT16 = wcsstr(scan16, L"\r\n--- T16");
+    {
+        const wchar_t* p16a = wcsstr(scan16, L"\r\n--- T16");
+        const wchar_t* p16b = wcsstr(scan16, L"\r\nT16:");
+        if (p16a && p16b)
+        {
+            outT16 = (p16a < p16b) ? p16a : p16b;
+        }
+        else
+        {
+            outT16 = p16a ? p16a : p16b;
+        }
+    }
     const wchar_t* scan18 = outT16 ? outT16 : scan16;
-    outT18 = wcsstr(scan18, L"\r\n--- T18");
+    {
+        const wchar_t* p18a = wcsstr(scan18, L"\r\n--- T18");
+        const wchar_t* p18b = wcsstr(scan18, L"\r\nT18:");
+        if (p18a && p18b)
+        {
+            outT18 = (p18a < p18b) ? p18a : p18b;
+        }
+        else
+        {
+            outT18 = p18a ? p18a : p18b;
+        }
+    }
     const wchar_t* scan17 = outT18 ? outT18 : scan18;
     outT17 = wcsstr(scan17, L"\r\n--- T17");
 }
