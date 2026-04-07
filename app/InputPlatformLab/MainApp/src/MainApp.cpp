@@ -4322,6 +4322,9 @@ static void Win32_FillMenuSamplePaintBuffers_T14T15Column(
     int restVpBudgetHint)
 {
     const int budgetPx = Win32_T56_ContentBudgetPxForHudFill(hwnd, clientH, restVpBudgetHint);
+    // T63: restVpBudgetHint 由来の budgetPx が clientH より小さいとき、T53 omit だけ clientH で判定する
+    // （大きい Windowed で provisional restVp=64 のフレームでも T15 マーカーと appendix をバッファに載せる）
+    const int budgetForT53Omit = (std::max)(clientH, budgetPx);
     const bool t53Windowed =
         hwnd && IsWindow(hwnd) && !Win32_MainWindow_IsFillMonitorPresentationMode(hwnd);
     const bool t60UltraCompact =
@@ -4333,16 +4336,16 @@ static void Win32_FillMenuSamplePaintBuffers_T14T15Column(
         t53OneRow = false;
     }
     const bool t53MinimalT14 =
-        !t60UltraCompact && t53Windowed && budgetPx >= 0 &&
-        budgetPx < WIN32_OVERLAY_T53_MINIMAL_T14_BUDGET_PX;
+        !t60UltraCompact && t53Windowed && budgetForT53Omit >= 0 &&
+        budgetForT53Omit < WIN32_OVERLAY_T53_MINIMAL_T14_BUDGET_PX;
 
     if (!s_displayMonitorsCache.empty() && kT14SelectedMonitorIndex < s_displayMonitorsCache.size())
     {
         const DisplayMonitorInfo& mon = s_displayMonitorsCache[kT14SelectedMonitorIndex];
         const bool tinyBudget =
-            (budgetPx > 0 && budgetPx < WIN32_OVERLAY_T50_TINY_CLIENT_H);
+            (budgetForT53Omit > 0 && budgetForT53Omit < WIN32_OVERLAY_T50_TINY_CLIENT_H);
         const bool minimalHeader =
-            (budgetPx > 0 && budgetPx < WIN32_OVERLAY_T49_T14_MINIMAL_HEADER_CLIENT_H);
+            (budgetForT53Omit > 0 && budgetForT53Omit < WIN32_OVERLAY_T49_T14_MINIMAL_HEADER_CLIENT_H);
         // T58/T59: Windowed で prefix/T15 を短くし、visible modes 帯に縦余白を寄せる（T59 は <=760）
         const bool useShortT14Header =
             minimalHeader || (t53Windowed && clientH <= WIN32_OVERLAY_T59_WINDOWED_COMPACT_CLIENT_H) ||
@@ -4475,12 +4478,15 @@ static void Win32_FillMenuSamplePaintBuffers_T14T15Column(
                         L"(none)\r\n");
                 }
             }
-            else if (t53Windowed && budgetPx >= 0 && budgetPx < WIN32_OVERLAY_T53_OMIT_T15_BUDGET_PX)
+            else if (
+                t53Windowed && budgetForT53Omit >= 0 &&
+                budgetForT53Omit < WIN32_OVERLAY_T53_OMIT_T15_BUDGET_PX)
             {
                 t15Block[0] = L'\0';
             }
             else if (
-                t53Windowed && budgetPx >= 0 && budgetPx < WIN32_OVERLAY_T53_T15_SUMMARY_BUDGET_PX)
+                t53Windowed && budgetForT53Omit >= 0 &&
+                budgetForT53Omit < WIN32_OVERLAY_T53_T15_SUMMARY_BUDGET_PX)
             {
                 if (s_t15MatchResult.nearestModeIndex != static_cast<size_t>(-1) &&
                     s_t15MatchResult.nearestModeIndex < mon.modes.size())
@@ -4607,13 +4613,15 @@ static void Win32_FillMenuSamplePaintBuffers_AppendT16T18T17(
 {
     const int ch = static_cast<int>(rcClient.bottom - rcClient.top);
     const int budgetPx = Win32_T56_ContentBudgetPxForHudFill(hwnd, ch, restVpBudgetHint);
+    const int budgetForT53Omit = (std::max)(ch, budgetPx);
     const bool t60UltraCompact =
         hwnd && IsWindow(hwnd) && !Win32_MainWindow_IsFillMonitorPresentationMode(hwnd) &&
         ch > 0 && ch <= WIN32_OVERLAY_T60_SMALL_WINDOWED_CLIENT_H;
     // T53: restVp 等で budgetPx<140 のとき全文 T16 を省略するが、T62: small Windowed では ultra 1 行 T16/T18 を必ず付与（T60BUDGET マーカー用）
+    // T63: provisional restVp が小さくても clientH が大きいときは omit 判定に clientH を効かせる
     if (!t60UltraCompact && hwnd && IsWindow(hwnd) &&
-        !Win32_MainWindow_IsFillMonitorPresentationMode(hwnd) && budgetPx >= 0 &&
-        budgetPx < WIN32_OVERLAY_T53_OMIT_T16_BUDGET_PX)
+        !Win32_MainWindow_IsFillMonitorPresentationMode(hwnd) && budgetForT53Omit >= 0 &&
+        budgetForT53Omit < WIN32_OVERLAY_T53_OMIT_T16_BUDGET_PX)
     {
         return;
     }
