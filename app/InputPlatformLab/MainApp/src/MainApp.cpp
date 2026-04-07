@@ -4820,13 +4820,109 @@ void Win32_FillMenuSamplePaintBuffers_MenuColumnOnly(wchar_t* menuBuf, size_t me
 #define WIN32_OVERLAY_T37_MENU_TOP_GAP_PX 52
 #endif
 
+// ページ式 HUD 見出し（英語・統一ルール: Txx — short topic）
 static const wchar_t* const kHudPagedPageTitles[kHudPagedCount] = {
-    L"T14 Displays — Display Mode List",
-    L"T15 Nearest Resolution — Match vs Desired",
-    L"T16 Window Metrics — Client Size and Recreate",
-    L"T18 Controller Identify — HID and XInput",
-    L"T17 Presentation — Windowed / Borderless / Fullscreen",
+    L"T14 — Display mode list",
+    L"T15 — Nearest resolution vs desired",
+    L"T16 — Window metrics (client size & recreate)",
+    L"T18 — Controller identify (HID / XInput)",
+    L"T17 — Presentation (windowed / borderless / fullscreen)",
 };
+
+static const wchar_t* const kHudPagedPageIds[kHudPagedCount] = {
+    L"T14",
+    L"T15",
+    L"T16",
+    L"T18",
+    L"T17",
+};
+
+#if WIN32_RENDERER_DEBUG_GRID_64PX
+// WindowsRenderer_ComputeDebugGridStepPx と同式（ページ式 HUD の GDI 状態行用）
+static UINT Win32_HudPaged_GridCellStepPx()
+{
+    const WindowsRendererState& s = s_windowsRendererState;
+    const UINT cw = s.clientWidth;
+    if (cw < 1u)
+    {
+        return 4u;
+    }
+    static constexpr UINT kRefClientW = 1280u;
+    static constexpr UINT kRefCellPx = 64u;
+    UINT denom = s.gridDebugDenomPhysW;
+    if (denom < 1u)
+    {
+        denom = cw;
+    }
+    return (std::max)(4u, (kRefClientW * kRefCellPx) / (std::max)(1u, denom));
+}
+#else
+static UINT Win32_HudPaged_GridCellStepPx()
+{
+    return 0u;
+}
+#endif
+
+static const wchar_t* Win32_HudPaged_GridBasisAbbrev(WindowsRendererGridDebugBasis b)
+{
+    switch (b)
+    {
+    case WindowsRendererGridDebugBasis::CommittedSelected:
+        return L"cmtSel";
+    case WindowsRendererGridDebugBasis::Client:
+    default:
+        return L"client";
+    }
+}
+
+// 本文を固定行数・行幅に収める（ページ式 HUD の要約用）
+static void Win32_HudPaged_ClampTextLines(wchar_t* buf, size_t bufCount, size_t maxLines, size_t maxLineChars)
+{
+    if (!buf || bufCount < 2 || maxLines < 1)
+    {
+        return;
+    }
+    wchar_t tmp[16384];
+    if (bufCount > _countof(tmp))
+    {
+        return;
+    }
+    wcsncpy_s(tmp, buf, bufCount);
+    tmp[bufCount - 1] = L'\0';
+
+    std::wstring out;
+    size_t lineIdx = 0;
+    const wchar_t* p = tmp;
+    while (*p != L'\0' && lineIdx < maxLines)
+    {
+        const wchar_t* lineStart = p;
+        while (*p != L'\0' && *p != L'\r' && *p != L'\n')
+        {
+            ++p;
+        }
+        std::wstring line(lineStart, static_cast<size_t>(p - lineStart));
+        if (line.size() > maxLineChars)
+        {
+            line.resize(maxLineChars);
+            line += L"...";
+        }
+        if (lineIdx > 0)
+        {
+            out += L"\r\n";
+        }
+        out += line;
+        ++lineIdx;
+        if (*p == L'\r' && p[1] == L'\n')
+        {
+            p += 2;
+        }
+        else if (*p != L'\0')
+        {
+            ++p;
+        }
+    }
+    wcscpy_s(buf, bufCount, out.c_str());
+}
 
 static void Win32_HudPaged_FillT14PageBody(wchar_t* buf, size_t bufCount)
 {
@@ -4840,9 +4936,8 @@ static void Win32_HudPaged_FillT14PageBody(wchar_t* buf, size_t bufCount)
     swprintf_s(
         buf,
         bufCount,
-        L"--- T14 Displays ---\r\n"
-        L"Left/Right: change page   Up/Down: select mode (menu closed)\r\n"
-        L"visible modes:\r\n");
+        L"\u2190\u2192 page   \u2191\u2193 select\r\n"
+        L"modes:\r\n");
     const size_t maxRowsFromList =
         (mon.modes.size() > s_t14FirstVisibleModeIndex)
             ? (mon.modes.size() - s_t14FirstVisibleModeIndex)
@@ -4891,12 +4986,11 @@ static void Win32_HudPaged_FillT15PageBody(wchar_t* buf, size_t bufCount)
         swprintf_s(
             buf,
             bufCount,
-            L"Up/Down: change desired preset   Left/Right: change page\r\n\r\n"
-            L"--- T15 nearest resolution ---\r\n"
-            L"desired: %dx%d  preset[%zu/%zu]\r\n"
-            L"nearest: [%zu] %dx%d bpp=%d hz=%d\r\n"
+            L"\u2191\u2193 preset   \u2190\u2192 page\r\n"
+            L"desired: %dx%d  [%zu/%zu]\r\n"
+            L"nearest: [%zu] %dx%d  bpp=%d  hz=%d\r\n"
             L"delta: %d / %d\r\n"
-            L"exact match: %d\r\n",
+            L"exact: %d\r\n",
             s_t15DesiredWidth,
             s_t15DesiredHeight,
             s_t15DesiredPresetIndex,
@@ -4915,12 +5009,11 @@ static void Win32_HudPaged_FillT15PageBody(wchar_t* buf, size_t bufCount)
         swprintf_s(
             buf,
             bufCount,
-            L"Up/Down: change desired preset   Left/Right: change page\r\n\r\n"
-            L"--- T15 nearest resolution ---\r\n"
-            L"desired: %dx%d  preset[%zu/%zu]\r\n"
+            L"\u2191\u2193 preset   \u2190\u2192 page\r\n"
+            L"desired: %dx%d  [%zu/%zu]\r\n"
             L"nearest: (none)\r\n"
             L"delta: - / -\r\n"
-            L"exact match: 0\r\n",
+            L"exact: 0\r\n",
             s_t15DesiredWidth,
             s_t15DesiredHeight,
             s_t15DesiredPresetIndex,
@@ -4955,12 +5048,26 @@ void Win32_HudPaged_AdvancePage(int delta)
     {
         return;
     }
-    int n = (s_hudPagedIndex + delta) % kHudPagedCount;
+    const int old = s_hudPagedIndex;
+    int n = (old + delta) % kHudPagedCount;
     if (n < 0)
     {
         n += kHudPagedCount;
     }
+    if (n == old)
+    {
+        return;
+    }
     s_hudPagedIndex = n;
+    wchar_t log[256] = {};
+    swprintf_s(
+        log,
+        _countof(log),
+        L"[HUDPAGE] input=%s old=%d new=%d\r\n",
+        delta < 0 ? L"Left" : L"Right",
+        old + 1,
+        n + 1);
+    OutputDebugStringW(log);
 }
 
 void Win32_HudPaged_PrefillD2d(WindowsRendererState* st, UINT clientW, UINT clientH)
@@ -5001,22 +5108,66 @@ void Win32_HudPaged_PaintGdi(
         return;
     }
 
+    static int s_hudPagedLastNotifiedPage = -1;
+    if (s_hudPagedIndex != s_hudPagedLastNotifiedPage)
+    {
+        wchar_t lg[160] = {};
+        swprintf_s(
+            lg,
+            _countof(lg),
+            L"[HUDPAGE] page=%d/%d id=%s\r\n",
+            s_hudPagedIndex + 1,
+            kHudPagedCount,
+            kHudPagedPageIds[s_hudPagedIndex]);
+        OutputDebugStringW(lg);
+        s_hudPagedLastNotifiedPage = s_hudPagedIndex;
+    }
+
     const int t37TopGap =
         Win32_IsT37VirtualBodyOverlayActiveForLayout() ? WIN32_OVERLAY_T37_MENU_TOP_GAP_PX : 0;
 
-    wchar_t row1Buf[128] = {};
+    wchar_t statusLine1[256] = {};
     swprintf_s(
-        row1Buf,
-        _countof(row1Buf),
+        statusLine1,
+        _countof(statusLine1),
         L"cand=%s act=%s",
         t17CandLabel != nullptr ? t17CandLabel : L"?",
         t17ActLabel != nullptr ? t17ActLabel : L"?");
 
+    wchar_t statusLine2[256] = {};
+#if WIN32_RENDERER_DEBUG_GRID_64PX
+    {
+        const WindowsRendererState& s = s_windowsRendererState;
+        if (s.t37VirtualBodyOverlayRequested && s.gridDebugCommittedPhysW > 0u && s.gridDebugCommittedPhysH > 0u)
+        {
+            swprintf_s(
+                statusLine2,
+                _countof(statusLine2),
+                L"b:%s cmt=%ux%u cl=%ux%u cell=%u",
+                Win32_HudPaged_GridBasisAbbrev(s.gridDebugBasis),
+                static_cast<unsigned>(s.gridDebugCommittedPhysW),
+                static_cast<unsigned>(s.gridDebugCommittedPhysH),
+                static_cast<unsigned>(s.gridDebugClientPhysW),
+                static_cast<unsigned>(s.gridDebugClientPhysH),
+                static_cast<unsigned>(Win32_HudPaged_GridCellStepPx()));
+        }
+        else
+        {
+            swprintf_s(
+                statusLine2,
+                _countof(statusLine2),
+                L"b:%s cl=%ux%u cell=%u",
+                Win32_HudPaged_GridBasisAbbrev(s.gridDebugBasis),
+                static_cast<unsigned>(s.gridDebugClientPhysW),
+                static_cast<unsigned>(s.gridDebugClientPhysH),
+                static_cast<unsigned>(Win32_HudPaged_GridCellStepPx()));
+        }
+    }
+#endif
+
     wchar_t menuBuf[3072] = {};
-    Win32_FillMenuSamplePaintBuffers_MenuColumn(
-        menuBuf,
-        _countof(menuBuf),
-        Win32_IsT37VirtualBodyOverlayActiveForLayout());
+    // ページ式 HUD は常にコンパクトなメニュー帯（2 行）で情報量を固定
+    Win32_FillMenuSamplePaintBuffers_MenuColumn(menuBuf, _countof(menuBuf), true);
 
     wchar_t bodyBuf[16384] = {};
     RECT rcTmp{};
@@ -5035,17 +5186,20 @@ void Win32_HudPaged_PaintGdi(
             _countof(bodyBuf),
             hwnd,
             rcTmp,
-            -1,
+            100000,
             false,
             false,
             false);
+        Win32_HudPaged_ClampTextLines(bodyBuf, _countof(bodyBuf), 10, 76);
         break;
     case 3:
         Win32_T18_RefreshControllerIdentifySnapshot();
         Win32_T18_AppendPaintSection(bodyBuf, _countof(bodyBuf), false, false, false);
+        Win32_HudPaged_ClampTextLines(bodyBuf, _countof(bodyBuf), 10, 76);
         break;
     case 4:
         Win32_T17_AppendPaintSection(bodyBuf, _countof(bodyBuf), false, false, false);
+        Win32_HudPaged_ClampTextLines(bodyBuf, _countof(bodyBuf), 10, 76);
         break;
     default:
         s_hudPagedIndex = 0;
@@ -5064,39 +5218,60 @@ void Win32_HudPaged_PaintGdi(
     const COLORREF prevCol = SetTextColor(hdc, RGB(235, 238, 242));
 
     const int pad = 8;
-    const int logicalW = 640;
-    const int logicalH = 480;
+    static constexpr int kHudLogW = 640;
+    static constexpr int kHudLogH = 480;
     const float scale =
-        (std::min)(static_cast<float>(clientW) / static_cast<float>(logicalW),
-                   static_cast<float>(clientH) / static_cast<float>(logicalH));
+        (std::min)(static_cast<float>(clientW) / static_cast<float>(kHudLogW),
+                   static_cast<float>(clientH) / static_cast<float>(kHudLogH));
     const int margin = (std::max)(pad, static_cast<int>(8.f * scale));
 
-    RECT rcRow1 = {};
-    rcRow1.left = margin;
-    rcRow1.top = t37TopGap + margin;
-    rcRow1.right = clientW - margin;
-    rcRow1.bottom = rcRow1.top + lineH * 2;
-    DrawTextW(hdc, row1Buf, -1, &rcRow1, DT_LEFT | DT_TOP | DT_NOPREFIX | DT_WORDBREAK);
+    const int innerW = clientW - 2 * margin;
+    const int gapCol = 4;
+    const int statW = MulDiv(innerW, 240, 640);
+    const int fracW = MulDiv(innerW, 120, 640);
+    const int titleW = (std::max)(0, innerW - statW - fracW - 2 * gapCol);
 
-    const int titleRowTop = rcRow1.bottom + margin;
+    const int headerTop = t37TopGap + margin;
+    const int headerRowH = lineH * 2 + 4;
+
+    RECT rcStat = {};
+    rcStat.left = margin;
+    rcStat.top = headerTop;
+    rcStat.right = margin + statW;
+    rcStat.bottom = headerTop + headerRowH;
+
+    RECT rcTitle = {};
+    rcTitle.left = margin + statW + gapCol;
+    rcTitle.top = headerTop;
+    rcTitle.right = margin + statW + gapCol + titleW;
+    rcTitle.bottom = headerTop + headerRowH;
+
+    RECT rcFrac = {};
+    rcFrac.left = margin + statW + gapCol + titleW + gapCol;
+    rcFrac.top = headerTop;
+    rcFrac.right = clientW - margin;
+    rcFrac.bottom = headerTop + headerRowH;
+
+    wchar_t statusCombined[512] = {};
+    if (statusLine2[0] != L'\0')
+    {
+        swprintf_s(statusCombined, _countof(statusCombined), L"%s\r\n%s", statusLine1, statusLine2);
+    }
+    else
+    {
+        wcscpy_s(statusCombined, statusLine1);
+    }
+
+    DrawTextW(hdc, statusCombined, -1, &rcStat, DT_LEFT | DT_TOP | DT_NOPREFIX | DT_WORDBREAK);
+
     const wchar_t* title = kHudPagedPageTitles[s_hudPagedIndex];
     wchar_t frac[32] = {};
     swprintf_s(frac, _countof(frac), L"%d/%d", s_hudPagedIndex + 1, kHudPagedCount);
 
-    RECT rcTitleLeft = {};
-    rcTitleLeft.left = margin;
-    rcTitleLeft.top = titleRowTop;
-    rcTitleLeft.right = clientW - margin - 96;
-    rcTitleLeft.bottom = titleRowTop + lineH + 6;
-    RECT rcFracRight = {};
-    rcFracRight.left = clientW - margin - 96;
-    rcFracRight.top = titleRowTop;
-    rcFracRight.right = clientW - margin;
-    rcFracRight.bottom = titleRowTop + lineH + 6;
-    DrawTextW(hdc, title, -1, &rcTitleLeft, DT_LEFT | DT_TOP | DT_NOPREFIX | DT_WORDBREAK);
-    DrawTextW(hdc, frac, -1, &rcFracRight, DT_RIGHT | DT_TOP | DT_NOPREFIX | DT_SINGLELINE);
+    DrawTextW(hdc, title, -1, &rcTitle, DT_LEFT | DT_TOP | DT_NOPREFIX | DT_SINGLELINE);
+    DrawTextW(hdc, frac, -1, &rcFrac, DT_RIGHT | DT_TOP | DT_NOPREFIX | DT_SINGLELINE);
 
-    const int menuTop = rcTitleLeft.bottom + margin;
+    const int menuTop = headerTop + headerRowH + margin;
     RECT rcMenuMeasure = {};
     rcMenuMeasure.left = margin;
     rcMenuMeasure.top = menuTop;

@@ -4,8 +4,8 @@
 
 struct WindowsRendererState;
 
-// ページ式デバッグ HUD（運用表示の主体）。縦積み全文 HUD はレガシー参照用。
-// 0 にすると Win32_DebugOverlay_PaintStackedLegacy（縦積み・vmSplit 等）に戻す。
+// ページ式デバッグ HUD（運用の正式仕様）。WIN32_HUD_USE_PAGED_HUD=0 のときのみ
+// Win32_DebugOverlay_PaintStackedLegacy（縦積み・vmSplit 等）が通常描画経路になるレガシー参照。
 #ifndef WIN32_HUD_USE_PAGED_HUD
 #define WIN32_HUD_USE_PAGED_HUD 1
 #endif

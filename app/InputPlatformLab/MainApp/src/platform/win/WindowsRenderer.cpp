@@ -1,4 +1,5 @@
 #include "WindowsRenderer.h"
+#include "Win32HudPaged.h"
 
 #include <algorithm>
 #include <cmath>
@@ -449,6 +450,11 @@ static void WindowsRenderer_InternalDrawDebugGridLabels(
     UINT stepPx)
 {
     if (!s->d2dContext || !s->dwriteGridLabelFormat || !s->d2dGridBrushEm)
+    {
+        return;
+    }
+    // ページ式 HUD 運用時は GDI 側の 3 帯に grid 要約を出す。D2D ラベルは重なりの原因になるため描画しない。
+    if (Win32_HudPaged_IsEnabled())
     {
         return;
     }
