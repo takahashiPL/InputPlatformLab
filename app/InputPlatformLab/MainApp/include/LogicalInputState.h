@@ -1,5 +1,11 @@
 // 論理ボタン単位のフレーム状態（キーボード + ゲームパッドを OR 合成後に 1 パスで更新）
 //
+// PS4 DS4 HID（verified マップ, MainApp Win32_FillVirtualInputFromDs4StyleHidReport）→ GamepadButtonId:
+//   Cross→South, Circle→East, Square→West, Triangle→North, Share→Select, Options→Start,
+//   hat→DPadUp/Down/Left/Right。LogicalInput_FillCurrentDownFromSources は上記にキーボード
+//   （Enter/Backspace/Tab/矢印）を OR。LogicalInputState_Update の press/release/push/hold は
+//   全ソース同一式（WM_TIMER 1 tick = 論理 1 フレーム）。
+//
 // 「1 フレーム」の意味（本層）:
 //   LogicalInputState_Update は MainApp の WM_TIMER（XINPUT_POLL）1 回につき 1 回だけ走る。
 //   よって press / release / push / holdFrames の単位は「WM_TIMER tick 基準」であり、

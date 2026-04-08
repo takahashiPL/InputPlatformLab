@@ -182,7 +182,7 @@ struct Win32_HudPaged_T19LogicalButtonDisplaySnap
     bool push;
     UINT8 displayHold;
 };
-static constexpr size_t kT19LogicalDisplayRowCount = 7;
+static constexpr size_t kT19LogicalDisplayRowCount = 8;
 static Win32_HudPaged_T19LogicalButtonDisplaySnap s_hudPagedT19LastLogicalSnap[kT19LogicalDisplayRowCount] = {};
 static wchar_t s_hudPagedT19LastAnalog[16384] = {};
 static bool s_hudPagedT19HasSnapshot = false;
@@ -5548,6 +5548,7 @@ static void Win32_HudPaged_T19FillLogicalDisplaySnapshot(
         LogicalButtonId::South,
         LogicalButtonId::East,
         LogicalButtonId::Start,
+        LogicalButtonId::Select,
         LogicalButtonId::DPadUp,
         LogicalButtonId::DPadDown,
         LogicalButtonId::DPadLeft,
@@ -5672,7 +5673,8 @@ static void Win32_HudPaged_FillT19LogicalSection(wchar_t* buf, size_t bufCount)
     } kRows[] = {
         {LogicalButtonId::South, L"South", L"Enter", L"A/Cross"},
         {LogicalButtonId::East, L"East", L"Backspace", L"B/Circle"},
-        {LogicalButtonId::Start, L"Start", L"Tab", L"Start/Options"},
+        {LogicalButtonId::Start, L"Start", L"Tab", L"Options"},
+        {LogicalButtonId::Select, L"Select", L"\u2014", L"Share"},
         {LogicalButtonId::DPadUp, L"Up", L"\u2191", L"DPad Up"},
         {LogicalButtonId::DPadDown, L"Down", L"\u2193", L"DPad Down"},
         {LogicalButtonId::DPadLeft, L"Left", L"\u2190", L"DPad Left"},
@@ -6724,6 +6726,51 @@ static void Win32_UnifiedInputMenuTick_TryKbArrowHoldRepeat(HWND hwnd)
     }
 }
 
+// PS4 経路の VirtualInput 変化のみ（既定 off）。論理層の検証用。1 = [LOGICALDBG] PS4 pad ...
+#ifndef WIN32_LOGICAL_INPUT_DEBUG_PAD_TRANSITION
+#define WIN32_LOGICAL_INPUT_DEBUG_PAD_TRANSITION 0
+#endif
+#if WIN32_LOGICAL_INPUT_DEBUG_PAD_TRANSITION
+static void Win32_LogicalInputDebugPadTransitionIfAny()
+{
+    static VirtualInputSnapshot s_prev{};
+    static bool s_hasPrev = false;
+    const VirtualInputSnapshot& c = s_virtualInputCurr;
+    if (!c.connected || c.family != GameControllerKind::PlayStation4)
+    {
+        s_hasPrev = false;
+        return;
+    }
+    if (!s_hasPrev)
+    {
+        s_prev = c;
+        s_hasPrev = true;
+        return;
+    }
+    const bool any = (s_prev.south != c.south) || (s_prev.east != c.east) || (s_prev.start != c.start)
+        || (s_prev.select != c.select) || (s_prev.dpadUp != c.dpadUp) || (s_prev.dpadDown != c.dpadDown)
+        || (s_prev.dpadLeft != c.dpadLeft) || (s_prev.dpadRight != c.dpadRight);
+    if (any)
+    {
+        wchar_t w[320] = {};
+        swprintf_s(
+            w,
+            _countof(w),
+            L"[LOGICALDBG] PS4 pad S=%d E=%d St=%d Sel=%d UDLR=%d%d%d%d\r\n",
+            c.south ? 1 : 0,
+            c.east ? 1 : 0,
+            c.start ? 1 : 0,
+            c.select ? 1 : 0,
+            c.dpadUp ? 1 : 0,
+            c.dpadDown ? 1 : 0,
+            c.dpadLeft ? 1 : 0,
+            c.dpadRight ? 1 : 0);
+        OutputDebugStringW(w);
+    }
+    s_prev = c;
+}
+#endif
+
 // s_keyboardActionState と s_virtualInputCurr が同一 WM_TIMER tick で揃った直後、
 // VirtualInputPolicy / VirtualInputConsumer（メニュー用）より前にアプリ共通の論理ボタン状態を更新する。
 // 本層の「1 フレーム」= このタイマー 1 回（LogicalInputState.h 参照）。
@@ -6732,6 +6779,9 @@ static void Win32_LogicalInputTick_AfterPadAndKeyboardCurrent()
     bool logicalDown[static_cast<size_t>(LogicalButtonId::Count)]{};
     LogicalInput_FillCurrentDownFromSources(logicalDown, s_keyboardActionState, s_virtualInputCurr);
     LogicalInputState_Update(s_logicalInputState, logicalDown);
+#if WIN32_LOGICAL_INPUT_DEBUG_PAD_TRANSITION
+    Win32_LogicalInputDebugPadTransitionIfAny();
+#endif
 }
 
 // menuOpen が true の間は T14/T15/T17 のキーボード操作を抑止（MergeAndApply で T14 は ↑↓ を一覧へ、←→ は全ページでページ送り）。閉じているときだけ表示系デバッグ操作を処理。
