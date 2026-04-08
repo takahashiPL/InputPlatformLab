@@ -7837,12 +7837,23 @@ static void Win32_WndProc_OnRawInput(LPARAM lParam)
         Win32_FillLayoutTag(layoutTag, _countof(layoutTag));
         wchar_t line[512];
         PhysicalKey_FormatDebugLine(ev, labelPtr, layoutTag, line, _countof(line));
-        // 矢印: 既に down 中の repeat make は kbStateApplied=false のはずだが、取りこぼしで true になる場合も抑止する。
-        const bool suppressArrowRepeatMakeLog =
-            !ev.is_key_up && isArrowVk &&
-            (rawArrowDownBefore || kbArrowLogicalDownBefore || !kbStateApplied);
-        const bool shouldLogPhysicalKey =
-            ev.is_key_up || (kbStateApplied && !suppressArrowRepeatMakeLog);
+        // 矢印 make: 初回 down（raw も論理も未 down → kbStateApplied=true）だけログ。repeat make は必ず抑止。
+        // break: 従来どおり常にログ（最終 break を含む）。
+        // 非矢印: 従来どおり kbStateApplied || break で初回／単発をログ。
+        bool shouldLogPhysicalKey = false;
+        if (ev.is_key_up)
+        {
+            shouldLogPhysicalKey = true;
+        }
+        else if (isArrowVk)
+        {
+            shouldLogPhysicalKey =
+                kbStateApplied && !rawArrowDownBefore && !kbArrowLogicalDownBefore;
+        }
+        else
+        {
+            shouldLogPhysicalKey = kbStateApplied;
+        }
         if (shouldLogPhysicalKey)
         {
             OutputDebugStringW(line);
