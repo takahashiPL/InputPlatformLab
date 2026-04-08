@@ -5545,24 +5545,6 @@ void Win32_HudPaged_PaintGdi(
         break;
     }
 
-    if (kHudPagedPaintDebugLog)
-    {
-        wchar_t fracDbg[32] = {};
-        swprintf_s(fracDbg, L"%d/%d", s_hudPagedIndex + 1, kHudPagedCount);
-        wchar_t dbg[512] = {};
-        swprintf_s(
-            dbg,
-            _countof(dbg),
-            L"[HUDPAINT] Win32_HudPaged_PaintGdi entered page=%s idx=%d titleLen=%u bodyLen=%u "
-            L"fracLen=%u\r\n",
-            kHudPagedPageIds[s_hudPagedIndex],
-            s_hudPagedIndex,
-            static_cast<unsigned>(wcslen(kHudPagedPageTitles[s_hudPagedIndex])),
-            static_cast<unsigned>(wcslen(bodyBuf)),
-            static_cast<unsigned>(wcslen(fracDbg)));
-        OutputDebugStringW(dbg);
-    }
-
     const COLORREF hdcPrevText = GetTextColor(hdc);
 
     BOOL bitBltToMemOk = FALSE;
@@ -5742,11 +5724,18 @@ void Win32_HudPaged_PaintGdi(
 
     if (kHudPagedPaintDebugLog)
     {
-        wchar_t dbg[384] = {};
+        wchar_t fracDbg[32] = {};
+        swprintf_s(fracDbg, L"%d/%d", s_hudPagedIndex + 1, kHudPagedCount);
+        wchar_t dbg[512] = {};
         swprintf_s(
             dbg,
             _countof(dbg),
-            L"[HUDPAINT] memdc=%s bitbltToMem=%s bitbltToScreen=%s\r\n",
+            L"[HUDPAINT] Win32_HudPaged_PaintGdi page=%s titleLen=%u bodyLen=%u fracLen=%u memdc=%s "
+            L"bitbltToMem=%s bitbltToScreen=%s\r\n",
+            kHudPagedPageIds[s_hudPagedIndex],
+            static_cast<unsigned>(wcslen(kHudPagedPageTitles[s_hudPagedIndex])),
+            static_cast<unsigned>(wcslen(bodyBuf)),
+            static_cast<unsigned>(wcslen(fracDbg)),
             useOffscreen ? L"ok" : L"fail",
             useOffscreen ? (bitBltToMemOk ? L"ok" : L"fail") : L"n/a",
             useOffscreen ? (bitBltToScreenOk ? L"ok" : L"fail") : L"n/a");
@@ -7538,6 +7527,17 @@ static void Win32_WndProc_OnXInputPollTimer(HWND hWnd)
             wcscpy_s(s_hudPagedT19LastAnalog, analogNow);
             s_hudPagedT19HasSnapshot = true;
             s_hudPagedT19LastAnalogInvalidateTick = GetTickCount64();
+            if (kHudPagedPaintDebugLog)
+            {
+                wchar_t dbg[256] = {};
+                swprintf_s(
+                    dbg,
+                    _countof(dbg),
+                    L"[HUDPAINT] T19 timer page=T19 logical=1 analog=%d analogThrottled=0 "
+                    L"invalidateIssued=1\r\n",
+                    analogChanged ? 1 : 0);
+                OutputDebugStringW(dbg);
+            }
             InvalidateRect(hWnd, nullptr, FALSE);
             if (kT19InvalidateDebugLog)
             {
@@ -7555,11 +7555,23 @@ static void Win32_WndProc_OnXInputPollTimer(HWND hWnd)
             {
                 wcscpy_s(s_hudPagedT19LastAnalog, analogNow);
                 s_hudPagedT19LastAnalogInvalidateTick = now;
+                if (kHudPagedPaintDebugLog)
+                {
+                    OutputDebugStringW(
+                        L"[HUDPAINT] T19 timer page=T19 logical=0 analog=1 analogThrottled=0 "
+                        L"invalidateIssued=1\r\n");
+                }
                 InvalidateRect(hWnd, nullptr, FALSE);
                 if (kT19InvalidateDebugLog)
                 {
                     OutputDebugStringW(L"[T19 inv] logical=0 analog=1 analog_throttled=1\r\n");
                 }
+            }
+            else if (kHudPagedPaintDebugLog)
+            {
+                OutputDebugStringW(
+                    L"[HUDPAINT] T19 timer page=T19 logical=0 analog=1 analogThrottled=1 "
+                    L"invalidateIssued=0\r\n");
             }
         }
     }
@@ -7873,7 +7885,26 @@ static void Win32_MainView_PaintFrame(HWND hWnd)
 {
     if (kHudPagedPaintDebugLog)
     {
-        OutputDebugStringW(L"[HUDPAINT] Win32_MainView_PaintFrame entered\r\n");
+        wchar_t dbg[256] = {};
+        if (Win32_HudPaged_IsEnabled())
+        {
+            swprintf_s(
+                dbg,
+                _countof(dbg),
+                L"[HUDPAINT] WM_PAINT entered page=%s idx=%d\r\n",
+                kHudPagedPageIds[s_hudPagedIndex],
+                s_hudPagedIndex);
+        }
+        else
+        {
+            swprintf_s(
+                dbg,
+                _countof(dbg),
+                L"[HUDPAINT] WM_PAINT entered page=%s idx=%d\r\n",
+                L"(paged-hud-off)",
+                -1);
+        }
+        OutputDebugStringW(dbg);
     }
     PAINTSTRUCT ps;
     HDC hdc = BeginPaint(hWnd, &ps);
