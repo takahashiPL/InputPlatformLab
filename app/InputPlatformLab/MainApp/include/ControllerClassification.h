@@ -47,6 +47,9 @@ void Win32_ResolveHidProductTable(
     ControllerParserKind& outParser,
     ControllerSupportLevel& outSupport);
 
+// T18 表示用: Raw Input の製品文字列・SetupDi が無いときの短い人間可読名（VID/PID 既知行・Sony 既定）。nullptr なら (none) 扱い。
+const wchar_t* Win32_ControllerHidProductDisplayNameFallback(UINT16 vid, UINT16 pid);
+
 const wchar_t* Win32_ControllerParserKindLabel(ControllerParserKind p);
 const wchar_t* Win32_ControllerSupportLevelLabel(ControllerSupportLevel s);
 

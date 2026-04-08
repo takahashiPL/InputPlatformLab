@@ -13,6 +13,11 @@
 
 #include <windowsx.h>
 
+#include <initguid.h>
+#include <hidclass.h>
+#include <setupapi.h>
+#pragma comment(lib, "SetupAPI.lib")
+
 #include <cstdint>
 #include <cstring>
 #include <climits>
@@ -3076,6 +3081,91 @@ static bool Win32_T18_RawInputProductLooksLikeDevicePath(const wchar_t* s)
     return false;
 }
 
+// Raw Input の RIDI_DEVICENAME と SetupDi 列挙の DevicePath が接頭辞などで微妙に違う場合の比較。
+static bool Win32_T18_HidDevicePathsEqualEnough(const wchar_t* a, const wchar_t* b)
+{
+    if (!a || !b || a[0] == L'\0' || b[0] == L'\0')
+    {
+        return false;
+    }
+    if (_wcsicmp(a, b) == 0)
+    {
+        return true;
+    }
+    const wchar_t* ca = wcsstr(a, L"HID#");
+    const wchar_t* cb = wcsstr(b, L"HID#");
+    if (ca && cb && _wcsicmp(ca, cb) == 0)
+    {
+        return true;
+    }
+    return false;
+}
+
+// SetupDi: デバイス説明（Device Description）。RIDI_PRODUCTNAME が無い／パスに見えるときの補助。
+static bool Win32_T18_TrySetupDiDeviceDescriptionFromHidPath(const wchar_t* devicePath, wchar_t* out, size_t outCount)
+{
+    if (!devicePath || devicePath[0] == L'\0' || outCount == 0)
+    {
+        return false;
+    }
+    out[0] = L'\0';
+
+    HDEVINFO hDevInfo =
+        SetupDiGetClassDevs(&GUID_DEVINTERFACE_HID, nullptr, nullptr, DIGCF_PRESENT | DIGCF_DEVICEINTERFACE);
+    if (hDevInfo == INVALID_HANDLE_VALUE)
+    {
+        return false;
+    }
+
+    bool found = false;
+    SP_DEVICE_INTERFACE_DATA ifData{};
+    ifData.cbSize = sizeof(SP_DEVICE_INTERFACE_DATA);
+
+    for (DWORD index = 0; SetupDiEnumDeviceInterfaces(hDevInfo, nullptr, &GUID_DEVINTERFACE_HID, index, &ifData);
+         ++index)
+    {
+        DWORD required = 0;
+        SetupDiGetDeviceInterfaceDetailW(hDevInfo, &ifData, nullptr, 0, &required, nullptr);
+        if (required < sizeof(SP_DEVICE_INTERFACE_DETAIL_DATA))
+        {
+            continue;
+        }
+        std::vector<BYTE> detailBuffer(required);
+        auto* pDetail = reinterpret_cast<SP_DEVICE_INTERFACE_DETAIL_DATA*>(detailBuffer.data());
+        pDetail->cbSize = sizeof(SP_DEVICE_INTERFACE_DETAIL_DATA);
+        SP_DEVINFO_DATA devInfoData{};
+        devInfoData.cbSize = sizeof(SP_DEVINFO_DATA);
+        if (!SetupDiGetDeviceInterfaceDetailW(hDevInfo, &ifData, pDetail, required, nullptr, &devInfoData))
+        {
+            continue;
+        }
+        if (!Win32_T18_HidDevicePathsEqualEnough(devicePath, pDetail->DevicePath))
+        {
+            continue;
+        }
+        DWORD regType = 0;
+        DWORD need = static_cast<DWORD>((outCount - 1) * sizeof(wchar_t));
+        if (SetupDiGetDeviceRegistryPropertyW(
+                hDevInfo,
+                &devInfoData,
+                SPDRP_DEVICEDESC,
+                &regType,
+                reinterpret_cast<PBYTE>(out),
+                need,
+                nullptr))
+        {
+            out[outCount - 1] = L'\0';
+            if (out[0] != L'\0')
+            {
+                found = true;
+            }
+        }
+        break;
+    }
+    SetupDiDestroyDeviceInfoList(hDevInfo);
+    return found;
+}
+
 // ---------------------------------------------------------------------------
 // T18: デバッグ表示ブロック（先頭 HID + 先頭 XInput スロット・VID/PID・parser/support）
 // ---------------------------------------------------------------------------
@@ -5202,6 +5292,49 @@ static void Win32_T18_FillWhyHudShort(const T18ControllerIdentifySnapshot& s, wc
         return;
     }
     const bool hori006d = (s.hid.vendor_id == 0x0F0D && s.hid.product_id == 0x006D);
+    if (hori006d)
+    {
+        swprintf_s(
+            buf,
+            bufCount,
+            L"%s · %s\r\n"
+            L"HORI-class · XInput優先\r\n"
+            L"details → [T18] rationale",
+            Win32_ControllerSupportLevelLabel(s.support_level),
+            Win32_ControllerParserKindLabel(s.parser_kind));
+        return;
+    }
+    if (s.hid.vendor_id == 0x054C && s.support_level == ControllerSupportLevel::Tentative &&
+        s.parser_kind == ControllerParserKind::GenericHid)
+    {
+        if (s.hid.product_id == 0x0CE6 || s.hid.product_id == 0x0DF2)
+        {
+            wcscpy_s(
+                buf,
+                bufCount,
+                L"tentative · GenericHid\r\n"
+                L"DualSense-class (USB)\r\n"
+                L"details → [T18] rationale");
+            return;
+        }
+        if (s.inferred_kind == GameControllerKind::PlayStation5)
+        {
+            wcscpy_s(
+                buf,
+                bufCount,
+                L"tentative · GenericHid\r\n"
+                L"Sony PS5-class (HID)\r\n"
+                L"details → [T18] rationale");
+            return;
+        }
+        wcscpy_s(
+            buf,
+            bufCount,
+            L"tentative · GenericHid\r\n"
+            L"Sony PS4-class (HID)\r\n"
+            L"details → [T18] rationale");
+        return;
+    }
     swprintf_s(
         buf,
         bufCount,
@@ -5210,7 +5343,7 @@ static void Win32_T18_FillWhyHudShort(const T18ControllerIdentifySnapshot& s, wc
         L"details → [T18] rationale",
         Win32_ControllerSupportLevelLabel(s.support_level),
         Win32_ControllerParserKindLabel(s.parser_kind),
-        hori006d ? L"0x0F0D/0x006D · HORI-class" : L"no per-device HID map");
+        L"no per-device HID map");
 }
 
 // ページ式 HUD 専用: 本文に device path 全文は載せない。フルパスは Win32_T18_LogIfChanged の
@@ -7043,18 +7176,62 @@ static void Win32_T18_FillIdentifyRationale(const T18ControllerIdentifySnapshot&
         wcscpy_s(buf, bufCount, L"XInput-only path (no HID gamepad in Raw Input order); verified API input.");
         return;
     }
-    // Tentative + GenericHid（またはテーブル行があっても HID レポート未検証）
     const bool hori006d = (s.hid.vendor_id == 0x0F0D && s.hid.product_id == 0x006D);
+    if (hori006d)
+    {
+        swprintf_s(
+            buf,
+            bufCount,
+            L"HORI-class 0x0F0D/0x006D: 多くの構成でゲーム入力は XInput 側。HID は補助/二重デバイスになり得る。"
+            L" parser=%s; support=%s（HID レポートマップは本ビルドでは未検証）。",
+            Win32_ControllerParserKindLabel(s.parser_kind),
+            Win32_ControllerSupportLevelLabel(s.support_level));
+        return;
+    }
+    if (s.hid.vendor_id == 0x054C && s.support_level == ControllerSupportLevel::Tentative &&
+        s.parser_kind == ControllerParserKind::GenericHid)
+    {
+        if (s.hid.product_id == 0x0CE6 || s.hid.product_id == 0x0DF2)
+        {
+            swprintf_s(
+                buf,
+                bufCount,
+                L"family=%s: DualSense 系 PID（テーブル）。parser=%s は汎用 HID; レポート検証は未実施のため tentative。",
+                Win32_GameControllerKindFamilyLabel(s.inferred_kind),
+                Win32_ControllerParserKindLabel(s.parser_kind));
+            return;
+        }
+        if (s.inferred_kind == GameControllerKind::PlayStation5)
+        {
+            swprintf_s(
+                buf,
+                bufCount,
+                L"family=%s: 名称/用途から PS5 寄せ。parser=%s; support=%s（HID レポートは本ビルドでは未検証）。",
+                Win32_GameControllerKindFamilyLabel(s.inferred_kind),
+                Win32_ControllerParserKindLabel(s.parser_kind),
+                Win32_ControllerSupportLevelLabel(s.support_level));
+            return;
+        }
+        swprintf_s(
+            buf,
+            bufCount,
+            L"family=%s: Sony PID=0x%04X。parser=%s; support=%s。"
+            L" DS4 verified は 0x05C4/0x09CC のみ（既知レポート）。それ以外は GenericHid のまま。",
+            Win32_GameControllerKindFamilyLabel(s.inferred_kind),
+            static_cast<unsigned>(s.hid.product_id),
+            Win32_ControllerParserKindLabel(s.parser_kind),
+            Win32_ControllerSupportLevelLabel(s.support_level));
+        return;
+    }
     swprintf_s(
         buf,
         bufCount,
         L"family=%s: classify(VID/PID/name/path, XInput any). "
         L"parser=%s: generic HID path (no per-device verified report map in this build). "
-        L"support=%s.%s",
+        L"support=%s.",
         Win32_GameControllerKindFamilyLabel(s.inferred_kind),
         Win32_ControllerParserKindLabel(s.parser_kind),
-        Win32_ControllerSupportLevelLabel(s.support_level),
-        hori006d ? L" Table: 0x0F0D/0x006D (HORI-class); still tentative." : L"");
+        Win32_ControllerSupportLevelLabel(s.support_level));
 }
 
 static void Win32_T18_LogIfChanged()
@@ -7179,7 +7356,32 @@ static void Win32_T18_RefreshControllerIdentifySnapshot()
 
                 const bool productUsable =
                     (productBuf[0] != L'\0') && !Win32_T18_RawInputProductLooksLikeDevicePath(productBuf);
-                const wchar_t* productPtr = productUsable ? productBuf : nullptr;
+
+                wchar_t setupDiProduct[256] = {};
+                bool setupDiOk = false;
+                if (pathBuf[0] != L'\0')
+                {
+                    setupDiOk =
+                        Win32_T18_TrySetupDiDeviceDescriptionFromHidPath(pathBuf, setupDiProduct, _countof(setupDiProduct));
+                }
+
+                const wchar_t* const tableFallback =
+                    Win32_ControllerHidProductDisplayNameFallback(traits.vendor_id, traits.product_id);
+
+                const wchar_t* classifyName = nullptr;
+                if (productUsable)
+                {
+                    classifyName = productBuf;
+                }
+                else if (setupDiOk && setupDiProduct[0] != L'\0')
+                {
+                    classifyName = setupDiProduct;
+                }
+                else if (tableFallback != nullptr)
+                {
+                    classifyName = tableFallback;
+                }
+
                 const wchar_t* pathPtr = (pathBuf[0] != L'\0') ? pathBuf : nullptr;
 
                 snap.hid = traits;
@@ -7189,9 +7391,17 @@ static void Win32_T18_RefreshControllerIdentifySnapshot()
                 {
                     wcscpy_s(snap.product_name, productBuf);
                 }
+                else if (setupDiOk && setupDiProduct[0] != L'\0')
+                {
+                    wcscpy_s(snap.product_name, setupDiProduct);
+                }
+                else if (tableFallback != nullptr)
+                {
+                    wcscpy_s(snap.product_name, tableFallback);
+                }
 
                 snap.inferred_kind =
-                    Win32_ClassifyGameControllerKind(traits, productPtr, pathPtr, anyXInput);
+                    Win32_ClassifyGameControllerKind(traits, classifyName, pathPtr, anyXInput);
                 Win32_ResolveHidProductTable(
                     traits.vendor_id,
                     traits.product_id,

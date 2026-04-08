@@ -59,6 +59,27 @@ void Win32_ResolveHidProductTable(
     outSupport = ControllerSupportLevel::Tentative;
 }
 
+const wchar_t* Win32_ControllerHidProductDisplayNameFallback(UINT16 vid, UINT16 pid)
+{
+    if (vid == 0x0F0D && pid == 0x006D)
+    {
+        return L"HORI pad (0x0F0D/0x006D, tabulated)";
+    }
+    if (vid == 0x054C && (pid == 0x05C4 || pid == 0x09CC))
+    {
+        return L"DualShock 4 (USB, DS4 table)";
+    }
+    if (vid == 0x054C && (pid == 0x0CE6 || pid == 0x0DF2))
+    {
+        return L"DualSense-class (USB, tabulated tentative)";
+    }
+    if (vid == 0x054C)
+    {
+        return L"Sony PS family HID (PID not in table)";
+    }
+    return nullptr;
+}
+
 // ログ・UI 用の短いラベル（enum の表示名）。
 const wchar_t* Win32_ControllerParserKindLabel(ControllerParserKind p)
 {
@@ -118,6 +139,12 @@ GameControllerKind Win32_ClassifyGameControllerKind(
         {
             return GameControllerKind::PlayStation4;
         }
+        // 名称・PID が取れない Sony HID ゲームパッド: PS4 ファミリに寄せる（verified ではない。parser はテーブルで決まる）。
+        if (t.usage_page == 0x01 && (t.usage == 0x04 || t.usage == 0x05))
+        {
+            return GameControllerKind::PlayStation4;
+        }
+        return GameControllerKind::Unknown;
     }
 
     // Nintendo (HID)
