@@ -31,6 +31,7 @@ struct GameControllerHidSummary
 bool Win32_HidTraitsLookLikeGamepad(const GameControllerHidSummary& t);
 
 // VID/PID → parser / support（DS4 のみ verified+Known HID。他はテーブル行があれば family のみ寄せ、未実機は決め打ちマッピングを増やさない暫定受け皿）
+// 0x0F0D HORI 等は XInput 経路でゲーム入力が取れることが多いが、HID レポートの検証マップは本ビルドでは持たず GenericHid+tentative のまま。
 struct ControllerHidProductTableEntry
 {
     UINT16 vid;

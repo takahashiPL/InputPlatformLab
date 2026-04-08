@@ -264,6 +264,7 @@ struct T18ControllerIdentifySnapshot
     GameControllerKind inferred_kind;
     ControllerParserKind parser_kind;
     ControllerSupportLevel support_level;
+    wchar_t rationale[512]; // 表示用: family/parser/support が tentative な理由（断定しない）
 };
 static T18ControllerIdentifySnapshot s_t18{};
 static T18ControllerIdentifySnapshot s_t18LogPrev{};
@@ -1954,6 +1955,7 @@ static bool Win32_RecreateMainWindowFromConfig(HWND oldHwnd, const MainWindowCon
     {
         OutputDebugStringW(L"[T16] RegisterRawInputDevices failed\r\n");
     }
+    Win32_T18_RefreshControllerIdentifySnapshot();
     SetTimer(newHwnd, TIMER_ID_XINPUT_POLL, XINPUT_POLL_INTERVAL_MS, nullptr);
 
     if (cfg.fillMonitorPhysical)
@@ -3195,6 +3197,16 @@ static void Win32_T18_AppendPaintSection(
         wcscpy_s(vidPidLine, L"vid/pid: n/a (no HID gamepad in Raw Input order)");
     }
 
+    wchar_t rationaleDisp[512] = {};
+    if (s_t18.rationale[0] != L'\0')
+    {
+        wcscpy_s(rationaleDisp, s_t18.rationale);
+    }
+    else
+    {
+        wcscpy_s(rationaleDisp, L"(none)");
+    }
+
     wchar_t block[2048] = {};
     swprintf_s(
         block,
@@ -3207,7 +3219,7 @@ static void Win32_T18_AppendPaintSection(
         L"parser: %s  support: %s\r\n"
         L"product name: %s\r\n"
         L"device path: %s\r\n"
-        L"(T18: one device — first HID gamepad in Raw Input enum order; VID/PID table is a receiver bucket; GenericHid+tentative is not a verified button map.)\r\n",
+        L"why (tentative/verified): %s\r\n",
         slotStr,
         s_t18.hid_found ? L"found" : L"not found",
         vidPidLine,
@@ -3215,7 +3227,8 @@ static void Win32_T18_AppendPaintSection(
         Win32_ControllerParserKindLabel(s_t18.parser_kind),
         Win32_ControllerSupportLevelLabel(s_t18.support_level),
         prodDisp,
-        pathDisp);
+        pathDisp,
+        rationaleDisp);
     wcscat_s(buf, bufCount, block);
 }
 
@@ -3423,6 +3436,9 @@ BOOL InitInstance(HINSTANCE hInstance, int nCmdShow)
    Win32_LogXInputSlotsAtStartup();
    Win32_LogRawInputHidGameControllersClassified();
    GamepadButton_LogLabelTablesAtStartup();
+
+   // WM_INPUT の [HIDgen] より先に T18 スナップショットを埋め、同一 VID/PID のログを抑止できるようにする。
+   Win32_T18_RefreshControllerIdentifySnapshot();
 
    ShowWindow(hWnd, nCmdShow);
    UpdateWindow(hWnd);
@@ -5171,6 +5187,11 @@ static void Win32_HudPaged_FillT18PageBody(wchar_t* buf, size_t bufCount)
     {
         Win32_T18_TruncateWideForPaint(s_t18.product_name, prodShort, _countof(prodShort), 48);
     }
+    wchar_t rationaleShort[200] = L"";
+    if (s_t18.rationale[0] != L'\0')
+    {
+        Win32_T18_TruncateWideForPaint(s_t18.rationale, rationaleShort, _countof(rationaleShort), 96);
+    }
 
     swprintf_s(
         buf,
@@ -5180,14 +5201,16 @@ static void Win32_HudPaged_FillT18PageBody(wchar_t* buf, size_t bufCount)
         L"family=%s\r\n"
         L"parser=%s  support=%s\r\n"
         L"product=%s\r\n"
-        L"path: (full string in [T18] debug line)\r\n",
+        L"why: %s\r\n"
+        L"path: (full in [T18] debug line)\r\n",
         slotStr,
         s_t18.hid_found ? L"yes" : L"no",
         vidPidLine,
         Win32_GameControllerKindFamilyLabel(s_t18.inferred_kind),
         Win32_ControllerParserKindLabel(s_t18.parser_kind),
         Win32_ControllerSupportLevelLabel(s_t18.support_level),
-        prodShort);
+        prodShort,
+        (rationaleShort[0] != L'\0') ? rationaleShort : L"(none)");
 }
 
 // T19: 論理ボタン + アナログ（ページ式 HUD 専用。表記は LogicalInput_FillCurrentDownFromSources と揃える）
@@ -6935,6 +6958,53 @@ static void Win32_LogRawInputHidGameControllersClassified()
 }
 
 // === T18: XInput 先頭スロット + Raw Input 先頭 HID ゲームパッド（1 台・WM_PAINT で更新） ===
+static void Win32_T18_FillIdentifyRationale(const T18ControllerIdentifySnapshot& s, wchar_t* buf, size_t bufCount)
+{
+    if (bufCount == 0)
+    {
+        return;
+    }
+    buf[0] = L'\0';
+    if (!s.hid_found)
+    {
+        if (s.xinput_slot >= 0)
+        {
+            swprintf_s(
+                buf,
+                bufCount,
+                L"No Raw HID gamepad in enum order; XInput slot %d → family/parser via XInput API (verified).",
+                s.xinput_slot);
+        }
+        else
+        {
+            wcscpy_s(buf, bufCount, L"No HID match; no XInput slot.");
+        }
+        return;
+    }
+    if (s.support_level == ControllerSupportLevel::Verified && s.parser_kind == ControllerParserKind::Ds4KnownHid)
+    {
+        wcscpy_s(buf, bufCount, L"VID/PID in verified DS4 HID table; known report layout.");
+        return;
+    }
+    if (s.support_level == ControllerSupportLevel::Verified && s.parser_kind == ControllerParserKind::XInput)
+    {
+        wcscpy_s(buf, bufCount, L"XInput-only path (no HID gamepad in Raw Input order); verified API input.");
+        return;
+    }
+    // Tentative + GenericHid（またはテーブル行があっても HID レポート未検証）
+    const bool hori006d = (s.hid.vendor_id == 0x0F0D && s.hid.product_id == 0x006D);
+    swprintf_s(
+        buf,
+        bufCount,
+        L"family=%s: classify(VID/PID/name/path, XInput any). "
+        L"parser=%s: generic HID path (no per-device verified report map in this build). "
+        L"support=%s.%s",
+        Win32_GameControllerKindFamilyLabel(s.inferred_kind),
+        Win32_ControllerParserKindLabel(s.parser_kind),
+        Win32_ControllerSupportLevelLabel(s.support_level),
+        hori006d ? L" Table: 0x0F0D/0x006D (HORI-class); still tentative." : L"");
+}
+
 static void Win32_T18_LogIfChanged()
 {
     const bool same =
@@ -6947,7 +7017,8 @@ static void Win32_T18_LogIfChanged()
         (s_t18.parser_kind == s_t18LogPrev.parser_kind) &&
         (s_t18.support_level == s_t18LogPrev.support_level) &&
         (wcscmp(s_t18.product_name, s_t18LogPrev.product_name) == 0) &&
-        (wcscmp(s_t18.device_path, s_t18LogPrev.device_path) == 0);
+        (wcscmp(s_t18.device_path, s_t18LogPrev.device_path) == 0) &&
+        (wcscmp(s_t18.rationale, s_t18LogPrev.rationale) == 0);
     if (same)
     {
         return;
@@ -6984,6 +7055,9 @@ static void Win32_T18_LogIfChanged()
         (s_t18.product_name[0] != L'\0') ? s_t18.product_name : L"",
         pathHint);
     OutputDebugStringW(line);
+    wchar_t rat[640] = {};
+    swprintf_s(rat, _countof(rat), L"[T18] rationale: %s\r\n", s_t18.rationale);
+    OutputDebugStringW(rat);
 }
 
 static void Win32_T18_RefreshControllerIdentifySnapshot()
@@ -7086,6 +7160,7 @@ static void Win32_T18_RefreshControllerIdentifySnapshot()
         }
     }
 
+    Win32_T18_FillIdentifyRationale(snap, snap.rationale, _countof(snap.rationale));
     s_t18 = snap;
     Win32_T18_LogIfChanged();
 }
@@ -7516,8 +7591,8 @@ static void Win32_TryLogRawInputHidPs4AndBridge(const RAWINPUT* raw)
 }
 
 // WM_INPUT: XInput はタイマー側。ここは Raw HID — 既知 DS4 橋渡し or 汎用 HID 要約。
-// [HIDgen]: 同一 VID/PID は kHidGenericLogMinIntervalMs に 1 行まで（usage/payload はコレクションで変わりうるためスロットルキーに含めない）
-static constexpr DWORD kHidGenericLogMinIntervalMs = 1000u;
+// [HIDgen]: T18 と同一 VID/PID の先頭 HID は抑止（T18 ログで足りる）。それ以外は同一 VID/PID で間引き。
+static constexpr DWORD kHidGenericLogMinIntervalMs = 60000u;
 static constexpr bool kHidGenThrottleDebugLog = false; // true で [HIDgenDbg]（調査時のみ）
 static DWORD s_hidGenericLastLogTick = 0;
 static UINT16 s_hidGenericLastVid = 0;
@@ -7554,6 +7629,10 @@ static void Win32_LogGenericHidGamepadFallback(const RAWINPUT* raw, const GameCo
 {
     const RAWHID& hid = raw->data.hid;
     const UINT nBytes = hid.dwSizeHid * hid.dwCount;
+    if (s_t18.hid_found && t.vendor_id == s_t18.hid.vendor_id && t.product_id == s_t18.hid.product_id)
+    {
+        return;
+    }
     ControllerParserKind pk{};
     ControllerSupportLevel sl{};
     Win32_ResolveHidProductTable(t.vendor_id, t.product_id, pk, sl);
@@ -7589,11 +7668,9 @@ static void Win32_LogGenericHidGamepadFallback(const RAWINPUT* raw, const GameCo
     swprintf_s(
         line,
         _countof(line),
-        L"[HIDgen] vid=0x%04X pid=0x%04X usage=0x%04X/0x%04X payload=%u parser=%s support=%s (tentative bucket; no verified map)\r\n",
+        L"[HIDgen] vid=0x%04X pid=0x%04X payload=%u parser=%s support=%s (generic; not T18 primary or secondary HID)\r\n",
         static_cast<unsigned int>(t.vendor_id),
         static_cast<unsigned int>(t.product_id),
-        static_cast<unsigned int>(t.usage_page),
-        static_cast<unsigned int>(t.usage),
         static_cast<unsigned int>(nBytes),
         Win32_ControllerParserKindLabel(pk),
         Win32_ControllerSupportLevelLabel(sl));

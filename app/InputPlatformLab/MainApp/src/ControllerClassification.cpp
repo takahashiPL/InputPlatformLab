@@ -29,6 +29,9 @@ const ControllerHidProductTableEntry kControllerHidProductTable[] = {
         ControllerSupportLevel::Tentative },
     { 0x045E, 0xFFFF, GameControllerKind::Xbox, ControllerParserKind::GenericHid,
         ControllerSupportLevel::Tentative },
+    // HORI: 代表的 XInput 互換パッド（実機ごとに PID 差あり）。HID は補助デバイス; レポート検証は未実施のため tentative のまま。
+    { 0x0F0D, 0x006D, GameControllerKind::XInputCompatible, ControllerParserKind::GenericHid,
+        ControllerSupportLevel::Tentative },
 };
 } // namespace
 
@@ -121,6 +124,12 @@ GameControllerKind Win32_ClassifyGameControllerKind(
     if (t.vendor_id == 0x057E)
     {
         return GameControllerKind::Nintendo;
+    }
+
+    // HORI 等 0x0F0D: XInput が接続していればゲーム入力は API 側で取れる。HID レポートは本アプリでは未検証のまま。
+    if (t.vendor_id == 0x0F0D && anyXInputConnected)
+    {
+        return GameControllerKind::XInputCompatible;
     }
 
     // 3: Microsoft VID または Xbox 名称
