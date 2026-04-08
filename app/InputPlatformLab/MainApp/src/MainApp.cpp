@@ -4009,11 +4009,12 @@ static void Win32_FillVirtualInputSnapshotFromXInputState(const XINPUT_STATE& st
 
 // DS4 USB (VID 054C / PID 05C4) 実機確認済みマップ（VirtualInput 橋渡し）
 // T18: hat>=8 では dpad ビットは立てない（hat<8 のみ）。DPad+L1 同時の WM_INPUT で hatLo=8・L1=1 が来ることがあり（[PS4RawCombo]）、dpad=0000 でも生と整合。
-// byte5: hat0-3, Square 0x10, Circle 0x20, Options 0x40, R3=b5&0x80（例: rawB5=0x88=hat8+R3）
-// byte6: L1=b6&0x01（例: rawB6=0x01 + slot99 L1R1=10）, R1 0x02, L2 0x04, R2 0x08, Share 0x10, Cross 0x20, L3 0x40, Triangle 0x80
+// byte5: hat0-3, Square 0x10, Circle 0x20, Options 0x40, Triangle 0x80
+// byte6: L1=b6&0x01（例: rawB6=0x01 + slot99 L1R1=10）, R1 0x02, L2 0x04, R2 0x08, Share 0x10, Cross 0x20, L3 0x40, R3 0x80
 // byte7: PS 0x01
 // byte8/9: L2/R2 アナログ
-// VirtualInputPolicy: South=Cross(b6&0x20), East=Circle(b5&0x20), Start=Options(b5&0x40), Select=Share(b6&0x10), West=Square(b5&0x10), psHome=PS
+// VirtualInputPolicy: South=Cross(b6&0x20), East=Circle(b5&0x20), Start=Options(b5&0x40), Select=Share(b6&0x10),
+//   West=Square(b5&0x10), North=Triangle(b5&0x80), R3(b6&0x80), psHome=PS
 static bool Win32_FillVirtualInputFromDs4StyleHidReport(const BYTE* buf, UINT len, VirtualInputSnapshot& out)
 {
     if (buf == nullptr || len < 10)
@@ -4049,11 +4050,11 @@ static bool Win32_FillVirtualInputFromDs4StyleHidReport(const BYTE* buf, UINT le
     out.west = (buf[5] & 0x10) != 0;
     out.east = (buf[5] & 0x20) != 0;
     out.start = (buf[5] & 0x40) != 0;
-    out.r3 = (buf[5] & 0x80) != 0; // R3: b5&0x80（実測 rawB5=0x88, R3Only, slot99 L3R3=01）
+    out.north = (buf[5] & 0x80) != 0;
 
     out.select = (buf[6] & 0x10) != 0;
     out.south = (buf[6] & 0x20) != 0;
-    out.north = (buf[6] & 0x80) != 0;
+    out.r3 = (buf[6] & 0x80) != 0;
 
     out.l1 = (buf[6] & 0x01) != 0; // L1: b6&0x01（実測 rawB6=0x01, L1Only, slot99 L1R1=10）
     out.r1 = (buf[6] & 0x02) != 0;
@@ -7919,7 +7920,7 @@ static void Win32_TryLogRawInputHidPs4AndBridge(const RAWINPUT* raw)
         swprintf_s(
             ps4btn,
             _countof(ps4btn),
-            L"[PS4BTN] policy=West(b5&0x10) Sel(b6&0x10) South(b6&0x20) East(b5&0x20) Tri(b6&0x80) menu(b5&0x40) R3(b5&0x80) "
+            L"[PS4BTN] policy=West(b5&0x10) Sel(b6&0x10) South(b6&0x20) East(b5&0x20) Tri(b5&0x80) menu(b5&0x40) R3(b6&0x80) "
             L"L1(b6&0x01) R1(b6&0x02) L2d(b6&0x04) R2d(b6&0x08) L3(b6&0x40) "
             L"b0=%02X b1=%02X b2=%02X b3=%02X b4=%02X b5=%02X b6=%02X b7=%02X b8=%02X b9=%02X "
             L"buttonsNibble=%u b5_hiNibble=%u faceBits=0x%02X dpad=%u "
@@ -7957,7 +7958,7 @@ static void Win32_TryLogRawInputHidPs4AndBridge(const RAWINPUT* raw)
                 ps4map,
                 _countof(ps4map),
                 L"[PS4MAP] raw(b5,b6,b7)=%02X,%02X,%02X parsedSouth=%d parsedEast=%d parsedMenu=%d parsedSel=%d "
-                L"candL3_b6_40=%u candTri_b6_80=%u candMenu_b5_40=%u candR3_b5_80=%u\r\n",
+                L"candL3_b6_40=%u candTri_b5_80=%u candMenu_b5_40=%u candR3_b6_80=%u\r\n",
                 p[5],
                 p[6],
                 p[7],
@@ -7966,9 +7967,9 @@ static void Win32_TryLogRawInputHidPs4AndBridge(const RAWINPUT* raw)
                 parseOk && snap.start ? 1 : 0,
                 parseOk && snap.select ? 1 : 0,
                 c6_40,
-                c6_80,
+                (p[5] & 0x80) != 0 ? 1u : 0u,
                 (p[5] & 0x40) != 0 ? 1u : 0u,
-                (p[5] & 0x80) != 0 ? 1u : 0u);
+                c6_80);
             OutputDebugStringW(ps4map);
         }
     
