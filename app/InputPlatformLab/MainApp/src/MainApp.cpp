@@ -4054,6 +4054,7 @@ static bool Win32_FillVirtualInputFromDs4StyleHidReport(const BYTE* buf, UINT le
 
     out.select = (buf[6] & 0x10) != 0;
     out.south = (buf[6] & 0x20) != 0;
+    // R3: rawB6 の bit7（0x80）。L3（0x40）と同じ byte、別ビット。North(Triangle) は b5&0x80 のみで競合なし。
     out.r3 = (buf[6] & 0x80) != 0;
 
     out.l1 = (buf[6] & 0x01) != 0; // L1: b6&0x01（実測 rawB6=0x01, L1Only, slot99 L1R1=10）
