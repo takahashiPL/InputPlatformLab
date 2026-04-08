@@ -5947,8 +5947,7 @@ static void Win32_HudPaged_FillT19PadExtrasSection(wchar_t* buf, size_t bufCount
     }
     const VirtualInputSnapshot& v = s_virtualInputCurr;
 
-    Win32_HudPaged_AppendBodyLine(buf, bufCount, L"");
-    Win32_HudPaged_AppendBodyLine(buf, bufCount, L"pad extras: L|R pairs  pr/rl/pu/h  rNNN=L2/R2 raw");
+    Win32_HudPaged_AppendBodyLine(buf, bufCount, L"pad extras:");
 
     auto fmtDig = [&](wchar_t* dst, size_t dstCount, const wchar_t* name, LogicalButtonId id) {
         const LogicalButtonFrameState& f = LogicalInputState_Frame(*li, id);
@@ -6012,7 +6011,7 @@ static void Win32_HudPaged_FillT19PadExtrasSection(wchar_t* buf, size_t bufCount
     Win32_HudPaged_AppendBodyLine(buf, bufCount, line);
 }
 
-// buf に追記（論理ブロックの直後に空行 + analog: + 表示用安定化アナログ）。li 無効時は何もしない。
+// buf に追記（先頭行を analog: LS… にまとめ、行数を抑える）。li 無効時は何もしない。
 static void Win32_HudPaged_FillT19AnalogSectionInto(wchar_t* buf, size_t bufCount)
 {
     if (!buf || bufCount < 2)
@@ -6024,9 +6023,6 @@ static void Win32_HudPaged_FillT19AnalogSectionInto(wchar_t* buf, size_t bufCoun
     {
         return;
     }
-
-    Win32_HudPaged_AppendBodyLine(buf, bufCount, L"");
-    Win32_HudPaged_AppendBodyLine(buf, bufCount, L"analog:");
 
     const VirtualInputSnapshot& v = s_virtualInputCurr;
     const float lsx = Win32_HudPaged_T19StabilizeStickAxisDisplay(Win32_HudPaged_T19NormalizeStickAxis(v.leftStickX));
@@ -6045,7 +6041,7 @@ static void Win32_HudPaged_FillT19AnalogSectionInto(wchar_t* buf, size_t bufCoun
     swprintf_s(
         line,
         _countof(line),
-        L"LS x%+.2f %s  y%+.2f %s",
+        L"analog: LS x%+.2f %s  y%+.2f %s",
         static_cast<double>(lsx),
         barA,
         static_cast<double>(lsy),
