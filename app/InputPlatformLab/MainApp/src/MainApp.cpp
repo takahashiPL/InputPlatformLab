@@ -156,6 +156,8 @@ static size_t s_t14FirstVisibleModeIndex = 0;
 // ページ式 HUD: 0=T14,1=T15,2=T16,3=T18,4=T19,5=T17。既定は T14（表示モード一覧）。
 static int s_hudPagedIndex = 0;
 static constexpr int kHudPagedCount = 6;
+static constexpr int kHudPagedPageIndexT14 = 0;
+static constexpr int kHudPagedPageIndexT15 = 1;
 // T19: 論理行とアナログ表示を分けてスナップショット（論理は即時、analog-only は間引き）
 // ページ式 HUD 診断: true のときのみ [HUDPAINT] を出す（タイマー T19 / paintframe / paintgdi）。通常運用は false。
 static constexpr bool kHudPagedPaintDebugLog = false;
@@ -1153,20 +1155,20 @@ static void Win32_T15_LogDesiredNearestLine()
     OutputDebugStringW(line);
 }
 
-static void Win32_T15_TryChangePresetFromKeyboardEdges(bool leftEdge, bool rightEdge, HWND hwnd)
+static void Win32_T15_TryChangePresetFromKeyboardEdges(bool prevEdge, bool nextEdge, HWND hwnd)
 {
     if (!hwnd || kT15DesiredPresetCount == 0)
     {
         return;
     }
     const size_t oldPreset = s_t15DesiredPresetIndex;
-    if (leftEdge && !rightEdge)
+    if (prevEdge && !nextEdge)
     {
         s_t15DesiredPresetIndex =
             (s_t15DesiredPresetIndex == 0) ? (kT15DesiredPresetCount - 1)
                                            : (s_t15DesiredPresetIndex - 1);
     }
-    else if (rightEdge && !leftEdge)
+    else if (nextEdge && !prevEdge)
     {
         s_t15DesiredPresetIndex = (s_t15DesiredPresetIndex + 1) % kT15DesiredPresetCount;
     }
@@ -6310,8 +6312,9 @@ static void Win32_UnifiedInputMenuTick_TryKbArrowHoldRepeat(HWND hwnd)
 
     if (Win32_HudPaged_IsEnabled())
     {
-        if (s_hudPagedIndex == 0)
+        switch (s_hudPagedIndex)
         {
+        case kHudPagedPageIndexT14:
             if (u && Win32_KbArrowHoldRepeatFires(s_kbArrowHoldFramesUp))
             {
                 OutputDebugStringW(L"[T14] holdRepeat fire dir=up\r\n");
@@ -6322,9 +6325,8 @@ static void Win32_UnifiedInputMenuTick_TryKbArrowHoldRepeat(HWND hwnd)
                 OutputDebugStringW(L"[T14] holdRepeat fire dir=down\r\n");
                 Win32_T14_TryScrollFromKeyboardEdges(false, true, hwnd);
             }
-        }
-        else if (s_hudPagedIndex == 1)
-        {
+            break;
+        case kHudPagedPageIndexT15:
             if (u && Win32_KbArrowHoldRepeatFires(s_kbArrowHoldFramesUp))
             {
                 OutputDebugStringW(L"[T15] holdRepeat fire dir=up\r\n");
@@ -6335,6 +6337,9 @@ static void Win32_UnifiedInputMenuTick_TryKbArrowHoldRepeat(HWND hwnd)
                 OutputDebugStringW(L"[T15] holdRepeat fire dir=down\r\n");
                 Win32_T15_TryChangePresetFromKeyboardEdges(false, true, hwnd);
             }
+            break;
+        default:
+            break;
         }
         return;
     }
@@ -6376,9 +6381,11 @@ static void Win32_UnifiedInputConsumerMenuTick(HWND hwndForPaint)
 {
     Win32_UnifiedInputMenuTick_ClearPendingT17IfMenuOpen();
     Win32_UnifiedInputMenuTick_WhenMenuClosed(hwndForPaint);
-    Win32_UnifiedInputMenuTick_MergeAndApply(hwndForPaint);
+    // 矢印ホールドは MergeAndApply（Invalidate / メニュー試作）より先に進める。再入で KeyboardActionState が
+    // 一瞬ずれると T15 のホールドが不発に見えるのを避ける（T14 は従来どおり Raw 状態でカウント）。
     Win32_KbArrowUpdateHoldFrameCounters();
     Win32_UnifiedInputMenuTick_TryKbArrowHoldRepeat(hwndForPaint);
+    Win32_UnifiedInputMenuTick_MergeAndApply(hwndForPaint);
 }
 
 // ---------------------------------------------------------------------------
@@ -7764,12 +7771,12 @@ static void Win32_WndProc_OnRawInput(LPARAM lParam)
         Win32_FillLayoutTag(layoutTag, _countof(layoutTag));
         wchar_t line[512];
         PhysicalKey_FormatDebugLine(ev, labelPtr, layoutTag, line, _countof(line));
-        // 矢印: 既に raw 論理 down の make（オートリピート等）は kbStateApplied が true になり得るため、
-        // s_rawKeyboardKeyDown / KeyboardActionState を参照して PhysicalKey 行を出さない。
+        // 矢印: 既に down 中の repeat make は kbStateApplied=false のはずだが、取りこぼしで true になる場合も抑止する。
         const bool suppressArrowRepeatMakeLog =
-            !ev.is_key_up && isArrowVk && (rawArrowDownBefore || kbArrowLogicalDownBefore);
+            !ev.is_key_up && isArrowVk &&
+            (rawArrowDownBefore || kbArrowLogicalDownBefore || !kbStateApplied);
         const bool shouldLogPhysicalKey =
-            (kbStateApplied || ev.is_key_up) && !suppressArrowRepeatMakeLog;
+            ev.is_key_up || (kbStateApplied && !suppressArrowRepeatMakeLog);
         if (shouldLogPhysicalKey)
         {
             OutputDebugStringW(line);
