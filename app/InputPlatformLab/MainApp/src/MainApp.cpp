@@ -111,6 +111,13 @@ const LogicalInputState* InputCore_LogicalInputState()
     return &s_logicalInputState;
 }
 static KeyboardActionState s_keyboardActionStateAtLastTimer{};
+// キーボード矢印の押下継続フレーム数（タイマー 1 回 = +1）。物理オートリピートではなくここで T14/T15 の連続ステップを間引く。
+static UINT8 s_kbArrowHoldFramesUp = 0;
+static UINT8 s_kbArrowHoldFramesDown = 0;
+static UINT8 s_kbArrowHoldFramesLeft = 0;
+static UINT8 s_kbArrowHoldFramesRight = 0;
+static constexpr UINT8 kKbArrowHoldInitialRepeatFrames = 18;
+static constexpr UINT8 kKbArrowHoldRepeatIntervalFrames = 5;
 
 // グローバル変数:
 HINSTANCE hInst;                                // 現在のインターフェイス
@@ -140,7 +147,7 @@ struct DisplayMonitorInfo
 
 static std::vector<DisplayMonitorInfo> s_displayMonitorsCache;
 
-// T14 UI: 表示は visibleModeCount 行のみ。スタック HUD では menuOpen 中は ↑↓ が 2x2 のみ。ページ式 HUD では T14 は menuOpen 中もキーボード ↑↓ はモード一覧の >、他ページは menuOpen 中もキーボード ←→ はページ送り（2x2 はパッドや T14 の左右など）。
+// T14 UI: 表示は visibleModeCount 行のみ。スタック HUD では menuOpen 中は ↑↓ が 2x2 のみ。ページ式 HUD では menuOpen 中もキーボード ↑↓ は T14 でモード一覧の >、←→ は全ページでページ送り（2x2 の横はパッド優先）。
 static constexpr bool kT14KeyboardSelDebugLog = false; // true で [T14sel] 1 行（回帰確認用）
 static constexpr size_t kT14VisibleModeCount = 8;
 static constexpr size_t kT14SelectedMonitorIndex = 0;
@@ -6233,11 +6240,10 @@ static void Win32_UnifiedInputMenuTick_MergeAndApply(HWND hwndForPaint)
         kbForMerge.moveY = 0;
     }
 
-    // T14 以外のページで menuOpen のとき、キーボード ←→ は「↔ page」どおりページ送りに使う（2x2 の横はパッド優先で従来どおり）。
+    // menuOpen + ページ式 HUD の全ページ: キーボード ←→ は「↔ page」と同じくページ送り（T14 も他ページと同様。2x2 の横はパッド優先）。
     if (hwndForPaint &&
         s_virtualInputMenuSampleState.menuOpen &&
-        Win32_HudPaged_IsEnabled() &&
-        s_hudPagedIndex != 0)
+        Win32_HudPaged_IsEnabled())
     {
         const bool leftEdge = !s_keyboardActionStateAtLastTimer.left && s_keyboardActionState.left;
         const bool rightEdge = !s_keyboardActionStateAtLastTimer.right && s_keyboardActionState.right;
@@ -6257,6 +6263,104 @@ static void Win32_UnifiedInputMenuTick_MergeAndApply(HWND hwndForPaint)
     s_keyboardActionStateAtLastTimer = s_keyboardActionState;
 }
 
+static void Win32_KbArrowUpdateHoldFrameCounters()
+{
+    auto bump = [](bool active, UINT8& ctr) {
+        if (active)
+        {
+            ctr = (ctr < 255) ? static_cast<UINT8>(ctr + 1u) : ctr;
+        }
+        else
+        {
+            ctr = 0;
+        }
+    };
+    const bool u = s_keyboardActionState.up && !s_keyboardActionState.down;
+    const bool d = s_keyboardActionState.down && !s_keyboardActionState.up;
+    const bool l = s_keyboardActionState.left && !s_keyboardActionState.right;
+    const bool r = s_keyboardActionState.right && !s_keyboardActionState.left;
+    bump(u, s_kbArrowHoldFramesUp);
+    bump(d, s_kbArrowHoldFramesDown);
+    bump(l, s_kbArrowHoldFramesLeft);
+    bump(r, s_kbArrowHoldFramesRight);
+}
+
+static bool Win32_KbArrowHoldRepeatFires(UINT8 holdFrames)
+{
+    if (holdFrames < kKbArrowHoldInitialRepeatFrames)
+    {
+        return false;
+    }
+    const unsigned delta =
+        static_cast<unsigned>(holdFrames) - static_cast<unsigned>(kKbArrowHoldInitialRepeatFrames);
+    return (delta % static_cast<unsigned>(kKbArrowHoldRepeatIntervalFrames)) == 0u;
+}
+
+// T14/T15 のみ: 押下継続は論理タイマーで間引き（T16/T18/T19/T17 ページでは上下の連続ステップは行わない）。
+static void Win32_UnifiedInputMenuTick_TryKbArrowHoldRepeat(HWND hwnd)
+{
+    if (!hwnd)
+    {
+        return;
+    }
+    const bool u = s_keyboardActionState.up && !s_keyboardActionState.down;
+    const bool d = s_keyboardActionState.down && !s_keyboardActionState.up;
+    const bool l = s_keyboardActionState.left && !s_keyboardActionState.right;
+    const bool r = s_keyboardActionState.right && !s_keyboardActionState.left;
+
+    if (Win32_HudPaged_IsEnabled())
+    {
+        if (s_hudPagedIndex == 0)
+        {
+            if (u && Win32_KbArrowHoldRepeatFires(s_kbArrowHoldFramesUp))
+            {
+                OutputDebugStringW(L"[T14] holdRepeat fire dir=up\r\n");
+                Win32_T14_TryScrollFromKeyboardEdges(true, false, hwnd);
+            }
+            if (d && Win32_KbArrowHoldRepeatFires(s_kbArrowHoldFramesDown))
+            {
+                OutputDebugStringW(L"[T14] holdRepeat fire dir=down\r\n");
+                Win32_T14_TryScrollFromKeyboardEdges(false, true, hwnd);
+            }
+        }
+        else if (s_hudPagedIndex == 1)
+        {
+            if (u && Win32_KbArrowHoldRepeatFires(s_kbArrowHoldFramesUp))
+            {
+                OutputDebugStringW(L"[T15] holdRepeat fire dir=up\r\n");
+                Win32_T15_TryChangePresetFromKeyboardEdges(true, false, hwnd);
+            }
+            if (d && Win32_KbArrowHoldRepeatFires(s_kbArrowHoldFramesDown))
+            {
+                OutputDebugStringW(L"[T15] holdRepeat fire dir=down\r\n");
+                Win32_T15_TryChangePresetFromKeyboardEdges(false, true, hwnd);
+            }
+        }
+        return;
+    }
+
+    if (u && Win32_KbArrowHoldRepeatFires(s_kbArrowHoldFramesUp))
+    {
+        OutputDebugStringW(L"[T14] holdRepeat fire dir=up\r\n");
+        Win32_T14_TryScrollFromKeyboardEdges(true, false, hwnd);
+    }
+    if (d && Win32_KbArrowHoldRepeatFires(s_kbArrowHoldFramesDown))
+    {
+        OutputDebugStringW(L"[T14] holdRepeat fire dir=down\r\n");
+        Win32_T14_TryScrollFromKeyboardEdges(false, true, hwnd);
+    }
+    if (l && Win32_KbArrowHoldRepeatFires(s_kbArrowHoldFramesLeft))
+    {
+        OutputDebugStringW(L"[T15] holdRepeat fire dir=left\r\n");
+        Win32_T15_TryChangePresetFromKeyboardEdges(true, false, hwnd);
+    }
+    if (r && Win32_KbArrowHoldRepeatFires(s_kbArrowHoldFramesRight))
+    {
+        OutputDebugStringW(L"[T15] holdRepeat fire dir=right\r\n");
+        Win32_T15_TryChangePresetFromKeyboardEdges(false, true, hwnd);
+    }
+}
+
 // s_keyboardActionState と s_virtualInputCurr が同一 WM_TIMER tick で揃った直後、
 // VirtualInputPolicy / VirtualInputConsumer（メニュー用）より前にアプリ共通の論理ボタン状態を更新する。
 // 本層の「1 フレーム」= このタイマー 1 回（LogicalInputState.h 参照）。
@@ -6267,12 +6371,14 @@ static void Win32_LogicalInputTick_AfterPadAndKeyboardCurrent()
     LogicalInputState_Update(s_logicalInputState, logicalDown);
 }
 
-// menuOpen が true の間は T14/T15/T17 のキーボード操作を抑止（MergeAndApply で T14 は ↑↓ を一覧へ、T14 以外は ←→ をページへ）。閉じているときだけ表示系デバッグ操作を処理。
+// menuOpen が true の間は T14/T15/T17 のキーボード操作を抑止（MergeAndApply で T14 は ↑↓ を一覧へ、←→ は全ページでページ送り）。閉じているときだけ表示系デバッグ操作を処理。
 static void Win32_UnifiedInputConsumerMenuTick(HWND hwndForPaint)
 {
     Win32_UnifiedInputMenuTick_ClearPendingT17IfMenuOpen();
     Win32_UnifiedInputMenuTick_WhenMenuClosed(hwndForPaint);
     Win32_UnifiedInputMenuTick_MergeAndApply(hwndForPaint);
+    Win32_KbArrowUpdateHoldFrameCounters();
+    Win32_UnifiedInputMenuTick_TryKbArrowHoldRepeat(hwndForPaint);
 }
 
 // ---------------------------------------------------------------------------
@@ -7617,6 +7723,23 @@ static void Win32_WndProc_OnRawInput(LPARAM lParam)
     {
         PhysicalKeyEvent ev{};
         Win32_FillPhysicalKeyFromRawKeyboard(raw->data.keyboard, ev);
+        const UINT vk = static_cast<UINT>(ev.native_key_code);
+        const bool isArrowVk =
+            (vk == VK_UP || vk == VK_DOWN || vk == VK_LEFT || vk == VK_RIGHT);
+        bool rawArrowDownBefore = false;
+        bool kbArrowLogicalDownBefore = false;
+        if (vk < 256 && isArrowVk)
+        {
+            rawArrowDownBefore = s_rawKeyboardKeyDown[vk];
+            switch (vk)
+            {
+            case VK_UP: kbArrowLogicalDownBefore = s_keyboardActionState.up; break;
+            case VK_DOWN: kbArrowLogicalDownBefore = s_keyboardActionState.down; break;
+            case VK_LEFT: kbArrowLogicalDownBefore = s_keyboardActionState.left; break;
+            case VK_RIGHT: kbArrowLogicalDownBefore = s_keyboardActionState.right; break;
+            default: break;
+            }
+        }
         const bool kbStateApplied = Win32_UpdateKeyboardActionStateFromPhysicalKey(ev);
         if (static_cast<UINT>(ev.native_key_code) == VK_RETURN && !ev.is_key_up &&
             !s_virtualInputMenuSampleState.menuOpen && kbStateApplied)
@@ -7641,7 +7764,16 @@ static void Win32_WndProc_OnRawInput(LPARAM lParam)
         Win32_FillLayoutTag(layoutTag, _countof(layoutTag));
         wchar_t line[512];
         PhysicalKey_FormatDebugLine(ev, labelPtr, layoutTag, line, _countof(line));
-        OutputDebugStringW(line);
+        // 矢印: 既に raw 論理 down の make（オートリピート等）は kbStateApplied が true になり得るため、
+        // s_rawKeyboardKeyDown / KeyboardActionState を参照して PhysicalKey 行を出さない。
+        const bool suppressArrowRepeatMakeLog =
+            !ev.is_key_up && isArrowVk && (rawArrowDownBefore || kbArrowLogicalDownBefore);
+        const bool shouldLogPhysicalKey =
+            (kbStateApplied || ev.is_key_up) && !suppressArrowRepeatMakeLog;
+        if (shouldLogPhysicalKey)
+        {
+            OutputDebugStringW(line);
+        }
     }
 }
 

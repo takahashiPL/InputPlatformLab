@@ -189,6 +189,8 @@ VirtualInputConsumerFrame VirtualInputConsumer_BuildFrame(
 }
 
 // 矢印・Tab・Enter・Backspace を上記ポリシーと同じ意味（move / menu / confirm / cancel）にマップ。
+// 矢印は Tab の menuPressed と同様、タイマー境界の「前ティック→今ティック」で 1 フレームだけ pulse（押下中は level true のまま move は 0）。
+// Raw Input のオートリピート make 連打は Win32 側で抑止済み; ここで押下ホールドによる move 連続も止める。
 VirtualInputConsumerFrame VirtualInputConsumer_BuildFrameFromKeyboardState(
     const KeyboardActionState& prevKs,
     const KeyboardActionState& currKs)
@@ -196,19 +198,27 @@ VirtualInputConsumerFrame VirtualInputConsumer_BuildFrameFromKeyboardState(
     VirtualInputConsumerFrame f{};
     INT8 mx = 0;
     INT8 my = 0;
-    if (currKs.left && !currKs.right)
+    const bool leftNow = currKs.left && !currKs.right;
+    const bool rightNow = currKs.right && !currKs.left;
+    const bool leftPrev = prevKs.left && !prevKs.right;
+    const bool rightPrev = prevKs.right && !prevKs.left;
+    if (leftNow && !leftPrev && !rightNow)
     {
         mx = -1;
     }
-    else if (currKs.right && !currKs.left)
+    else if (rightNow && !rightPrev && !leftNow)
     {
         mx = 1;
     }
-    if (currKs.up && !currKs.down)
+    const bool upNow = currKs.up && !currKs.down;
+    const bool downNow = currKs.down && !currKs.up;
+    const bool upPrev = prevKs.up && !prevKs.down;
+    const bool downPrev = prevKs.down && !prevKs.up;
+    if (upNow && !upPrev && !downNow)
     {
         my = 1;
     }
-    else if (currKs.down && !currKs.up)
+    else if (downNow && !downPrev && !upNow)
     {
         my = -1;
     }
