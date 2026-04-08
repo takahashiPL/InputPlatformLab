@@ -3863,6 +3863,11 @@ static constexpr bool kPs4Ds4IsoDebugLog =
     (WIN32_PS4_BRIDGE_DEBUG_LOG != 0) || (WIN32_PS4_DS4_ISO_DEBUG_LOG != 0);
 static constexpr bool kPs4VirtualInputDebugLog = (WIN32_PS4_VIRTUAL_INPUT_DEBUG_LOG != 0);
 
+// DS4: byte5/6 の face・Share/Options 周りを 1 行で比較（既定 0）。WM_INPUT ごとに呼ばれるため変化時のみ。
+#ifndef WIN32_DS4_HID_FACE_RAW_1LINE
+#define WIN32_DS4_HID_FACE_RAW_1LINE 0
+#endif
+
 static DWORD s_ps4BridgeResetDebugLastTickNoDs4 = 0;
 static DWORD s_ps4BridgeResetDebugLastTickXinput = 0;
 
@@ -3991,11 +3996,11 @@ static void Win32_FillVirtualInputSnapshotFromXInputState(const XINPUT_STATE& st
 
 // DS4 USB (VID 054C / PID 05C4) 実機確認済みマップ（VirtualInput 橋渡し）
 // T18: hat>=8 では dpad ビットは立てない（hat<8 のみ）。DPad+L1 同時の WM_INPUT で hatLo=8・L1=1 が来ることがあり（[PS4RawCombo]）、dpad=0000 でも生と整合。
-// byte5: hat0-3, Share 0x10, Circle 0x20, Options 0x40, R3=b5&0x80（例: rawB5=0x88=hat8+R3）
-// byte6: L1=b6&0x01（例: rawB6=0x01 + slot99 L1R1=10）, R1 0x02, L2 0x04, R2 0x08, Square 0x10, Cross 0x20, L3 0x40, Triangle 0x80
+// byte5: hat0-3, Square 0x10, Circle 0x20, Options 0x40, R3=b5&0x80（例: rawB5=0x88=hat8+R3）
+// byte6: L1=b6&0x01（例: rawB6=0x01 + slot99 L1R1=10）, R1 0x02, L2 0x04, R2 0x08, Share 0x10, Cross 0x20, L3 0x40, Triangle 0x80
 // byte7: PS 0x01
 // byte8/9: L2/R2 アナログ
-// VirtualInputPolicy: South=confirm, East=cancel, Start=Options(0x40), Select=Share(0x10), psHome=PS
+// VirtualInputPolicy: South=Cross(b6&0x20), East=Circle(b5&0x20), Start=Options(b5&0x40), Select=Share(b6&0x10), West=Square(b5&0x10), psHome=PS
 static bool Win32_FillVirtualInputFromDs4StyleHidReport(const BYTE* buf, UINT len, VirtualInputSnapshot& out)
 {
     if (buf == nullptr || len < 10)
@@ -4028,12 +4033,12 @@ static bool Win32_FillVirtualInputFromDs4StyleHidReport(const BYTE* buf, UINT le
         out.dpadLeft = (hat == 5 || hat == 6 || hat == 7);
     }
 
-    out.select = (buf[5] & 0x10) != 0;
+    out.west = (buf[5] & 0x10) != 0;
     out.east = (buf[5] & 0x20) != 0;
     out.start = (buf[5] & 0x40) != 0;
     out.r3 = (buf[5] & 0x80) != 0; // R3: b5&0x80（実測 rawB5=0x88, R3Only, slot99 L3R3=01）
 
-    out.west = (buf[6] & 0x10) != 0;
+    out.select = (buf[6] & 0x10) != 0;
     out.south = (buf[6] & 0x20) != 0;
     out.north = (buf[6] & 0x80) != 0;
 
@@ -4052,6 +4057,42 @@ static bool Win32_FillVirtualInputFromDs4StyleHidReport(const BYTE* buf, UINT le
     out.leftDir = Win32_ClassifyLeftStickDir(out.leftStickX, out.leftStickY, out.leftInDeadzone);
     out.rightInDeadzone = Win32_RightStickInDeadzone(out.rightStickX, out.rightStickY);
     out.rightDir = Win32_ClassifyLeftStickDir(out.rightStickX, out.rightStickY, out.rightInDeadzone);
+
+#if WIN32_DS4_HID_FACE_RAW_1LINE
+    if (len >= 8)
+    {
+        static BYTE s_ds4FacePrev567[3] = {};
+        static bool s_ds4FaceHasPrev567 = false;
+        const BYTE b5 = buf[5];
+        const BYTE b6 = buf[6];
+        const BYTE b7 = buf[7];
+        const bool changed =
+            !s_ds4FaceHasPrev567 || b5 != s_ds4FacePrev567[0] || b6 != s_ds4FacePrev567[1]
+            || b7 != s_ds4FacePrev567[2];
+        if (changed)
+        {
+            wchar_t w[256] = {};
+            swprintf_s(
+                w,
+                _countof(w),
+                L"[DS4FaceRaw] b5=%02X b6=%02X b7=%02X west(Sq)=%d sel(Sh)=%d south(X)=%d east(O)=%d start(Opt)=%d north=%d\r\n",
+                static_cast<unsigned int>(b5),
+                static_cast<unsigned int>(b6),
+                static_cast<unsigned int>(b7),
+                out.west ? 1 : 0,
+                out.select ? 1 : 0,
+                out.south ? 1 : 0,
+                out.east ? 1 : 0,
+                out.start ? 1 : 0,
+                out.north ? 1 : 0);
+            OutputDebugStringW(w);
+            s_ds4FacePrev567[0] = b5;
+            s_ds4FacePrev567[1] = b6;
+            s_ds4FacePrev567[2] = b7;
+            s_ds4FaceHasPrev567 = true;
+        }
+    }
+#endif
     return true;
 }
 
@@ -7819,7 +7860,7 @@ static void Win32_TryLogRawInputHidPs4AndBridge(const RAWINPUT* raw)
         swprintf_s(
             ps4btn,
             _countof(ps4btn),
-            L"[PS4BTN] policy=South(b6&0x20) East(b5&0x20) Tri(b6&0x80) menu(b5&0x40) R3(b5&0x80) "
+            L"[PS4BTN] policy=West(b5&0x10) Sel(b6&0x10) South(b6&0x20) East(b5&0x20) Tri(b6&0x80) menu(b5&0x40) R3(b5&0x80) "
             L"L1(b6&0x01) R1(b6&0x02) L2d(b6&0x04) R2d(b6&0x08) L3(b6&0x40) "
             L"b0=%02X b1=%02X b2=%02X b3=%02X b4=%02X b5=%02X b6=%02X b7=%02X b8=%02X b9=%02X "
             L"buttonsNibble=%u b5_hiNibble=%u faceBits=0x%02X dpad=%u "

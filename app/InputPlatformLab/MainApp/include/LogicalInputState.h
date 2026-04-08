@@ -1,7 +1,7 @@
 // 論理ボタン単位のフレーム状態（キーボード + ゲームパッドを OR 合成後に 1 パスで更新）
 //
 // PS4 DS4 HID（verified マップ, MainApp Win32_FillVirtualInputFromDs4StyleHidReport）→ GamepadButtonId:
-//   Cross→South, Circle→East, Square→West, Triangle→North, Share→Select, Options→Start,
+//   Cross→South, Circle→East, Square→West(b5&0x10), Triangle→North, Share→Select(b6&0x10), Options→Start,
 //   hat→DPadUp/Down/Left/Right。LogicalInput_FillCurrentDownFromSources は上記にキーボード
 //   （Enter/Backspace/Tab/矢印）を OR。LogicalInputState_Update の press/release/push/hold は
 //   全ソース同一式（WM_TIMER 1 tick = 論理 1 フレーム）。
