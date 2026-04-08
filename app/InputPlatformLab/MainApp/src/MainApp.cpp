@@ -5162,7 +5162,7 @@ static float Win32_HudPaged_T19StabilizeTriggerDisplay(float normalized01)
 
 static const wchar_t* Win32_HudPaged_T19Mark(bool on)
 {
-    return on ? L"\u3007" : L" ";
+    return on ? L"*" : L" ";
 }
 
 // T19 表示専用: hold 数値のみ量子化（LogicalInputState::holdFrames は変更しない。logical スナップショット比較も同一値を使用）
