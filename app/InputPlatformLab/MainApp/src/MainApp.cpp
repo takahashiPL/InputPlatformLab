@@ -163,6 +163,7 @@ static int s_hudPagedIndex = 0;
 static constexpr int kHudPagedCount = 6;
 static constexpr int kHudPagedPageIndexT14 = 0;
 static constexpr int kHudPagedPageIndexT15 = 1;
+static constexpr int kHudPagedPageIndexT18 = 3;
 // T19: 論理行とアナログ表示を分けてスナップショット（論理は即時、analog-only は間引き）
 // ページ式 HUD 診断: true のときのみ [HUDPAINT] を出す（タイマー T19 / paintframe / paintgdi）。通常運用は false。
 static constexpr bool kHudPagedPaintDebugLog = false;
@@ -402,7 +403,8 @@ static bool Win32_TryGetRawInputDeviceString(HANDLE hDevice, UINT infoType, wcha
 static void Win32_LogRawInputHidGameControllersClassified();
 
 static const wchar_t* Win32_GameControllerKindFamilyLabel(GameControllerKind kind);
-static void Win32_T18_RefreshControllerIdentifySnapshot();
+static void Win32_T18_RefreshControllerIdentifySnapshot(bool emitDiffLog = true);
+static void Win32_T18_LogCurrentSnapshotForced();
 static void Win32_T18_AppendPaintSection(
     wchar_t* buf, size_t bufCount, bool compactT59, bool ultraT60, bool compactT64Fullscreen);
 
@@ -5740,6 +5742,11 @@ void Win32_HudPaged_AdvancePage(int delta)
         return;
     }
     s_hudPagedIndex = n;
+    if (Win32_HudPaged_IsEnabled() && n == kHudPagedPageIndexT18 && old != kHudPagedPageIndexT18)
+    {
+        Win32_T18_RefreshControllerIdentifySnapshot(false);
+        Win32_T18_LogCurrentSnapshotForced();
+    }
     wchar_t log[256] = {};
     swprintf_s(
         log,
@@ -7234,6 +7241,32 @@ static void Win32_T18_FillIdentifyRationale(const T18ControllerIdentifySnapshot&
         Win32_ControllerSupportLevelLabel(s.support_level));
 }
 
+static void Win32_T18_OutputSnapshotDebugLines(const T18ControllerIdentifySnapshot& snap)
+{
+    const unsigned vid = snap.hid_found ? static_cast<unsigned>(snap.hid.vendor_id) : 0u;
+    const unsigned pid = snap.hid_found ? static_cast<unsigned>(snap.hid.product_id) : 0u;
+    const wchar_t* const pathHint =
+        (snap.device_path[0] != L'\0') ? L"(see device_path(full))" : L"";
+    wchar_t line[2048] = {};
+    swprintf_s(
+        line,
+        _countof(line),
+        L"[T18] hid_found=%d slot=%d vid=0x%04X pid=0x%04X family=%s parser=%s support=%s product=\"%s\" path=\"%s\"\r\n",
+        snap.hid_found ? 1 : 0,
+        snap.xinput_slot,
+        vid,
+        pid,
+        Win32_GameControllerKindFamilyLabel(snap.inferred_kind),
+        Win32_ControllerParserKindLabel(snap.parser_kind),
+        Win32_ControllerSupportLevelLabel(snap.support_level),
+        (snap.product_name[0] != L'\0') ? snap.product_name : L"",
+        pathHint);
+    OutputDebugStringW(line);
+    wchar_t rat[640] = {};
+    swprintf_s(rat, _countof(rat), L"[T18] rationale: %s\r\n", snap.rationale);
+    OutputDebugStringW(rat);
+}
+
 static void Win32_T18_LogIfChanged()
 {
     const bool same =
@@ -7265,31 +7298,19 @@ static void Win32_T18_LogIfChanged()
     s_t18LogPrev = s_t18;
     s_t18HasLogPrev = true;
 
-    const unsigned vid = s_t18.hid_found ? static_cast<unsigned>(s_t18.hid.vendor_id) : 0u;
-    const unsigned pid = s_t18.hid_found ? static_cast<unsigned>(s_t18.hid.product_id) : 0u;
-    const wchar_t* const pathHint =
-        (s_t18.device_path[0] != L'\0') ? L"(see device_path(full))" : L"";
-    wchar_t line[2048] = {};
-    swprintf_s(
-        line,
-        _countof(line),
-        L"[T18] hid_found=%d slot=%d vid=0x%04X pid=0x%04X family=%s parser=%s support=%s product=\"%s\" path=\"%s\"\r\n",
-        s_t18.hid_found ? 1 : 0,
-        s_t18.xinput_slot,
-        vid,
-        pid,
-        Win32_GameControllerKindFamilyLabel(s_t18.inferred_kind),
-        Win32_ControllerParserKindLabel(s_t18.parser_kind),
-        Win32_ControllerSupportLevelLabel(s_t18.support_level),
-        (s_t18.product_name[0] != L'\0') ? s_t18.product_name : L"",
-        pathHint);
-    OutputDebugStringW(line);
-    wchar_t rat[640] = {};
-    swprintf_s(rat, _countof(rat), L"[T18] rationale: %s\r\n", s_t18.rationale);
-    OutputDebugStringW(rat);
+    Win32_T18_OutputSnapshotDebugLines(s_t18);
 }
 
-static void Win32_T18_RefreshControllerIdentifySnapshot()
+// ページ式 HUD: 非 T18 → T18 遷移時のみ（差分ログと重複しないよう Refresh(..., false) と併用）。
+static void Win32_T18_LogCurrentSnapshotForced()
+{
+    OutputDebugStringW(L"[T18] page-enter forced snapshot\r\n");
+    Win32_T18_OutputSnapshotDebugLines(s_t18);
+    s_t18LogPrev = s_t18;
+    s_t18HasLogPrev = true;
+}
+
+static void Win32_T18_RefreshControllerIdentifySnapshot(bool emitDiffLog)
 {
     T18ControllerIdentifySnapshot snap{};
     snap.xinput_slot = -1;
@@ -7424,7 +7445,10 @@ static void Win32_T18_RefreshControllerIdentifySnapshot()
 
     Win32_T18_FillIdentifyRationale(snap, snap.rationale, _countof(snap.rationale));
     s_t18 = snap;
-    Win32_T18_LogIfChanged();
+    if (emitDiffLog)
+    {
+        Win32_T18_LogIfChanged();
+    }
 }
 
 // Raw Input キーから KeyboardActionState を更新。タイマー境界で prev→curr エッジを取る材料。
