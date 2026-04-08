@@ -69,6 +69,10 @@
 #ifndef WIN32_T18_DEBUG_PAGE_ENTER_LOG
 #define WIN32_T18_DEBUG_PAGE_ENTER_LOG 0
 #endif
+// LogicalInput PS4 pad 遷移ログ（MainApp 後段の #if と整合。既定 0）
+#ifndef WIN32_LOGICAL_INPUT_DEBUG_PAD_TRANSITION
+#define WIN32_LOGICAL_INPUT_DEBUG_PAD_TRANSITION 0
+#endif
 static constexpr bool kT18DebugLog = (WIN32_T18_DEBUG_PAGE_ENTER_LOG != 0);
 
 // ---------------------------------------------------------------------------
@@ -164,12 +168,15 @@ static constexpr size_t kT14VisibleModeCount = 8;
 static constexpr size_t kT14SelectedMonitorIndex = 0;
 static size_t s_t14SelectedModeIndex = 0;
 static size_t s_t14FirstVisibleModeIndex = 0;
-// ページ式 HUD: 0=T14,1=T15,2=T16,3=T18,4=T19,5=T17。既定は T14（表示モード一覧）。
+// ページ式 HUD: 0=T14,1=T15,2=T16,3=T18,4=T19,5=T17,6=T20。既定は T14（表示モード一覧）。
 static int s_hudPagedIndex = 0;
-static constexpr int kHudPagedCount = 6;
+static constexpr int kHudPagedCount = 7;
 static constexpr int kHudPagedPageIndexT14 = 0;
 static constexpr int kHudPagedPageIndexT15 = 1;
 static constexpr int kHudPagedPageIndexT18 = 3;
+static constexpr int kHudPagedPageIndexT19 = 4;
+static constexpr int kHudPagedPageIndexT17 = 5;
+static constexpr int kHudPagedPageIndexT20 = 6;
 // T19: 論理行とアナログ表示を分けてスナップショット（論理は即時、analog-only は間引き）
 // ページ式 HUD 診断: true のときのみ [HUDPAINT] を出す（タイマー T19 / paintframe / paintgdi）。通常運用は false。
 static constexpr bool kHudPagedPaintDebugLog = false;
@@ -491,6 +498,8 @@ static void Win32_UnifiedInputMenuTick_ClearPendingT17IfMenuOpen(void);
 static void Win32_UnifiedInputMenuTick_WhenMenuClosed(HWND hwndForPaint);
 static void Win32_UnifiedInputMenuTick_MergeAndApply(HWND hwndForPaint);
 
+static void Win32_EmitBuildInfoLogOnce();
+
 static void Win32_InitProcessDpiAwareness()
 {
     BOOL ok = FALSE;
@@ -537,6 +546,8 @@ int APIENTRY wWinMain(_In_ HINSTANCE hInstance,
     {
         return FALSE;
     }
+
+    Win32_EmitBuildInfoLogOnce();
 
     HACCEL hAccelTable = LoadAccelerators(hInstance, MAKEINTRESOURCE(IDC_MAINAPP));
 
@@ -5223,6 +5234,7 @@ static const wchar_t* const kHudPagedPageTitles[kHudPagedCount] = {
     L"T18 — Controller identify (HID / XInput)",
     L"T19 — Input state (logical buttons / analog)",
     L"T17 — Presentation (windowed / borderless / fullscreen)",
+    L"T20 — Build / Debug flags",
 };
 
 static const wchar_t* const kHudPagedPageIds[kHudPagedCount] = {
@@ -5232,6 +5244,7 @@ static const wchar_t* const kHudPagedPageIds[kHudPagedCount] = {
     L"T18",
     L"T19",
     L"T17",
+    L"T20",
 };
 
 #if WIN32_RENDERER_DEBUG_GRID_64PX
@@ -5874,6 +5887,82 @@ static void Win32_HudPaged_FillT19PageBody(wchar_t* buf, size_t bufCount)
     Win32_HudPaged_FillT19AnalogSectionInto(buf, bufCount);
 }
 
+// T20: コンパイル時の build / 診断マクロ（実行中 exe の manifest）。[BUILDINFO] と同一内容。
+static void Win32_FormatBuildDebugManifest(wchar_t* buf, size_t bufCount)
+{
+    if (!buf || bufCount < 4)
+    {
+        return;
+    }
+#if defined(_DEBUG)
+    const wchar_t* cfg = L"Debug";
+#elif defined(NDEBUG)
+    const wchar_t* cfg = L"Release";
+#else
+    const wchar_t* cfg = L"?";
+#endif
+#if defined(_WIN64)
+    const wchar_t* plat = L"x64";
+#elif defined(_M_IX86)
+    const wchar_t* plat = L"Win32";
+#elif defined(_M_ARM64)
+    const wchar_t* plat = L"ARM64";
+#else
+    const wchar_t* plat = L"?";
+#endif
+    const wchar_t* ph = Win32_HudPaged_IsEnabled() ? L"on" : L"off";
+
+    swprintf_s(
+        buf,
+        bufCount,
+        L"config=%s  platform=%s  pagedHUD=%s  WIN32_HUD_USE_PAGED_HUD=%d\r\n"
+        L"WIN32_PS4_SLOT99_SHOULDER_1LINE=%d\r\n"
+        L"WIN32_PS4_BRIDGE_DEBUG_LOG=%d\r\n"
+        L"WIN32_PS4_BRIDGE_DELTA_DEBUG_LOG=%d\r\n"
+        L"WIN32_PS4_VICHG_DEBUG_LOG=%d\r\n"
+        L"WIN32_PS4_DS4_ISO_DEBUG_LOG=%d\r\n"
+        L"WIN32_PS4_VIRTUAL_INPUT_DEBUG_LOG=%d\r\n"
+        L"WIN32_LOGICAL_INPUT_DEBUG_PAD_TRANSITION=%d\r\n"
+        L"WIN32_DS4_HID_FACE_RAW_1LINE=%d\r\n"
+        L"WIN32_T18_DEBUG_PAGE_ENTER_LOG=%d\r\n"
+        L"__DATE__=%hs __TIME__=%hs\r\n",
+        cfg,
+        plat,
+        ph,
+        WIN32_HUD_USE_PAGED_HUD,
+        WIN32_PS4_SLOT99_SHOULDER_1LINE,
+        WIN32_PS4_BRIDGE_DEBUG_LOG,
+        WIN32_PS4_BRIDGE_DELTA_DEBUG_LOG,
+        WIN32_PS4_VICHG_DEBUG_LOG,
+        WIN32_PS4_DS4_ISO_DEBUG_LOG,
+        WIN32_PS4_VIRTUAL_INPUT_DEBUG_LOG,
+        WIN32_LOGICAL_INPUT_DEBUG_PAD_TRANSITION,
+        WIN32_DS4_HID_FACE_RAW_1LINE,
+        WIN32_T18_DEBUG_PAGE_ENTER_LOG,
+        __DATE__,
+        __TIME__);
+}
+
+static void Win32_HudPaged_FillT20PageBody(wchar_t* buf, size_t bufCount)
+{
+    Win32_FormatBuildDebugManifest(buf, bufCount);
+}
+
+static void Win32_EmitBuildInfoLogOnce()
+{
+    static bool s_emitted = false;
+    if (s_emitted)
+    {
+        return;
+    }
+    s_emitted = true;
+    wchar_t body[6144] = {};
+    Win32_FormatBuildDebugManifest(body, _countof(body));
+    wchar_t line[6200] = {};
+    swprintf_s(line, _countof(line), L"[BUILDINFO]\r\n%s", body);
+    OutputDebugStringW(line);
+}
+
 void Win32_HudPaged_ResetScrollBar(HWND hwnd)
 {
     s_paintScrollY = 0;
@@ -6086,6 +6175,10 @@ void Win32_HudPaged_PaintGdi(
         Win32_T17_AppendPaintSection(bodyBuf, _countof(bodyBuf), false, false, false);
         Win32_HudPaged_ClampTextLines(bodyBuf, _countof(bodyBuf), 8, 76);
         break;
+    case 6:
+        Win32_HudPaged_FillT20PageBody(bodyBuf, _countof(bodyBuf));
+        Win32_HudPaged_ClampTextLines(bodyBuf, _countof(bodyBuf), 24, 96);
+        break;
     default:
         s_hudPagedIndex = 0;
         Win32_HudPaged_FillT14PageBody(bodyBuf, _countof(bodyBuf));
@@ -6168,7 +6261,7 @@ void Win32_HudPaged_PaintGdi(
     const int contentLeft = margin + statW + gapCol;
     // T19 本文のみ: ウィンドウ左寄り（margin + 余白）で一覧を読みやすく。メニュー帯・3 帯は従来どおり contentLeft。
     const int bodyLeft =
-        (s_hudPagedIndex == 4) ? (margin + gapCol) : contentLeft;
+        (s_hudPagedIndex == kHudPagedPageIndexT19) ? (margin + gapCol) : contentLeft;
 
     const int headerTop = t37TopGap + margin;
     const int headerRowH = lineH * 2 + headerPad;
@@ -6823,9 +6916,6 @@ static void Win32_UnifiedInputMenuTick_TryKbArrowHoldRepeat(HWND hwnd)
 
 // PS4: WM_TIMER tick 上の VirtualInput（s_virtualInputCurr）変化 + 同一 tick 後の Logical Select 状態。
 // 既定 off。実機検証: /DWIN32_LOGICAL_INPUT_DEBUG_PAD_TRANSITION=1（DS4 raw 行と併用可）
-#ifndef WIN32_LOGICAL_INPUT_DEBUG_PAD_TRANSITION
-#define WIN32_LOGICAL_INPUT_DEBUG_PAD_TRANSITION 0
-#endif
 #if WIN32_LOGICAL_INPUT_DEBUG_PAD_TRANSITION
 static void Win32_LogicalInputDebugPadTransitionIfAny()
 {
@@ -8502,7 +8592,7 @@ static void Win32_WndProc_OnXInputPollTimer(HWND hWnd)
     Win32_XInputPollDigitalEdgesOnTimer(hWnd);
     Win32_LogicalInputTick_AfterPadAndKeyboardCurrent();
     // T19: 論理行は即時 invalidation、アナログのみの変化は約 kT19AnalogThrottleMs 間隔で間引く（GDI ちらつき低減）
-    if (Win32_HudPaged_IsEnabled() && s_hudPagedIndex == 4)
+    if (Win32_HudPaged_IsEnabled() && s_hudPagedIndex == kHudPagedPageIndexT19)
     {
         wchar_t analogNow[16384] = {};
         Win32_HudPaged_T19LogicalButtonDisplaySnap logicalSnapNow[kT19LogicalDisplayRowCount] = {};
