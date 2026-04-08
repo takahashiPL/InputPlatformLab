@@ -3838,15 +3838,29 @@ static constexpr bool kPs4DPadProbeDebugLog = false;
 // T18: WM_INPUT 生レポートで hatLo または L1 ビット変化時のみ [PS4RawCombo] 1 行。既定 false。結論は README「DPad 混在時」。
 static constexpr bool kPs4RawComboProbeDebugLog = false;
 static constexpr bool kPs4BridgeResetDebugLog = false;
-// [PS4Bridge] / [PS4VIchg] / [PS4DS4ISO]（slot=99）系。既定 0。1 で有効。
+// slot=99 橋渡しログ（いずれも既定 0）。WIN32_PS4_BRIDGE_DEBUG_LOG=1 で下位 3 種をまとめて有効化も可。
 #ifndef WIN32_PS4_BRIDGE_DEBUG_LOG
 #define WIN32_PS4_BRIDGE_DEBUG_LOG 0
+#endif
+#ifndef WIN32_PS4_BRIDGE_DELTA_DEBUG_LOG
+#define WIN32_PS4_BRIDGE_DELTA_DEBUG_LOG 0
+#endif
+#ifndef WIN32_PS4_VICHG_DEBUG_LOG
+#define WIN32_PS4_VICHG_DEBUG_LOG 0
+#endif
+#ifndef WIN32_PS4_DS4_ISO_DEBUG_LOG
+#define WIN32_PS4_DS4_ISO_DEBUG_LOG 0
 #endif
 // VirtualInputPolicy / VirtualInputConsumer / Helper / snapshot 要約 / MenuSample / XInput[slot] デバッグ行。既定 0。1 で有効。
 #ifndef WIN32_PS4_VIRTUAL_INPUT_DEBUG_LOG
 #define WIN32_PS4_VIRTUAL_INPUT_DEBUG_LOG 0
 #endif
-static constexpr bool kPs4BridgeDebugLog = (WIN32_PS4_BRIDGE_DEBUG_LOG != 0);
+static constexpr bool kPs4BridgeDeltaDebugLog =
+    (WIN32_PS4_BRIDGE_DEBUG_LOG != 0) || (WIN32_PS4_BRIDGE_DELTA_DEBUG_LOG != 0);
+static constexpr bool kPs4ViChgDebugLog =
+    (WIN32_PS4_BRIDGE_DEBUG_LOG != 0) || (WIN32_PS4_VICHG_DEBUG_LOG != 0);
+static constexpr bool kPs4Ds4IsoDebugLog =
+    (WIN32_PS4_BRIDGE_DEBUG_LOG != 0) || (WIN32_PS4_DS4_ISO_DEBUG_LOG != 0);
 static constexpr bool kPs4VirtualInputDebugLog = (WIN32_PS4_VIRTUAL_INPUT_DEBUG_LOG != 0);
 
 static DWORD s_ps4BridgeResetDebugLastTickNoDs4 = 0;
@@ -4158,7 +4172,7 @@ static void Win32_LogVirtualInputPs4Slot99ShoulderGroupIfChanged(
     {
         return;
     }
-    if (!kPs4BridgeDebugLog)
+    if (!kPs4ViChgDebugLog)
     {
         return;
     }
@@ -4262,7 +4276,7 @@ static void Win32_LogVirtualInputPs4Slot99IsolateEdges(
                     continue;
                 }
             }
-            if (kPs4BridgeDebugLog)
+            if (kPs4Ds4IsoDebugLog)
             {
                 wchar_t line[384] = {};
                 swprintf_s(line, _countof(line),
@@ -4321,7 +4335,7 @@ static void Win32_LogPs4Slot99BridgeDeltaIfChanged(
     {
         return;
     }
-    if (!kPs4BridgeDebugLog)
+    if (!kPs4BridgeDeltaDebugLog)
     {
         s_ps4BridgeDeltaPrevB5 = b5;
         s_ps4BridgeDeltaPrevB6 = b6;
