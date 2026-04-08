@@ -5947,14 +5947,15 @@ static void Win32_HudPaged_FillT19PadExtrasSection(wchar_t* buf, size_t bufCount
     }
     const VirtualInputSnapshot& v = s_virtualInputCurr;
 
-    Win32_HudPaged_AppendBodyLine(buf, bufCount, L"pad L/R:");
+    // 見出し: L+R=左右ペア。押下3つは logical と同順(pr/rl/pu)。h=hold / r=raw(安定化)。列は ||
+    Win32_HudPaged_AppendBodyLine(buf, bufCount, L"pad L+R:");
 
     auto fmtDig = [&](wchar_t* dst, size_t dstCount, const wchar_t* name, LogicalButtonId id) {
         const LogicalButtonFrameState& f = LogicalInputState_Frame(*li, id);
         swprintf_s(
             dst,
             dstCount,
-            L"%s %s %s %s %3u",
+            L"%-4s  %s\u00B7%s\u00B7%s  h%u",
             name,
             Win32_HudPaged_T19Mark(f.press),
             Win32_HudPaged_T19Mark(f.release),
@@ -5967,7 +5968,7 @@ static void Win32_HudPaged_FillT19PadExtrasSection(wchar_t* buf, size_t bufCount
         swprintf_s(
             dst,
             dstCount,
-            L"%s %s %s %s %3u =%3u",
+            L"%-4s  %s\u00B7%s\u00B7%s  h%u r%u",
             name,
             Win32_HudPaged_T19Mark(f.press),
             Win32_HudPaged_T19Mark(f.release),
@@ -5982,7 +5983,7 @@ static void Win32_HudPaged_FillT19PadExtrasSection(wchar_t* buf, size_t bufCount
 
     fmtDig(left, _countof(left), L"L1", LogicalButtonId::L1);
     fmtDig(right, _countof(right), L"R1", LogicalButtonId::R1);
-    swprintf_s(line, _countof(line), L"%-40s | %s", left, right);
+    swprintf_s(line, _countof(line), L"%-40s  ||  %s", left, right);
     Win32_HudPaged_AppendBodyLine(buf, bufCount, line);
 
     fmtTrig(
@@ -5997,17 +5998,17 @@ static void Win32_HudPaged_FillT19PadExtrasSection(wchar_t* buf, size_t bufCount
         L"R2",
         LogicalButtonId::R2,
         Win32_HudPaged_T19QuantizeTriggerRawForSnap(v.rightTriggerRaw));
-    swprintf_s(line, _countof(line), L"%-40s | %s", left, right);
+    swprintf_s(line, _countof(line), L"%-40s  ||  %s", left, right);
     Win32_HudPaged_AppendBodyLine(buf, bufCount, line);
 
     fmtDig(left, _countof(left), L"L3", LogicalButtonId::L3);
     fmtDig(right, _countof(right), L"R3", LogicalButtonId::R3);
-    swprintf_s(line, _countof(line), L"%-40s | %s", left, right);
+    swprintf_s(line, _countof(line), L"%-40s  ||  %s", left, right);
     Win32_HudPaged_AppendBodyLine(buf, bufCount, line);
 
     fmtDig(left, _countof(left), L"Sq", LogicalButtonId::West);
     fmtDig(right, _countof(right), L"Tri", LogicalButtonId::North);
-    swprintf_s(line, _countof(line), L"%-40s | %s", left, right);
+    swprintf_s(line, _countof(line), L"%-40s  ||  %s", left, right);
     Win32_HudPaged_AppendBodyLine(buf, bufCount, line);
 }
 
