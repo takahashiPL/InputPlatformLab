@@ -5158,6 +5158,61 @@ static void Win32_HudPaged_FillT15PageBody(wchar_t* buf, size_t bufCount)
     }
 }
 
+// ページ式 HUD 用の短い why（2〜3 行）。全文は s.rationale と [T18] rationale ログ。
+static void Win32_T18_FillWhyHudShort(const T18ControllerIdentifySnapshot& s, wchar_t* buf, size_t bufCount)
+{
+    if (bufCount == 0)
+    {
+        return;
+    }
+    buf[0] = L'\0';
+    if (!s.hid_found)
+    {
+        if (s.xinput_slot >= 0)
+        {
+            swprintf_s(
+                buf,
+                bufCount,
+                L"XInput-only (no HID in enum order)\r\n"
+                L"verified API\r\n"
+                L"details → [T18] rationale");
+        }
+        else
+        {
+            wcscpy_s(buf, bufCount, L"No HID; no XInput slot.");
+        }
+        return;
+    }
+    if (s.support_level == ControllerSupportLevel::Verified && s.parser_kind == ControllerParserKind::Ds4KnownHid)
+    {
+        wcscpy_s(
+            buf,
+            bufCount,
+            L"DS4 verified table\r\n"
+            L"known HID report map");
+        return;
+    }
+    if (s.support_level == ControllerSupportLevel::Verified && s.parser_kind == ControllerParserKind::XInput)
+    {
+        wcscpy_s(
+            buf,
+            bufCount,
+            L"XInput-only path\r\n"
+            L"verified API");
+        return;
+    }
+    const bool hori006d = (s.hid.vendor_id == 0x0F0D && s.hid.product_id == 0x006D);
+    swprintf_s(
+        buf,
+        bufCount,
+        L"%s · %s\r\n"
+        L"%s\r\n"
+        L"details → [T18] rationale",
+        Win32_ControllerSupportLevelLabel(s.support_level),
+        Win32_ControllerParserKindLabel(s.parser_kind),
+        hori006d ? L"0x0F0D/0x006D · HORI-class" : L"no per-device HID map");
+}
+
 // ページ式 HUD 専用: 本文に device path 全文は載せない。フルパスは Win32_T18_LogIfChanged の
 // [T18] device_path(full)=... のみ（スナップショット更新時・パス変更時）。
 static void Win32_HudPaged_FillT18PageBody(wchar_t* buf, size_t bufCount)
@@ -5187,11 +5242,8 @@ static void Win32_HudPaged_FillT18PageBody(wchar_t* buf, size_t bufCount)
     {
         Win32_T18_TruncateWideForPaint(s_t18.product_name, prodShort, _countof(prodShort), 48);
     }
-    wchar_t rationaleShort[200] = L"";
-    if (s_t18.rationale[0] != L'\0')
-    {
-        Win32_T18_TruncateWideForPaint(s_t18.rationale, rationaleShort, _countof(rationaleShort), 96);
-    }
+    wchar_t whyHud[384] = {};
+    Win32_T18_FillWhyHudShort(s_t18, whyHud, _countof(whyHud));
 
     swprintf_s(
         buf,
@@ -5201,7 +5253,7 @@ static void Win32_HudPaged_FillT18PageBody(wchar_t* buf, size_t bufCount)
         L"family=%s\r\n"
         L"parser=%s  support=%s\r\n"
         L"product=%s\r\n"
-        L"why: %s\r\n"
+        L"why:\r\n%s\r\n"
         L"path: (full in [T18] debug line)\r\n",
         slotStr,
         s_t18.hid_found ? L"yes" : L"no",
@@ -5210,7 +5262,7 @@ static void Win32_HudPaged_FillT18PageBody(wchar_t* buf, size_t bufCount)
         Win32_ControllerParserKindLabel(s_t18.parser_kind),
         Win32_ControllerSupportLevelLabel(s_t18.support_level),
         prodShort,
-        (rationaleShort[0] != L'\0') ? rationaleShort : L"(none)");
+        (whyHud[0] != L'\0') ? whyHud : L"(none)");
 }
 
 // T19: 論理ボタン + アナログ（ページ式 HUD 専用。表記は LogicalInput_FillCurrentDownFromSources と揃える）
