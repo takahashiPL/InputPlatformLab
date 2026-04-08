@@ -1,8 +1,8 @@
 #include "LogicalInputState.h"
 
-// 1 にすると South の press/release/push/hold を 1 行で OutputDebugString（非アイドル時のみ）
+// 1 にすると South の press/release/push/hold を 1 行で OutputDebugString（非アイドル時のみ）。通常運用は 0。
 #ifndef LOGICAL_INPUT_DEBUG_SOUTH_LINE
-#define LOGICAL_INPUT_DEBUG_SOUTH_LINE 1
+#define LOGICAL_INPUT_DEBUG_SOUTH_LINE 0
 #endif
 
 #include <algorithm>

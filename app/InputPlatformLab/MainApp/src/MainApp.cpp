@@ -140,7 +140,7 @@ struct DisplayMonitorInfo
 
 static std::vector<DisplayMonitorInfo> s_displayMonitorsCache;
 
-// T14 UI: 表示は visibleModeCount 行のみ。VirtualInputMenuSample の menuOpen 中は矢印は 2x2 メニュー用のため T14 の選択は動かさない（Tab で menu トグル）。
+// T14 UI: 表示は visibleModeCount 行のみ。スタック HUD では menuOpen 中は ↑↓ が 2x2 のみ。ページ式 HUD では T14 は menuOpen 中もキーボード ↑↓ はモード一覧の >、他ページは menuOpen 中もキーボード ←→ はページ送り（2x2 はパッドや T14 の左右など）。
 static constexpr bool kT14KeyboardSelDebugLog = false; // true で [T14sel] 1 行（回帰確認用）
 static constexpr size_t kT14VisibleModeCount = 8;
 static constexpr size_t kT14SelectedMonitorIndex = 0;
@@ -150,8 +150,7 @@ static size_t s_t14FirstVisibleModeIndex = 0;
 static int s_hudPagedIndex = 0;
 static constexpr int kHudPagedCount = 6;
 // T19: 論理行とアナログ表示を分けてスナップショット（論理は即時、analog-only は間引き）
-static constexpr bool kT19InvalidateDebugLog = false;
-// ページ式 HUD の WM_PAINT / GDI 経路確認用（通常は false）
+// ページ式 HUD 診断: true のときのみ [HUDPAINT] を出す（タイマー T19 / paintframe / paintgdi）。通常運用は false。
 static constexpr bool kHudPagedPaintDebugLog = false;
 static constexpr int kT19AnalogThrottleMs = 66;
 // T19 論理表示スナップショット（タイマーは文字列ではなくこれで差分判定）
@@ -802,7 +801,7 @@ static void Win32_T58_AlignFirstVisibleToDocNoScroll(HWND hwnd)
     }
 }
 
-// menuOpen でないときのみ Up/Down エッジで呼ぶ。変化時のみ InvalidateRect。
+// WhenMenuClosed（!menuOpen）またはページ式 T14＋menuOpen の MergeAndApply から、Up/Down エッジで呼ぶ。変化時のみ InvalidateRect。
 static void Win32_T14_TryScrollFromKeyboardEdges(bool upEdge, bool downEdge, HWND hwnd)
 {
     if (!hwnd)
@@ -6216,10 +6215,44 @@ static void Win32_UnifiedInputMenuTick_MergeAndApply(HWND hwndForPaint)
         VirtualInputConsumer_BuildFrameFromKeyboardState(
             s_keyboardActionStateAtLastTimer,
             s_keyboardActionState);
+    VirtualInputConsumerFrame kbForMerge = kbFrame;
+
+    // ページ式 HUD の T14 ページで menuOpen のとき、キーボード ↑↓ は一覧の > と「↔ page ↑↓ select」の期待に合わせる。
+    // VirtualInputMenuSample へは縦 move を渡さない（パッドの D-pad 縦は従来どおり 2x2 用にマージ側で優先される）。
+    if (hwndForPaint &&
+        s_virtualInputMenuSampleState.menuOpen &&
+        Win32_HudPaged_IsEnabled() &&
+        s_hudPagedIndex == 0)
+    {
+        const bool upEdge = !s_keyboardActionStateAtLastTimer.up && s_keyboardActionState.up;
+        const bool downEdge = !s_keyboardActionStateAtLastTimer.down && s_keyboardActionState.down;
+        if (upEdge || downEdge)
+        {
+            Win32_T14_TryScrollFromKeyboardEdges(upEdge, downEdge, hwndForPaint);
+        }
+        kbForMerge.moveY = 0;
+    }
+
+    // T14 以外のページで menuOpen のとき、キーボード ←→ は「↔ page」どおりページ送りに使う（2x2 の横はパッド優先で従来どおり）。
+    if (hwndForPaint &&
+        s_virtualInputMenuSampleState.menuOpen &&
+        Win32_HudPaged_IsEnabled() &&
+        s_hudPagedIndex != 0)
+    {
+        const bool leftEdge = !s_keyboardActionStateAtLastTimer.left && s_keyboardActionState.left;
+        const bool rightEdge = !s_keyboardActionStateAtLastTimer.right && s_keyboardActionState.right;
+        if (leftEdge || rightEdge)
+        {
+            Win32_HudPaged_AdvancePage(leftEdge ? -1 : 1);
+            InvalidateRect(hwndForPaint, nullptr, FALSE);
+        }
+        kbForMerge.moveX = 0;
+    }
+
     const VirtualInputConsumerFrame ctrlFrame =
         VirtualInputConsumer_BuildFrame(s_virtualInputPrev, s_virtualInputCurr);
     const VirtualInputConsumerFrame unified =
-        VirtualInputConsumer_MergeKeyboardController(kbFrame, ctrlFrame);
+        VirtualInputConsumer_MergeKeyboardController(kbForMerge, ctrlFrame);
     Win32_LogVirtualInputMenuSampleIfChanged(unified, hwndForPaint);
     s_keyboardActionStateAtLastTimer = s_keyboardActionState;
 }
@@ -6234,7 +6267,7 @@ static void Win32_LogicalInputTick_AfterPadAndKeyboardCurrent()
     LogicalInputState_Update(s_logicalInputState, logicalDown);
 }
 
-// menuOpen が true の間は T14/T15/T17 のキーボード操作を抑止（矢印は 2x2 メニュー用）。閉じているときだけ表示系デバッグ操作を処理。
+// menuOpen が true の間は T14/T15/T17 のキーボード操作を抑止（MergeAndApply で T14 は ↑↓ を一覧へ、T14 以外は ←→ をページへ）。閉じているときだけ表示系デバッグ操作を処理。
 static void Win32_UnifiedInputConsumerMenuTick(HWND hwndForPaint)
 {
     Win32_UnifiedInputMenuTick_ClearPendingT17IfMenuOpen();
@@ -7677,10 +7710,6 @@ static void Win32_WndProc_OnXInputPollTimer(HWND hWnd)
             s_hudPagedT19HasSnapshot = true;
             s_hudPagedT19LastAnalogInvalidateTick = GetTickCount64();
             InvalidateRect(hWnd, nullptr, FALSE);
-            if (kT19InvalidateDebugLog)
-            {
-                OutputDebugStringW(L"[T19 inv] logical=1 analog=0 analog_throttled=0\r\n");
-            }
         }
         else if (analogChanged)
         {
@@ -7689,10 +7718,6 @@ static void Win32_WndProc_OnXInputPollTimer(HWND hWnd)
                 wcscpy_s(s_hudPagedT19LastAnalog, analogNow);
                 s_hudPagedT19LastAnalogInvalidateTick = nowTick;
                 InvalidateRect(hWnd, nullptr, FALSE);
-                if (kT19InvalidateDebugLog)
-                {
-                    OutputDebugStringW(L"[T19 inv] logical=0 analog=1 analog_throttled=1\r\n");
-                }
             }
         }
     }
