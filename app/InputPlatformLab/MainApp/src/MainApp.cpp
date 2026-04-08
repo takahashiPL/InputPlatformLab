@@ -3838,12 +3838,20 @@ static constexpr bool kPs4DPadProbeDebugLog = false;
 // T18: WM_INPUT 生レポートで hatLo または L1 ビット変化時のみ [PS4RawCombo] 1 行。既定 false。結論は README「DPad 混在時」。
 static constexpr bool kPs4RawComboProbeDebugLog = false;
 static constexpr bool kPs4BridgeResetDebugLog = false;
-// slot=99 橋渡しログ（いずれも既定 0）。WIN32_PS4_BRIDGE_DEBUG_LOG=1 で下位 3 種をまとめて有効化も可。
+// slot=99 橋渡しログ（いずれも既定 0）。
+//   [PS4Bridge] 1 行（rawB5/B6/B8/B9 + L1R1/L2R2/L3R3/PS）: 変化時のみ。次のいずれかで有効:
+//     WIN32_PS4_BRIDGE_DELTA_DEBUG_LOG=1 または WIN32_PS4_SLOT99_SHOULDER_1LINE=1
+//   WIN32_PS4_BRIDGE_DEBUG_LOG=1 は [PS4Bridge] に加え [PS4VIchg]/[PS4DS4ISO] 系もまとめて有効（多め）。
+//   単独押しの [PS4DS4ISO] は WIN32_PS4_DS4_ISO_DEBUG_LOG=1（または上記 BRIDGE_DEBUG_LOG）。
 #ifndef WIN32_PS4_BRIDGE_DEBUG_LOG
 #define WIN32_PS4_BRIDGE_DEBUG_LOG 0
 #endif
 #ifndef WIN32_PS4_BRIDGE_DELTA_DEBUG_LOG
 #define WIN32_PS4_BRIDGE_DELTA_DEBUG_LOG 0
+#endif
+// 意味は BRIDGE_DELTA と同じ（[PS4Bridge] のみ切り出したいときの別名。/D で指定しやすい）
+#ifndef WIN32_PS4_SLOT99_SHOULDER_1LINE
+#define WIN32_PS4_SLOT99_SHOULDER_1LINE 0
 #endif
 #ifndef WIN32_PS4_VICHG_DEBUG_LOG
 #define WIN32_PS4_VICHG_DEBUG_LOG 0
@@ -3855,8 +3863,8 @@ static constexpr bool kPs4BridgeResetDebugLog = false;
 #ifndef WIN32_PS4_VIRTUAL_INPUT_DEBUG_LOG
 #define WIN32_PS4_VIRTUAL_INPUT_DEBUG_LOG 0
 #endif
-static constexpr bool kPs4BridgeDeltaDebugLog =
-    (WIN32_PS4_BRIDGE_DEBUG_LOG != 0) || (WIN32_PS4_BRIDGE_DELTA_DEBUG_LOG != 0);
+static constexpr bool kPs4BridgeDeltaDebugLog = (WIN32_PS4_BRIDGE_DEBUG_LOG != 0)
+    || (WIN32_PS4_BRIDGE_DELTA_DEBUG_LOG != 0) || (WIN32_PS4_SLOT99_SHOULDER_1LINE != 0);
 static constexpr bool kPs4ViChgDebugLog =
     (WIN32_PS4_BRIDGE_DEBUG_LOG != 0) || (WIN32_PS4_VICHG_DEBUG_LOG != 0);
 static constexpr bool kPs4Ds4IsoDebugLog =
@@ -4199,6 +4207,24 @@ static bool Win32_Ps4VirtualIsolate_L1Candidate(const VirtualInputSnapshot& s)
         && !s.south && !s.east && !s.west && !s.north && !s.start && !s.select && !s.psHome;
 }
 
+static bool Win32_Ps4VirtualIsolate_R1Candidate(const VirtualInputSnapshot& s)
+{
+    return !s.l1 && s.r1 && !s.l2Pressed && !s.r2Pressed && !s.l3 && !s.r3
+        && !s.south && !s.east && !s.west && !s.north && !s.start && !s.select && !s.psHome;
+}
+
+static bool Win32_Ps4VirtualIsolate_L2Candidate(const VirtualInputSnapshot& s)
+{
+    return !s.l1 && !s.r1 && s.l2Pressed && !s.r2Pressed && !s.l3 && !s.r3
+        && !s.south && !s.east && !s.west && !s.north && !s.start && !s.select && !s.psHome;
+}
+
+static bool Win32_Ps4VirtualIsolate_R2Candidate(const VirtualInputSnapshot& s)
+{
+    return !s.l1 && !s.r1 && !s.l2Pressed && s.r2Pressed && !s.l3 && !s.r3
+        && !s.south && !s.east && !s.west && !s.north && !s.start && !s.select && !s.psHome;
+}
+
 static bool Win32_Ps4VirtualIsolate_R3Candidate(const VirtualInputSnapshot& s)
 {
     return !s.l1 && !s.r1 && !s.l2Pressed && !s.r2Pressed && !s.l3 && s.r3
@@ -4288,6 +4314,9 @@ static void Win32_LogVirtualInputPs4Slot99IsolateEdges(
     };
     static const Iso kIsos[] = {
         { L"L1Only", Win32_Ps4VirtualIsolate_L1Candidate, true },
+        { L"R1Only", Win32_Ps4VirtualIsolate_R1Candidate, true },
+        { L"L2Only", Win32_Ps4VirtualIsolate_L2Candidate, true },
+        { L"R2Only", Win32_Ps4VirtualIsolate_R2Candidate, true },
         { L"R3Only", Win32_Ps4VirtualIsolate_R3Candidate, true },
         { L"L3Only", Win32_Ps4VirtualIsolate_L3Candidate, true },
         { L"TriOnly", Win32_Ps4VirtualIsolate_TriCandidate, true },

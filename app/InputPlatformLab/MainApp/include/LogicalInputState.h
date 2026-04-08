@@ -2,7 +2,10 @@
 //
 // PS4 DS4 HID（verified マップ, MainApp Win32_FillVirtualInputFromDs4StyleHidReport）→ GamepadButtonId:
 //   Cross→South, Circle→East, Square→West(b5&0x10), Triangle→North, Share→Select(b6&0x10), Options→Start,
-//   hat→DPadUp/Down/Left/Right。LogicalInput_FillCurrentDownFromSources は上記にキーボード
+//   hat→DPadUp/Down/Left/Right。
+//   L1(b6&0x01), R1(b6&0x02), L2 デジタル(b6&0x04) または L2 アナログ(b8)≥閾値, 同様に R2(b6&0x08)/b9,
+//   L3(b6&0x40), R3(b5&0x80) → VirtualInput l1/r1/l2Pressed/r2Pressed/l3/r3 → 上記と同一の GamepadButtonId。
+//   LogicalInput_FillCurrentDownFromSources は上記にキーボード
 //   （Enter/Backspace/Tab/矢印）を OR。LogicalInputState_Update の press/release/push/hold は
 //   全ソース同一式（WM_TIMER 1 tick = 論理 1 フレーム）。
 //
