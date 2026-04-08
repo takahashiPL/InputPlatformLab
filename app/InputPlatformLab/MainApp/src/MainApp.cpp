@@ -5154,6 +5154,19 @@ static const wchar_t* Win32_HudPaged_T19Mark(bool on)
     return on ? L"\u3007" : L" ";
 }
 
+// T19 表示専用: hold 数値のみ量子化（LogicalInputState::holdFrames は変更しない。logical スナップショット比較も同一値を使用）
+static constexpr unsigned int kT19HoldDisplayQuantStep = 3;
+
+static UINT8 Win32_HudPaged_T19DisplayHoldFrames(UINT8 holdFrames)
+{
+    if (holdFrames < kT19HoldDisplayQuantStep)
+    {
+        return holdFrames;
+    }
+    return static_cast<UINT8>(
+        (static_cast<unsigned int>(holdFrames) / kT19HoldDisplayQuantStep) * kT19HoldDisplayQuantStep);
+}
+
 static void Win32_HudPaged_T19FormatStickAxisBar(float v, wchar_t* out, size_t outCount)
 {
     int pos = static_cast<int>(std::lround((v + 1.0f) * 3.5f));
@@ -5265,7 +5278,7 @@ static void Win32_HudPaged_FillT19LogicalSection(wchar_t* buf, size_t bufCount)
             Win32_HudPaged_T19Mark(f.press),
             Win32_HudPaged_T19Mark(f.release),
             Win32_HudPaged_T19Mark(f.push),
-            static_cast<unsigned int>(f.holdFrames));
+            static_cast<unsigned int>(Win32_HudPaged_T19DisplayHoldFrames(f.holdFrames)));
         Win32_HudPaged_AppendBodyLine(buf, bufCount, line);
     }
 }
@@ -5545,6 +5558,22 @@ void Win32_HudPaged_PaintGdi(
         break;
     }
 
+    if (kHudPagedPaintDebugLog)
+    {
+        wchar_t fracDbg[32] = {};
+        swprintf_s(fracDbg, L"%d/%d", s_hudPagedIndex + 1, kHudPagedCount);
+        wchar_t dbg[1024] = {};
+        swprintf_s(
+            dbg,
+            _countof(dbg),
+            L"[HUDPAINT] paintgdi begin page=%s titleLen=%u bodyLen=%u fracLen=%u\r\n",
+            kHudPagedPageIds[s_hudPagedIndex],
+            static_cast<unsigned>(wcslen(kHudPagedPageTitles[s_hudPagedIndex])),
+            static_cast<unsigned>(wcslen(bodyBuf)),
+            static_cast<unsigned>(wcslen(fracDbg)));
+        OutputDebugStringW(dbg);
+    }
+
     const COLORREF hdcPrevText = GetTextColor(hdc);
 
     BOOL bitBltToMemOk = FALSE;
@@ -5724,18 +5753,11 @@ void Win32_HudPaged_PaintGdi(
 
     if (kHudPagedPaintDebugLog)
     {
-        wchar_t fracDbg[32] = {};
-        swprintf_s(fracDbg, L"%d/%d", s_hudPagedIndex + 1, kHudPagedCount);
-        wchar_t dbg[512] = {};
+        wchar_t dbg[1024] = {};
         swprintf_s(
             dbg,
             _countof(dbg),
-            L"[HUDPAINT] Win32_HudPaged_PaintGdi page=%s titleLen=%u bodyLen=%u fracLen=%u memdc=%s "
-            L"bitbltToMem=%s bitbltToScreen=%s\r\n",
-            kHudPagedPageIds[s_hudPagedIndex],
-            static_cast<unsigned>(wcslen(kHudPagedPageTitles[s_hudPagedIndex])),
-            static_cast<unsigned>(wcslen(bodyBuf)),
-            static_cast<unsigned>(wcslen(fracDbg)),
+            L"[HUDPAINT] paintgdi end memdc=%s bitbltToMem=%s bitbltToScreen=%s\r\n",
             useOffscreen ? L"ok" : L"fail",
             useOffscreen ? (bitBltToMemOk ? L"ok" : L"fail") : L"n/a",
             useOffscreen ? (bitBltToScreenOk ? L"ok" : L"fail") : L"n/a");
@@ -7521,23 +7543,39 @@ static void Win32_WndProc_OnXInputPollTimer(HWND hWnd)
         const bool analogChanged =
             !s_hudPagedT19HasSnapshot || wcscmp(analogNow, s_hudPagedT19LastAnalog) != 0;
 
+        const ULONGLONG nowTick = GetTickCount64();
+        const ULONGLONG sinceAnalogInv =
+            (s_hudPagedT19LastAnalogInvalidateTick == 0ULL)
+                ? static_cast<ULONGLONG>(kT19AnalogThrottleMs)
+                : (nowTick - s_hudPagedT19LastAnalogInvalidateTick);
+        const bool analogThrottled =
+            !logicalChanged && analogChanged &&
+            sinceAnalogInv < static_cast<ULONGLONG>(kT19AnalogThrottleMs);
+        const bool invalidateIssued =
+            logicalChanged ||
+            (analogChanged && sinceAnalogInv >= static_cast<ULONGLONG>(kT19AnalogThrottleMs));
+
+        if (kHudPagedPaintDebugLog)
+        {
+            wchar_t dbg[1024] = {};
+            swprintf_s(
+                dbg,
+                _countof(dbg),
+                L"[HUDPAINT] timer page=T19 logical=%d analog=%d analogThrottled=%d "
+                L"invalidateIssued=%d\r\n",
+                logicalChanged ? 1 : 0,
+                analogChanged ? 1 : 0,
+                analogThrottled ? 1 : 0,
+                invalidateIssued ? 1 : 0);
+            OutputDebugStringW(dbg);
+        }
+
         if (logicalChanged)
         {
             wcscpy_s(s_hudPagedT19LastLogical, logicalNow);
             wcscpy_s(s_hudPagedT19LastAnalog, analogNow);
             s_hudPagedT19HasSnapshot = true;
             s_hudPagedT19LastAnalogInvalidateTick = GetTickCount64();
-            if (kHudPagedPaintDebugLog)
-            {
-                wchar_t dbg[256] = {};
-                swprintf_s(
-                    dbg,
-                    _countof(dbg),
-                    L"[HUDPAINT] T19 timer page=T19 logical=1 analog=%d analogThrottled=0 "
-                    L"invalidateIssued=1\r\n",
-                    analogChanged ? 1 : 0);
-                OutputDebugStringW(dbg);
-            }
             InvalidateRect(hWnd, nullptr, FALSE);
             if (kT19InvalidateDebugLog)
             {
@@ -7546,32 +7584,15 @@ static void Win32_WndProc_OnXInputPollTimer(HWND hWnd)
         }
         else if (analogChanged)
         {
-            const ULONGLONG now = GetTickCount64();
-            const ULONGLONG since =
-                (s_hudPagedT19LastAnalogInvalidateTick == 0ULL)
-                    ? static_cast<ULONGLONG>(kT19AnalogThrottleMs)
-                    : (now - s_hudPagedT19LastAnalogInvalidateTick);
-            if (since >= static_cast<ULONGLONG>(kT19AnalogThrottleMs))
+            if (sinceAnalogInv >= static_cast<ULONGLONG>(kT19AnalogThrottleMs))
             {
                 wcscpy_s(s_hudPagedT19LastAnalog, analogNow);
-                s_hudPagedT19LastAnalogInvalidateTick = now;
-                if (kHudPagedPaintDebugLog)
-                {
-                    OutputDebugStringW(
-                        L"[HUDPAINT] T19 timer page=T19 logical=0 analog=1 analogThrottled=0 "
-                        L"invalidateIssued=1\r\n");
-                }
+                s_hudPagedT19LastAnalogInvalidateTick = nowTick;
                 InvalidateRect(hWnd, nullptr, FALSE);
                 if (kT19InvalidateDebugLog)
                 {
                     OutputDebugStringW(L"[T19 inv] logical=0 analog=1 analog_throttled=1\r\n");
                 }
-            }
-            else if (kHudPagedPaintDebugLog)
-            {
-                OutputDebugStringW(
-                    L"[HUDPAINT] T19 timer page=T19 logical=0 analog=1 analogThrottled=1 "
-                    L"invalidateIssued=0\r\n");
             }
         }
     }
@@ -7885,13 +7906,13 @@ static void Win32_MainView_PaintFrame(HWND hWnd)
 {
     if (kHudPagedPaintDebugLog)
     {
-        wchar_t dbg[256] = {};
+        wchar_t dbg[1024] = {};
         if (Win32_HudPaged_IsEnabled())
         {
             swprintf_s(
                 dbg,
                 _countof(dbg),
-                L"[HUDPAINT] WM_PAINT entered page=%s idx=%d\r\n",
+                L"[HUDPAINT] paintframe page=%s idx=%d\r\n",
                 kHudPagedPageIds[s_hudPagedIndex],
                 s_hudPagedIndex);
         }
@@ -7900,7 +7921,7 @@ static void Win32_MainView_PaintFrame(HWND hWnd)
             swprintf_s(
                 dbg,
                 _countof(dbg),
-                L"[HUDPAINT] WM_PAINT entered page=%s idx=%d\r\n",
+                L"[HUDPAINT] paintframe page=%s idx=%d\r\n",
                 L"(paged-hud-off)",
                 -1);
         }
