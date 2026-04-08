@@ -102,6 +102,8 @@ struct ControllerSlotProbeResult
 // T20: VirtualInputSnapshot / policy / keyboard→consumer — VirtualInputNeutral.h / VirtualInputNeutral.cpp
 
 static KeyboardActionState s_keyboardActionState{};
+// WM_INPUT: KeyboardActionState 対象 VK について、直前まで down とみなしていたら make は autorepeat とみなして無視する
+static bool s_rawKeyboardKeyDown[256] = {};
 static LogicalInputState s_logicalInputState{};
 
 const LogicalInputState* InputCore_LogicalInputState()
@@ -152,7 +154,16 @@ static constexpr bool kT19InvalidateDebugLog = false;
 // ページ式 HUD の WM_PAINT / GDI 経路確認用（通常は false）
 static constexpr bool kHudPagedPaintDebugLog = false;
 static constexpr int kT19AnalogThrottleMs = 66;
-static wchar_t s_hudPagedT19LastLogical[16384] = {};
+// T19 論理表示スナップショット（タイマーは文字列ではなくこれで差分判定）
+struct Win32_HudPaged_T19LogicalButtonDisplaySnap
+{
+    bool press;
+    bool release;
+    bool push;
+    UINT8 displayHold;
+};
+static constexpr size_t kT19LogicalDisplayRowCount = 7;
+static Win32_HudPaged_T19LogicalButtonDisplaySnap s_hudPagedT19LastLogicalSnap[kT19LogicalDisplayRowCount] = {};
 static wchar_t s_hudPagedT19LastAnalog[16384] = {};
 static bool s_hudPagedT19HasSnapshot = false;
 static ULONGLONG s_hudPagedT19LastAnalogInvalidateTick = 0;
@@ -5167,6 +5178,54 @@ static UINT8 Win32_HudPaged_T19DisplayHoldFrames(UINT8 holdFrames)
         (static_cast<unsigned int>(holdFrames) / kT19HoldDisplayQuantStep) * kT19HoldDisplayQuantStep);
 }
 
+static void Win32_HudPaged_T19FillLogicalDisplaySnapshot(
+    const LogicalInputState& li,
+    Win32_HudPaged_T19LogicalButtonDisplaySnap* out,
+    size_t outCount)
+{
+    if (!out || outCount < kT19LogicalDisplayRowCount)
+    {
+        return;
+    }
+    static const LogicalButtonId kRowIds[kT19LogicalDisplayRowCount] = {
+        LogicalButtonId::South,
+        LogicalButtonId::East,
+        LogicalButtonId::Start,
+        LogicalButtonId::DPadUp,
+        LogicalButtonId::DPadDown,
+        LogicalButtonId::DPadLeft,
+        LogicalButtonId::DPadRight,
+    };
+    for (size_t i = 0; i < kT19LogicalDisplayRowCount; ++i)
+    {
+        const LogicalButtonFrameState& f = LogicalInputState_Frame(li, kRowIds[i]);
+        out[i].press = f.press;
+        out[i].release = f.release;
+        out[i].push = f.push;
+        out[i].displayHold = Win32_HudPaged_T19DisplayHoldFrames(f.holdFrames);
+    }
+}
+
+static bool Win32_HudPaged_T19LogicalDisplaySnapshotEqual(
+    const Win32_HudPaged_T19LogicalButtonDisplaySnap* a,
+    const Win32_HudPaged_T19LogicalButtonDisplaySnap* b,
+    size_t n)
+{
+    if (!a || !b || n != kT19LogicalDisplayRowCount)
+    {
+        return false;
+    }
+    for (size_t i = 0; i < n; ++i)
+    {
+        if (a[i].press != b[i].press || a[i].release != b[i].release || a[i].push != b[i].push ||
+            a[i].displayHold != b[i].displayHold)
+        {
+            return false;
+        }
+    }
+    return true;
+}
+
 static void Win32_HudPaged_T19FormatStickAxisBar(float v, wchar_t* out, size_t outCount)
 {
     int pos = static_cast<int>(std::lround((v + 1.0f) * 3.5f));
@@ -6808,9 +6867,14 @@ static void Win32_T18_RefreshControllerIdentifySnapshot()
 }
 
 // Raw Input キーから KeyboardActionState を更新。タイマー境界で prev→curr エッジを取る材料。
-static void Win32_UpdateKeyboardActionStateFromPhysicalKey(const PhysicalKeyEvent& ev)
+// 戻り値: 状態を更新した（初回 make または break）とき true。autorepeat の make は false（Tab 等の論理・menu edge 増殖を抑止）。
+static bool Win32_UpdateKeyboardActionStateFromPhysicalKey(const PhysicalKeyEvent& ev)
 {
     const UINT vk = static_cast<UINT>(ev.native_key_code);
+    if (vk >= 256)
+    {
+        return false;
+    }
     bool* target = nullptr;
     switch (vk)
     {
@@ -6829,9 +6893,22 @@ static void Win32_UpdateKeyboardActionStateFromPhysicalKey(const PhysicalKeyEven
     case VK_END: target = &s_keyboardActionState.end; break;
     case VK_F7: target = &s_keyboardActionState.f7; break;
     case VK_F8: target = &s_keyboardActionState.f8; break;
-    default: return;
+    default: return false;
     }
-    *target = !ev.is_key_up;
+
+    if (ev.is_key_up)
+    {
+        s_rawKeyboardKeyDown[vk] = false;
+        *target = false;
+        return true;
+    }
+    if (s_rawKeyboardKeyDown[vk])
+    {
+        return false;
+    }
+    s_rawKeyboardKeyDown[vk] = true;
+    *target = true;
+    return true;
 }
 
 // === T25 [1] 続き: PhysicalKeyEvent の Raw Input 取得・表示ラベル・デバッグ行 ===
@@ -7495,9 +7572,9 @@ static void Win32_WndProc_OnRawInput(LPARAM lParam)
     {
         PhysicalKeyEvent ev{};
         Win32_FillPhysicalKeyFromRawKeyboard(raw->data.keyboard, ev);
-        Win32_UpdateKeyboardActionStateFromPhysicalKey(ev);
+        const bool kbStateApplied = Win32_UpdateKeyboardActionStateFromPhysicalKey(ev);
         if (static_cast<UINT>(ev.native_key_code) == VK_RETURN && !ev.is_key_up &&
-            !s_virtualInputMenuSampleState.menuOpen)
+            !s_virtualInputMenuSampleState.menuOpen && kbStateApplied)
         {
             s_t17PendingApplyRequest = true;
             OutputDebugStringW(L"[T17] ENTER MAKE latched apply request\r\n");
@@ -7531,15 +7608,22 @@ static void Win32_WndProc_OnXInputPollTimer(HWND hWnd)
     // T19: 論理行は即時 invalidation、アナログのみの変化は約 kT19AnalogThrottleMs 間隔で間引く（GDI ちらつき低減）
     if (Win32_HudPaged_IsEnabled() && s_hudPagedIndex == 4)
     {
-        wchar_t logicalNow[16384] = {};
         wchar_t analogNow[16384] = {};
-        Win32_HudPaged_FillT19LogicalSection(logicalNow, _countof(logicalNow));
+        Win32_HudPaged_T19LogicalButtonDisplaySnap logicalSnapNow[kT19LogicalDisplayRowCount] = {};
+        const LogicalInputState* liTimer = InputCore_LogicalInputState();
+        if (liTimer)
+        {
+            Win32_HudPaged_T19FillLogicalDisplaySnapshot(*liTimer, logicalSnapNow, _countof(logicalSnapNow));
+        }
         Win32_HudPaged_FillT19AnalogSectionInto(analogNow, _countof(analogNow));
-        Win32_HudPaged_ClampTextLines(logicalNow, _countof(logicalNow), 32, 80);
         Win32_HudPaged_ClampTextLines(analogNow, _countof(analogNow), 32, 80);
 
         const bool logicalChanged =
-            !s_hudPagedT19HasSnapshot || wcscmp(logicalNow, s_hudPagedT19LastLogical) != 0;
+            !s_hudPagedT19HasSnapshot ||
+            !Win32_HudPaged_T19LogicalDisplaySnapshotEqual(
+                logicalSnapNow,
+                s_hudPagedT19LastLogicalSnap,
+                kT19LogicalDisplayRowCount);
         const bool analogChanged =
             !s_hudPagedT19HasSnapshot || wcscmp(analogNow, s_hudPagedT19LastAnalog) != 0;
 
@@ -7572,7 +7656,11 @@ static void Win32_WndProc_OnXInputPollTimer(HWND hWnd)
 
         if (logicalChanged)
         {
-            wcscpy_s(s_hudPagedT19LastLogical, logicalNow);
+            memcpy_s(
+                s_hudPagedT19LastLogicalSnap,
+                sizeof(s_hudPagedT19LastLogicalSnap),
+                logicalSnapNow,
+                sizeof(logicalSnapNow));
             wcscpy_s(s_hudPagedT19LastAnalog, analogNow);
             s_hudPagedT19HasSnapshot = true;
             s_hudPagedT19LastAnalogInvalidateTick = GetTickCount64();
