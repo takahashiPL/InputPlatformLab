@@ -3863,7 +3863,9 @@ static constexpr bool kPs4Ds4IsoDebugLog =
     (WIN32_PS4_BRIDGE_DEBUG_LOG != 0) || (WIN32_PS4_DS4_ISO_DEBUG_LOG != 0);
 static constexpr bool kPs4VirtualInputDebugLog = (WIN32_PS4_VIRTUAL_INPUT_DEBUG_LOG != 0);
 
-// DS4: byte5/6 の face・Share/Options 周りを 1 行で比較（既定 0）。WM_INPUT ごとに呼ばれるため変化時のみ。
+// DS4: byte5/6/7 と face マスク・VirtualInput 解釈を 1 行（既定 0）。b5/b6/b7 いずれか変化時のみ。
+// 実機検証: 1 にするか MSBuild で /DWIN32_DS4_HID_FACE_RAW_1LINE=1
+// （論理 tick との比較は併せて /DWIN32_LOGICAL_INPUT_DEBUG_PAD_TRANSITION=1）
 #ifndef WIN32_DS4_HID_FACE_RAW_1LINE
 #define WIN32_DS4_HID_FACE_RAW_1LINE 0
 #endif
@@ -4071,20 +4073,38 @@ static bool Win32_FillVirtualInputFromDs4StyleHidReport(const BYTE* buf, UINT le
             || b7 != s_ds4FacePrev567[2];
         if (changed)
         {
-            wchar_t w[256] = {};
+            const unsigned hatLo = static_cast<unsigned>(b5 & 0x0FU);
+            const int m5_10 = (b5 & 0x10) != 0 ? 1 : 0;
+            const int m5_20 = (b5 & 0x20) != 0 ? 1 : 0;
+            const int m5_40 = (b5 & 0x40) != 0 ? 1 : 0;
+            const int m6_10 = (b6 & 0x10) != 0 ? 1 : 0;
+            const int m6_20 = (b6 & 0x20) != 0 ? 1 : 0;
+            const int m6_40 = (b6 & 0x40) != 0 ? 1 : 0;
+            const int m6_80 = (b6 & 0x80) != 0 ? 1 : 0;
+            wchar_t w[512] = {};
             swprintf_s(
                 w,
                 _countof(w),
-                L"[DS4FaceRaw] b5=%02X b6=%02X b7=%02X west(Sq)=%d sel(Sh)=%d south(X)=%d east(O)=%d start(Opt)=%d north=%d\r\n",
+                L"[DS4FaceRaw] b5=%02X b6=%02X b7=%02X hatLo=%u "
+                L"b5[10,20,40]=%d%d%d b6[10,20,40,80]=%d%d%d%d "
+                L"west=%d south=%d east=%d start=%d select=%d "
+                L"(virt Sq,X,O,Opt,Sh)\r\n",
                 static_cast<unsigned int>(b5),
                 static_cast<unsigned int>(b6),
                 static_cast<unsigned int>(b7),
+                hatLo,
+                m5_10,
+                m5_20,
+                m5_40,
+                m6_10,
+                m6_20,
+                m6_40,
+                m6_80,
                 out.west ? 1 : 0,
-                out.select ? 1 : 0,
                 out.south ? 1 : 0,
                 out.east ? 1 : 0,
                 out.start ? 1 : 0,
-                out.north ? 1 : 0);
+                out.select ? 1 : 0);
             OutputDebugStringW(w);
             s_ds4FacePrev567[0] = b5;
             s_ds4FacePrev567[1] = b6;
@@ -6767,7 +6787,8 @@ static void Win32_UnifiedInputMenuTick_TryKbArrowHoldRepeat(HWND hwnd)
     }
 }
 
-// PS4 経路の VirtualInput 変化のみ（既定 off）。論理層の検証用。1 = [LOGICALDBG] PS4 pad ...
+// PS4: WM_TIMER tick 上の VirtualInput（s_virtualInputCurr）変化 + 同一 tick 後の Logical Select 状態。
+// 既定 off。実機検証: /DWIN32_LOGICAL_INPUT_DEBUG_PAD_TRANSITION=1（DS4 raw 行と併用可）
 #ifndef WIN32_LOGICAL_INPUT_DEBUG_PAD_TRANSITION
 #define WIN32_LOGICAL_INPUT_DEBUG_PAD_TRANSITION 0
 #endif
@@ -6793,11 +6814,14 @@ static void Win32_LogicalInputDebugPadTransitionIfAny()
         || (s_prev.dpadLeft != c.dpadLeft) || (s_prev.dpadRight != c.dpadRight);
     if (any)
     {
-        wchar_t w[320] = {};
+        const LogicalButtonFrameState& selLi =
+            LogicalInputState_Frame(s_logicalInputState, LogicalButtonId::Select);
+        wchar_t w[512] = {};
         swprintf_s(
             w,
             _countof(w),
-            L"[LOGICALDBG] PS4 pad S=%d E=%d St=%d Sel=%d UDLR=%d%d%d%d\r\n",
+            L"[LOGICALDBG] PS4 pad S=%d E=%d St=%d Sel=%d UDLR=%d%d%d%d "
+            L"| liSel dn=%d pr=%d rel=%d\r\n",
             c.south ? 1 : 0,
             c.east ? 1 : 0,
             c.start ? 1 : 0,
@@ -6805,7 +6829,10 @@ static void Win32_LogicalInputDebugPadTransitionIfAny()
             c.dpadUp ? 1 : 0,
             c.dpadDown ? 1 : 0,
             c.dpadLeft ? 1 : 0,
-            c.dpadRight ? 1 : 0);
+            c.dpadRight ? 1 : 0,
+            selLi.down ? 1 : 0,
+            selLi.press ? 1 : 0,
+            selLi.release ? 1 : 0);
         OutputDebugStringW(w);
     }
     s_prev = c;
