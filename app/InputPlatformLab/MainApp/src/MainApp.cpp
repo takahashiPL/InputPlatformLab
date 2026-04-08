@@ -5871,9 +5871,7 @@ static void Win32_HudPaged_FillT19LogicalSection(wchar_t* buf, size_t bufCount)
         return;
     }
 
-    Win32_HudPaged_AppendBodyLine(buf, bufCount, L"logical:");
-    Win32_HudPaged_AppendBodyLine(buf, bufCount, L"");
-
+    // 見出し行を表ヘッダと統合（空行を減らし標準サイズで analog まで収める）
     // Consolas 等幅: 左3列の後に press / release / push / hold を固定幅で同一アンカーに揃える
     // 0-based 列開始（左ブロック 6+sp+10+sp+16+2sp = 36 文字目から press）。fmt 変更時は値を合わせること。
     [[maybe_unused]] static constexpr int kT19ColPress = 36;
@@ -5908,7 +5906,7 @@ static void Win32_HudPaged_FillT19LogicalSection(wchar_t* buf, size_t bufCount)
         line,
         _countof(line),
         kT19LogicalFmtHeader,
-        L"",
+        L"logic",
         L"",
         L"",
         L"press",
@@ -5935,7 +5933,7 @@ static void Win32_HudPaged_FillT19LogicalSection(wchar_t* buf, size_t bufCount)
     }
 }
 
-// 共通 logical 表の直後: 肩・スティック押し込み・West/North、L2/R2 は論理列 + 安定化 raw（analog と同じ量子化）
+// 共通 logical 表の直後: 肩・スティック押し込み・West/North（2 列で縦を圧縮）。L2/R2 は安定化 raw（analog と同じ量子化）
 static void Win32_HudPaged_FillT19PadExtrasSection(wchar_t* buf, size_t bufCount)
 {
     if (!buf || bufCount < 2)
@@ -5950,88 +5948,68 @@ static void Win32_HudPaged_FillT19PadExtrasSection(wchar_t* buf, size_t bufCount
     const VirtualInputSnapshot& v = s_virtualInputCurr;
 
     Win32_HudPaged_AppendBodyLine(buf, bufCount, L"");
-    Win32_HudPaged_AppendBodyLine(buf, bufCount, L"pad extras:");
-    Win32_HudPaged_AppendBodyLine(buf, bufCount, L"");
+    Win32_HudPaged_AppendBodyLine(buf, bufCount, L"pad extras: L|R pairs  pr/rl/pu/h  rNNN=L2/R2 raw");
 
-    static const wchar_t kT19PadExtrasHdr[] =
-        L"%-6.6s %-10.10s %-16.16s  %-5s %-7s %-4s %4s";
-    static const wchar_t kT19PadExtrasRow[] =
-        L"%-6.6s %-10.10s %-16.16s  %-5s %-7s %-4s %4u";
-    static const wchar_t kT19PadExtrasTrigRow[] =
-        L"%-6.6s %-10.10s %-16.16s  %-5s %-7s %-4s %4u  raw %3u";
-
-    wchar_t line[384] = {};
-    swprintf_s(
-        line,
-        _countof(line),
-        kT19PadExtrasHdr,
-        L"",
-        L"",
-        L"",
-        L"press",
-        L"release",
-        L"push",
-        L"hold");
-    Win32_HudPaged_AppendBodyLine(buf, bufCount, line);
-
-    auto appendRow = [&](LogicalButtonId id, const wchar_t* shortName, const wchar_t* padHint) {
+    auto fmtDig = [&](wchar_t* dst, size_t dstCount, const wchar_t* name, LogicalButtonId id) {
         const LogicalButtonFrameState& f = LogicalInputState_Frame(*li, id);
         swprintf_s(
-            line,
-            _countof(line),
-            kT19PadExtrasRow,
-            shortName,
-            L"\u2014",
-            padHint,
+            dst,
+            dstCount,
+            L"%s %s %s %s %3u",
+            name,
             Win32_HudPaged_T19Mark(f.press),
             Win32_HudPaged_T19Mark(f.release),
             Win32_HudPaged_T19Mark(f.push),
             static_cast<unsigned int>(Win32_HudPaged_T19DisplayHoldFrames(f.holdFrames)));
-        Win32_HudPaged_AppendBodyLine(buf, bufCount, line);
     };
 
-    appendRow(LogicalButtonId::L1, L"L1", L"shldr");
-    appendRow(LogicalButtonId::R1, L"R1", L"shldr");
-
-    {
-        const LogicalButtonFrameState& f = LogicalInputState_Frame(*li, LogicalButtonId::L2);
-        const UINT8 rq = Win32_HudPaged_T19QuantizeTriggerRawForSnap(v.leftTriggerRaw);
+    auto fmtTrig = [&](wchar_t* dst, size_t dstCount, const wchar_t* name, LogicalButtonId id, UINT8 rawQ) {
+        const LogicalButtonFrameState& f = LogicalInputState_Frame(*li, id);
         swprintf_s(
-            line,
-            _countof(line),
-            kT19PadExtrasTrigRow,
-            L"L2",
-            L"\u2014",
-            L"trig",
+            dst,
+            dstCount,
+            L"%s %s %s %s %3u r%3u",
+            name,
             Win32_HudPaged_T19Mark(f.press),
             Win32_HudPaged_T19Mark(f.release),
             Win32_HudPaged_T19Mark(f.push),
             static_cast<unsigned int>(Win32_HudPaged_T19DisplayHoldFrames(f.holdFrames)),
-            static_cast<unsigned int>(rq));
-        Win32_HudPaged_AppendBodyLine(buf, bufCount, line);
-    }
-    {
-        const LogicalButtonFrameState& f = LogicalInputState_Frame(*li, LogicalButtonId::R2);
-        const UINT8 rq = Win32_HudPaged_T19QuantizeTriggerRawForSnap(v.rightTriggerRaw);
-        swprintf_s(
-            line,
-            _countof(line),
-            kT19PadExtrasTrigRow,
-            L"R2",
-            L"\u2014",
-            L"trig",
-            Win32_HudPaged_T19Mark(f.press),
-            Win32_HudPaged_T19Mark(f.release),
-            Win32_HudPaged_T19Mark(f.push),
-            static_cast<unsigned int>(Win32_HudPaged_T19DisplayHoldFrames(f.holdFrames)),
-            static_cast<unsigned int>(rq));
-        Win32_HudPaged_AppendBodyLine(buf, bufCount, line);
-    }
+            static_cast<unsigned int>(rawQ));
+    };
 
-    appendRow(LogicalButtonId::L3, L"L3", L"click");
-    appendRow(LogicalButtonId::R3, L"R3", L"click");
-    appendRow(LogicalButtonId::West, L"West", L"Square");
-    appendRow(LogicalButtonId::North, L"North", L"Tri");
+    wchar_t line[512] = {};
+    wchar_t left[96] = {};
+    wchar_t right[96] = {};
+
+    fmtDig(left, _countof(left), L"L1", LogicalButtonId::L1);
+    fmtDig(right, _countof(right), L"R1", LogicalButtonId::R1);
+    swprintf_s(line, _countof(line), L"%-40s | %s", left, right);
+    Win32_HudPaged_AppendBodyLine(buf, bufCount, line);
+
+    fmtTrig(
+        left,
+        _countof(left),
+        L"L2",
+        LogicalButtonId::L2,
+        Win32_HudPaged_T19QuantizeTriggerRawForSnap(v.leftTriggerRaw));
+    fmtTrig(
+        right,
+        _countof(right),
+        L"R2",
+        LogicalButtonId::R2,
+        Win32_HudPaged_T19QuantizeTriggerRawForSnap(v.rightTriggerRaw));
+    swprintf_s(line, _countof(line), L"%-40s | %s", left, right);
+    Win32_HudPaged_AppendBodyLine(buf, bufCount, line);
+
+    fmtDig(left, _countof(left), L"L3", LogicalButtonId::L3);
+    fmtDig(right, _countof(right), L"R3", LogicalButtonId::R3);
+    swprintf_s(line, _countof(line), L"%-40s | %s", left, right);
+    Win32_HudPaged_AppendBodyLine(buf, bufCount, line);
+
+    fmtDig(left, _countof(left), L"West", LogicalButtonId::West);
+    fmtDig(right, _countof(right), L"North", LogicalButtonId::North);
+    swprintf_s(line, _countof(line), L"%-40s | %s", left, right);
+    Win32_HudPaged_AppendBodyLine(buf, bufCount, line);
 }
 
 // buf に追記（論理ブロックの直後に空行 + analog: + 表示用安定化アナログ）。li 無効時は何もしない。
@@ -6049,7 +6027,6 @@ static void Win32_HudPaged_FillT19AnalogSectionInto(wchar_t* buf, size_t bufCoun
 
     Win32_HudPaged_AppendBodyLine(buf, bufCount, L"");
     Win32_HudPaged_AppendBodyLine(buf, bufCount, L"analog:");
-    Win32_HudPaged_AppendBodyLine(buf, bufCount, L"");
 
     const VirtualInputSnapshot& v = s_virtualInputCurr;
     const float lsx = Win32_HudPaged_T19StabilizeStickAxisDisplay(Win32_HudPaged_T19NormalizeStickAxis(v.leftStickX));
@@ -6060,28 +6037,43 @@ static void Win32_HudPaged_FillT19AnalogSectionInto(wchar_t* buf, size_t bufCoun
     const float rt = Win32_HudPaged_T19StabilizeTriggerDisplay(Win32_HudPaged_T19NormalizeTrigger(v.rightTriggerRaw));
 
     wchar_t line[384] = {};
-    wchar_t bar[32] = {};
+    wchar_t barA[32] = {};
+    wchar_t barB[32] = {};
 
-    // LSx/LSy に数値とバーを 1 行ずつ（LS/RS の重複サマリ行は省略して行数と窮屈さを削減）
-    Win32_HudPaged_T19FormatStickAxisBarCompact(lsx, bar, _countof(bar));
-    swprintf_s(line, _countof(line), L"LSx %+.2f  %s", static_cast<double>(lsx), bar);
-    Win32_HudPaged_AppendBodyLine(buf, bufCount, line);
-    Win32_HudPaged_T19FormatStickAxisBarCompact(lsy, bar, _countof(bar));
-    swprintf_s(line, _countof(line), L"LSy %+.2f  %s", static_cast<double>(lsy), bar);
-    Win32_HudPaged_AppendBodyLine(buf, bufCount, line);
-
-    Win32_HudPaged_T19FormatStickAxisBarCompact(rsx, bar, _countof(bar));
-    swprintf_s(line, _countof(line), L"RSx %+.2f  %s", static_cast<double>(rsx), bar);
-    Win32_HudPaged_AppendBodyLine(buf, bufCount, line);
-    Win32_HudPaged_T19FormatStickAxisBarCompact(rsy, bar, _countof(bar));
-    swprintf_s(line, _countof(line), L"RSy %+.2f  %s", static_cast<double>(rsy), bar);
+    Win32_HudPaged_T19FormatStickAxisBarCompact(lsx, barA, _countof(barA));
+    Win32_HudPaged_T19FormatStickAxisBarCompact(lsy, barB, _countof(barB));
+    swprintf_s(
+        line,
+        _countof(line),
+        L"LS x%+.2f %s  y%+.2f %s",
+        static_cast<double>(lsx),
+        barA,
+        static_cast<double>(lsy),
+        barB);
     Win32_HudPaged_AppendBodyLine(buf, bufCount, line);
 
-    Win32_HudPaged_T19FormatTriggerBarCompact(lt, bar, _countof(bar));
-    swprintf_s(line, _countof(line), L"LT  %.2f  %s", static_cast<double>(lt), bar);
+    Win32_HudPaged_T19FormatStickAxisBarCompact(rsx, barA, _countof(barA));
+    Win32_HudPaged_T19FormatStickAxisBarCompact(rsy, barB, _countof(barB));
+    swprintf_s(
+        line,
+        _countof(line),
+        L"RS x%+.2f %s  y%+.2f %s",
+        static_cast<double>(rsx),
+        barA,
+        static_cast<double>(rsy),
+        barB);
     Win32_HudPaged_AppendBodyLine(buf, bufCount, line);
-    Win32_HudPaged_T19FormatTriggerBarCompact(rt, bar, _countof(bar));
-    swprintf_s(line, _countof(line), L"RT  %.2f  %s", static_cast<double>(rt), bar);
+
+    Win32_HudPaged_T19FormatTriggerBarCompact(lt, barA, _countof(barA));
+    Win32_HudPaged_T19FormatTriggerBarCompact(rt, barB, _countof(barB));
+    swprintf_s(
+        line,
+        _countof(line),
+        L"LT %.2f %s   RT %.2f %s",
+        static_cast<double>(lt),
+        barA,
+        static_cast<double>(rt),
+        barB);
     Win32_HudPaged_AppendBodyLine(buf, bufCount, line);
 }
 
@@ -6557,9 +6549,7 @@ void Win32_HudPaged_PaintGdi(
     rcMenuDraw.bottom = menuTop + menuH;
     DrawTextW(hdcDraw, menuBuf, -1, &rcMenuDraw, DT_LEFT | DT_TOP | DT_NOPREFIX);
 
-    const int t19BodyExtraGap =
-        (s_hudPagedIndex == kHudPagedPageIndexT19) ? (std::max)(2, lineH / 3) : 0;
-    const int bodyTop = menuTop + menuH + bandGap + bodyExtraTopPad + t19BodyExtraGap;
+    const int bodyTop = menuTop + menuH + bandGap + bodyExtraTopPad;
     RECT rcBody = {};
     rcBody.left = bodyLeft;
     rcBody.top = bodyTop;
