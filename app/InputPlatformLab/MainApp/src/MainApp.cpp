@@ -3838,6 +3838,16 @@ static constexpr bool kPs4DPadProbeDebugLog = false;
 // T18: WM_INPUT 生レポートで hatLo または L1 ビット変化時のみ [PS4RawCombo] 1 行。既定 false。結論は README「DPad 混在時」。
 static constexpr bool kPs4RawComboProbeDebugLog = false;
 static constexpr bool kPs4BridgeResetDebugLog = false;
+// [PS4Bridge] / [PS4VIchg] / [PS4DS4ISO]（slot=99）系。既定 0。1 で有効。
+#ifndef WIN32_PS4_BRIDGE_DEBUG_LOG
+#define WIN32_PS4_BRIDGE_DEBUG_LOG 0
+#endif
+// VirtualInputPolicy / VirtualInputConsumer / Helper / snapshot 要約 / MenuSample / XInput[slot] デバッグ行。既定 0。1 で有効。
+#ifndef WIN32_PS4_VIRTUAL_INPUT_DEBUG_LOG
+#define WIN32_PS4_VIRTUAL_INPUT_DEBUG_LOG 0
+#endif
+static constexpr bool kPs4BridgeDebugLog = (WIN32_PS4_BRIDGE_DEBUG_LOG != 0);
+static constexpr bool kPs4VirtualInputDebugLog = (WIN32_PS4_VIRTUAL_INPUT_DEBUG_LOG != 0);
 
 static DWORD s_ps4BridgeResetDebugLastTickNoDs4 = 0;
 static DWORD s_ps4BridgeResetDebugLastTickXinput = 0;
@@ -4034,6 +4044,10 @@ static bool Win32_FillVirtualInputFromDs4StyleHidReport(const BYTE* buf, UINT le
 // === T25 [7] Win32: VirtualInput 系デバッグログ（snapshot / helper / policy / consumer / menu） ===
 static void Win32_LogVirtualInputSnapshotSummary(const VirtualInputSnapshot& s, DWORD slot)
 {
+    if (!kPs4VirtualInputDebugLog)
+    {
+        return;
+    }
     wchar_t line[768] = {};
     swprintf_s(line, _countof(line),
         L"VirtualInput slot=%u fam=%s conn=%d "
@@ -4144,6 +4158,10 @@ static void Win32_LogVirtualInputPs4Slot99ShoulderGroupIfChanged(
     {
         return;
     }
+    if (!kPs4BridgeDebugLog)
+    {
+        return;
+    }
     wchar_t line[768] = {};
     swprintf_s(line, _countof(line),
         L"[PS4VIchg] VirtualInput slot=%u fam=%s conn=%d "
@@ -4244,32 +4262,35 @@ static void Win32_LogVirtualInputPs4Slot99IsolateEdges(
                     continue;
                 }
             }
-            wchar_t line[384] = {};
-            swprintf_s(line, _countof(line),
-                L"[PS4DS4ISO] %s L1R1=%d%d L2R2=%d/%d raw=%u/%u L3R3=%d%d "
-                L"face=%d%d%d%d StSel=%d%d PS=%d Dpad=%d%d%d%d hatLo=%u\r\n",
-                iso.tag,
-                curr.l1 ? 1 : 0,
-                curr.r1 ? 1 : 0,
-                curr.l2Pressed ? 1 : 0,
-                curr.r2Pressed ? 1 : 0,
-                static_cast<unsigned int>(curr.leftTriggerRaw),
-                static_cast<unsigned int>(curr.rightTriggerRaw),
-                curr.l3 ? 1 : 0,
-                curr.r3 ? 1 : 0,
-                curr.south ? 1 : 0,
-                curr.east ? 1 : 0,
-                curr.west ? 1 : 0,
-                curr.north ? 1 : 0,
-                curr.start ? 1 : 0,
-                curr.select ? 1 : 0,
-                curr.psHome ? 1 : 0,
-                curr.dpadUp ? 1 : 0,
-                curr.dpadDown ? 1 : 0,
-                curr.dpadLeft ? 1 : 0,
-                curr.dpadRight ? 1 : 0,
-                static_cast<unsigned int>(s_ps4LastReportB5to9Valid ? (s_ps4LastReportB5 & 0x0FU) : 0u));
-            OutputDebugStringW(line);
+            if (kPs4BridgeDebugLog)
+            {
+                wchar_t line[384] = {};
+                swprintf_s(line, _countof(line),
+                    L"[PS4DS4ISO] %s L1R1=%d%d L2R2=%d/%d raw=%u/%u L3R3=%d%d "
+                    L"face=%d%d%d%d StSel=%d%d PS=%d Dpad=%d%d%d%d hatLo=%u\r\n",
+                    iso.tag,
+                    curr.l1 ? 1 : 0,
+                    curr.r1 ? 1 : 0,
+                    curr.l2Pressed ? 1 : 0,
+                    curr.r2Pressed ? 1 : 0,
+                    static_cast<unsigned int>(curr.leftTriggerRaw),
+                    static_cast<unsigned int>(curr.rightTriggerRaw),
+                    curr.l3 ? 1 : 0,
+                    curr.r3 ? 1 : 0,
+                    curr.south ? 1 : 0,
+                    curr.east ? 1 : 0,
+                    curr.west ? 1 : 0,
+                    curr.north ? 1 : 0,
+                    curr.start ? 1 : 0,
+                    curr.select ? 1 : 0,
+                    curr.psHome ? 1 : 0,
+                    curr.dpadUp ? 1 : 0,
+                    curr.dpadDown ? 1 : 0,
+                    curr.dpadLeft ? 1 : 0,
+                    curr.dpadRight ? 1 : 0,
+                    static_cast<unsigned int>(s_ps4LastReportB5to9Valid ? (s_ps4LastReportB5 & 0x0FU) : 0u));
+                OutputDebugStringW(line);
+            }
         }
     }
 }
@@ -4298,6 +4319,15 @@ static void Win32_LogPs4Slot99BridgeDeltaIfChanged(
 
     if (!viDelta && !rawDelta)
     {
+        return;
+    }
+    if (!kPs4BridgeDebugLog)
+    {
+        s_ps4BridgeDeltaPrevB5 = b5;
+        s_ps4BridgeDeltaPrevB6 = b6;
+        s_ps4BridgeDeltaPrevB8 = b8;
+        s_ps4BridgeDeltaPrevB9 = b9;
+        s_ps4BridgeDeltaHasPrev = true;
         return;
     }
 
@@ -4332,6 +4362,10 @@ static void Win32_LogVirtualInputHelperProbe(
     const VirtualInputSnapshot& curr,
     DWORD slot)
 {
+    if (!kPs4VirtualInputDebugLog)
+    {
+        return;
+    }
     wchar_t line[512] = {};
     swprintf_s(line, _countof(line),
         L"VirtualInputHelper[slot=%u] SouthDown=%d "
@@ -4354,6 +4388,10 @@ static void Win32_LogVirtualInputPolicyIfChanged(
     const VirtualInputSnapshot& prev,
     const VirtualInputSnapshot& curr)
 {
+    if (!kPs4VirtualInputDebugLog)
+    {
+        return;
+    }
     const VirtualInputPolicyHeld pm = VirtualInputPolicy_MoveHeld(prev);
     const VirtualInputPolicyHeld cm = VirtualInputPolicy_MoveHeld(curr);
     const bool moveChanged =
@@ -4405,15 +4443,18 @@ static void Win32_LogVirtualInputConsumerIfChanged(
         return;
     }
 
-    wchar_t line[256] = {};
-    swprintf_s(line, _countof(line),
-        L"VirtualInputConsumer move=(%d,%d) confirm=%d cancel=%d menu=%d\r\n",
-        static_cast<int>(now.moveX),
-        static_cast<int>(now.moveY),
-        now.confirmPressed ? 1 : 0,
-        now.cancelPressed ? 1 : 0,
-        now.menuPressed ? 1 : 0);
-    OutputDebugStringW(line);
+    if (kPs4VirtualInputDebugLog)
+    {
+        wchar_t line[256] = {};
+        swprintf_s(line, _countof(line),
+            L"VirtualInputConsumer move=(%d,%d) confirm=%d cancel=%d menu=%d\r\n",
+            static_cast<int>(now.moveX),
+            static_cast<int>(now.moveY),
+            now.confirmPressed ? 1 : 0,
+            now.cancelPressed ? 1 : 0,
+            now.menuPressed ? 1 : 0);
+        OutputDebugStringW(line);
+    }
     s_virtualInputConsumerPrev = now;
 }
 
@@ -4421,6 +4462,10 @@ static void Win32_LogVirtualInputMenuSample_Events(
     const VirtualInputMenuSampleEvents& ev,
     const VirtualInputMenuSampleState& s)
 {
+    if (!kPs4VirtualInputDebugLog)
+    {
+        return;
+    }
     if (ev.menuToggled)
     {
         wchar_t line[128] = {};
@@ -4481,6 +4526,12 @@ static void Win32_LogVirtualInputMenuSample_StateDumpIfChanged(
 
     // ページ式 HUD 運用時は stacked 用ダンプ（VirtualInputMenuSampleDump / T58T14IDX）を出さない。
     if (Win32_HudPaged_IsEnabled())
+    {
+        s_virtualInputMenuSampleDumpPrev = s;
+        return;
+    }
+
+    if (!kPs4VirtualInputDebugLog)
     {
         s_virtualInputMenuSampleDumpPrev = s;
         return;
@@ -6901,14 +6952,17 @@ static void Win32_XInputPollDigitalEdgesOnTimer(HWND hwnd)
         {
             Win32_FillVirtualInputSnapshotFromXInputState(state, snapCurr);
         }
-        wchar_t line[256] = {};
-        swprintf_s(line, _countof(line),
-            L"XInput[slot=%u] id=%s label=\"%s\" %s\r\n",
-            static_cast<unsigned int>(slot),
-            GamepadButton_GetIdName(e.id),
-            GamepadButton_GetDisplayLabel(e.id, kFamily),
-            down ? L"down" : L"up");
-        OutputDebugStringW(line);
+        if (kPs4VirtualInputDebugLog)
+        {
+            wchar_t line[256] = {};
+            swprintf_s(line, _countof(line),
+                L"XInput[slot=%u] id=%s label=\"%s\" %s\r\n",
+                static_cast<unsigned int>(slot),
+                GamepadButton_GetIdName(e.id),
+                GamepadButton_GetDisplayLabel(e.id, kFamily),
+                down ? L"down" : L"up");
+            OutputDebugStringW(line);
+        }
         if (e.id == GamepadButtonId::South)
         {
             Win32_LogVirtualInputHelperProbe(s_virtualInputPrev, snapCurr, slot);
@@ -6919,15 +6973,18 @@ static void Win32_XInputPollDigitalEdgesOnTimer(HWND hwnd)
     {
         VirtualInputSnapshot snapCurr{};
         Win32_FillVirtualInputSnapshotFromXInputState(state, snapCurr);
-        wchar_t line[256] = {};
-        swprintf_s(line, _countof(line),
-            L"XInput[slot=%u] id=%s label=\"%s\" %s value=%u\r\n",
-            static_cast<unsigned int>(slot),
-            GamepadButton_GetIdName(GamepadButtonId::L2),
-            GamepadButton_GetDisplayLabel(GamepadButtonId::L2, kFamily),
-            l2Now ? L"down" : L"up",
-            static_cast<unsigned int>(lt));
-        OutputDebugStringW(line);
+        if (kPs4VirtualInputDebugLog)
+        {
+            wchar_t line[256] = {};
+            swprintf_s(line, _countof(line),
+                L"XInput[slot=%u] id=%s label=\"%s\" %s value=%u\r\n",
+                static_cast<unsigned int>(slot),
+                GamepadButton_GetIdName(GamepadButtonId::L2),
+                GamepadButton_GetDisplayLabel(GamepadButtonId::L2, kFamily),
+                l2Now ? L"down" : L"up",
+                static_cast<unsigned int>(lt));
+            OutputDebugStringW(line);
+        }
         Win32_LogVirtualInputHelperProbe(s_virtualInputPrev, snapCurr, slot);
     }
 
@@ -6935,15 +6992,18 @@ static void Win32_XInputPollDigitalEdgesOnTimer(HWND hwnd)
     {
         VirtualInputSnapshot snapCurr{};
         Win32_FillVirtualInputSnapshotFromXInputState(state, snapCurr);
-        wchar_t line[256] = {};
-        swprintf_s(line, _countof(line),
-            L"XInput[slot=%u] id=%s label=\"%s\" %s value=%u\r\n",
-            static_cast<unsigned int>(slot),
-            GamepadButton_GetIdName(GamepadButtonId::R2),
-            GamepadButton_GetDisplayLabel(GamepadButtonId::R2, kFamily),
-            r2Now ? L"down" : L"up",
-            static_cast<unsigned int>(rt));
-        OutputDebugStringW(line);
+        if (kPs4VirtualInputDebugLog)
+        {
+            wchar_t line[256] = {};
+            swprintf_s(line, _countof(line),
+                L"XInput[slot=%u] id=%s label=\"%s\" %s value=%u\r\n",
+                static_cast<unsigned int>(slot),
+                GamepadButton_GetIdName(GamepadButtonId::R2),
+                GamepadButton_GetDisplayLabel(GamepadButtonId::R2, kFamily),
+                r2Now ? L"down" : L"up",
+                static_cast<unsigned int>(rt));
+            OutputDebugStringW(line);
+        }
         Win32_LogVirtualInputHelperProbe(s_virtualInputPrev, snapCurr, slot);
     }
 
@@ -6953,40 +7013,46 @@ static void Win32_XInputPollDigitalEdgesOnTimer(HWND hwnd)
         {
             VirtualInputSnapshot snapCurr{};
             Win32_FillVirtualInputSnapshotFromXInputState(state, snapCurr);
-            wchar_t line[320] = {};
-            if (leftInDz)
+            if (kPs4VirtualInputDebugLog)
             {
-                swprintf_s(line, _countof(line),
-                    L"XInput[slot=%u] LeftStick dz=in raw=(%d,%d)\r\n",
-                    static_cast<unsigned int>(slot),
-                    static_cast<int>(lx),
-                    static_cast<int>(ly));
+                wchar_t line[320] = {};
+                if (leftInDz)
+                {
+                    swprintf_s(line, _countof(line),
+                        L"XInput[slot=%u] LeftStick dz=in raw=(%d,%d)\r\n",
+                        static_cast<unsigned int>(slot),
+                        static_cast<int>(lx),
+                        static_cast<int>(ly));
+                }
+                else
+                {
+                    swprintf_s(line, _countof(line),
+                        L"XInput[slot=%u] LeftStick dz=out raw=(%d,%d) dir=%s\r\n",
+                        static_cast<unsigned int>(slot),
+                        static_cast<int>(lx),
+                        static_cast<int>(ly),
+                        Win32_LeftStickDirLabel(leftDir));
+                }
+                OutputDebugStringW(line);
             }
-            else
-            {
-                swprintf_s(line, _countof(line),
-                    L"XInput[slot=%u] LeftStick dz=out raw=(%d,%d) dir=%s\r\n",
-                    static_cast<unsigned int>(slot),
-                    static_cast<int>(lx),
-                    static_cast<int>(ly),
-                    Win32_LeftStickDirLabel(leftDir));
-            }
-            OutputDebugStringW(line);
             Win32_LogVirtualInputHelperProbe(s_virtualInputPrev, snapCurr, slot);
         }
         else if (leftDirEdge)
         {
             VirtualInputSnapshot snapCurr{};
             Win32_FillVirtualInputSnapshotFromXInputState(state, snapCurr);
-            wchar_t line[320] = {};
-            swprintf_s(line, _countof(line),
-                L"XInput[slot=%u] LeftStick dz=out raw=(%d,%d) dir=%s->%s\r\n",
-                static_cast<unsigned int>(slot),
-                static_cast<int>(lx),
-                static_cast<int>(ly),
-                Win32_LeftStickDirLabel(s_xinputPrevLeftDir),
-                Win32_LeftStickDirLabel(leftDir));
-            OutputDebugStringW(line);
+            if (kPs4VirtualInputDebugLog)
+            {
+                wchar_t line[320] = {};
+                swprintf_s(line, _countof(line),
+                    L"XInput[slot=%u] LeftStick dz=out raw=(%d,%d) dir=%s->%s\r\n",
+                    static_cast<unsigned int>(slot),
+                    static_cast<int>(lx),
+                    static_cast<int>(ly),
+                    Win32_LeftStickDirLabel(s_xinputPrevLeftDir),
+                    Win32_LeftStickDirLabel(leftDir));
+                OutputDebugStringW(line);
+            }
             Win32_LogVirtualInputHelperProbe(s_virtualInputPrev, snapCurr, slot);
         }
 
@@ -6994,40 +7060,46 @@ static void Win32_XInputPollDigitalEdgesOnTimer(HWND hwnd)
         {
             VirtualInputSnapshot snapCurr{};
             Win32_FillVirtualInputSnapshotFromXInputState(state, snapCurr);
-            wchar_t line[320] = {};
-            if (rightInDz)
+            if (kPs4VirtualInputDebugLog)
             {
-                swprintf_s(line, _countof(line),
-                    L"XInput[slot=%u] axis=RightStick dz=in raw=(%d,%d)\r\n",
-                    static_cast<unsigned int>(slot),
-                    static_cast<int>(rx),
-                    static_cast<int>(ry));
+                wchar_t line[320] = {};
+                if (rightInDz)
+                {
+                    swprintf_s(line, _countof(line),
+                        L"XInput[slot=%u] axis=RightStick dz=in raw=(%d,%d)\r\n",
+                        static_cast<unsigned int>(slot),
+                        static_cast<int>(rx),
+                        static_cast<int>(ry));
+                }
+                else
+                {
+                    swprintf_s(line, _countof(line),
+                        L"XInput[slot=%u] axis=RightStick dz=out raw=(%d,%d) dir=%s\r\n",
+                        static_cast<unsigned int>(slot),
+                        static_cast<int>(rx),
+                        static_cast<int>(ry),
+                        Win32_LeftStickDirLabel(rightDir));
+                }
+                OutputDebugStringW(line);
             }
-            else
-            {
-                swprintf_s(line, _countof(line),
-                    L"XInput[slot=%u] axis=RightStick dz=out raw=(%d,%d) dir=%s\r\n",
-                    static_cast<unsigned int>(slot),
-                    static_cast<int>(rx),
-                    static_cast<int>(ry),
-                    Win32_LeftStickDirLabel(rightDir));
-            }
-            OutputDebugStringW(line);
             Win32_LogVirtualInputHelperProbe(s_virtualInputPrev, snapCurr, slot);
         }
         else if (rightDirEdge)
         {
             VirtualInputSnapshot snapCurr{};
             Win32_FillVirtualInputSnapshotFromXInputState(state, snapCurr);
-            wchar_t line[320] = {};
-            swprintf_s(line, _countof(line),
-                L"XInput[slot=%u] axis=RightStick dz=out raw=(%d,%d) dir=%s->%s\r\n",
-                static_cast<unsigned int>(slot),
-                static_cast<int>(rx),
-                static_cast<int>(ry),
-                Win32_LeftStickDirLabel(s_xinputPrevRightDir),
-                Win32_LeftStickDirLabel(rightDir));
-            OutputDebugStringW(line);
+            if (kPs4VirtualInputDebugLog)
+            {
+                wchar_t line[320] = {};
+                swprintf_s(line, _countof(line),
+                    L"XInput[slot=%u] axis=RightStick dz=out raw=(%d,%d) dir=%s->%s\r\n",
+                    static_cast<unsigned int>(slot),
+                    static_cast<int>(rx),
+                    static_cast<int>(ry),
+                    Win32_LeftStickDirLabel(s_xinputPrevRightDir),
+                    Win32_LeftStickDirLabel(rightDir));
+                OutputDebugStringW(line);
+            }
             Win32_LogVirtualInputHelperProbe(s_virtualInputPrev, snapCurr, slot);
         }
     }
