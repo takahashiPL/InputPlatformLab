@@ -154,6 +154,9 @@ static wchar_t s_hudPagedT19LastLogical[16384] = {};
 static wchar_t s_hudPagedT19LastAnalog[16384] = {};
 static bool s_hudPagedT19HasSnapshot = false;
 static ULONGLONG s_hudPagedT19LastAnalogInvalidateTick = 0;
+// ページ式 HUD GDI: Consolas を fontPx 単位でキャッシュ（WM_PAINT ごとの CreateFont を避ける）
+static HFONT s_hudPagedGdiCachedFont = nullptr;
+static int s_hudPagedGdiCachedFontPx = -1;
 
 // T15: 希望解像度 → 最近似 mode（列挙キャッシュのみ。適用はしない）
 struct DisplayModeMatchResult
@@ -5389,6 +5392,32 @@ void Win32_HudPaged_AdvancePage(int delta)
     OutputDebugStringW(logPage);
 }
 
+static HFONT Win32_HudPaged_GetOrCreateGdiHudFont(int fontPx)
+{
+    if (fontPx < 1)
+    {
+        fontPx = 10;
+    }
+    if (s_hudPagedGdiCachedFont != nullptr && fontPx == s_hudPagedGdiCachedFontPx)
+    {
+        return s_hudPagedGdiCachedFont;
+    }
+    if (s_hudPagedGdiCachedFont != nullptr)
+    {
+        DeleteObject(s_hudPagedGdiCachedFont);
+        s_hudPagedGdiCachedFont = nullptr;
+    }
+    s_hudPagedGdiCachedFontPx = fontPx;
+    LOGFONTW lf{};
+    lf.lfHeight = -fontPx;
+    lf.lfWeight = FW_NORMAL;
+    lf.lfCharSet = DEFAULT_CHARSET;
+    lf.lfQuality = CLEARTYPE_QUALITY;
+    wcscpy_s(lf.lfFaceName, L"Consolas");
+    s_hudPagedGdiCachedFont = CreateFontIndirectW(&lf);
+    return s_hudPagedGdiCachedFont;
+}
+
 void Win32_HudPaged_PrefillD2d(WindowsRendererState* st, UINT clientW, UINT clientH)
 {
     if (!st)
@@ -5514,10 +5543,28 @@ void Win32_HudPaged_PaintGdi(
         break;
     }
 
-    SetBkMode(hdc, TRANSPARENT);
+    const COLORREF hdcPrevText = GetTextColor(hdc);
+
+    HDC hdcMem = CreateCompatibleDC(hdc);
+    HBITMAP hbmpMem = nullptr;
+    HGDIOBJ hbmpOld = nullptr;
+    bool useOffscreen = false;
+    if (hdcMem != nullptr)
+    {
+        hbmpMem = CreateCompatibleBitmap(hdc, clientW, clientH);
+        if (hbmpMem != nullptr)
+        {
+            hbmpOld = SelectObject(hdcMem, hbmpMem);
+            BitBlt(hdcMem, 0, 0, clientW, clientH, hdc, 0, 0, SRCCOPY);
+            useOffscreen = true;
+        }
+    }
+    HDC hdcDraw = useOffscreen ? hdcMem : hdc;
+
+    SetBkMode(hdcDraw, TRANSPARENT);
     const COLORREF colHudBright = RGB(235, 238, 242);
     const COLORREF colHudStatusSubdued = RGB(188, 194, 204);
-    const COLORREF prevCol = SetTextColor(hdc, colHudBright);
+    SetTextColor(hdcDraw, colHudBright);
 
     static constexpr int kHudLogW = 640;
     static constexpr int kHudLogH = 480;
@@ -5532,23 +5579,16 @@ void Win32_HudPaged_PaintGdi(
 
     const int fontPx = (std::max)(10, static_cast<int>(14.f * scale + 0.5f));
 
-    LOGFONTW lf{};
-    lf.lfHeight = -fontPx;
-    lf.lfWeight = FW_NORMAL;
-    lf.lfCharSet = DEFAULT_CHARSET;
-    lf.lfQuality = CLEARTYPE_QUALITY;
-    wcscpy_s(lf.lfFaceName, L"Consolas");
-
-    HFONT hfHud = CreateFontIndirectW(&lf);
+    HFONT hfHud = Win32_HudPaged_GetOrCreateGdiHudFont(fontPx);
     HFONT hfOld = nullptr;
     if (hfHud != nullptr)
     {
-        hfOld = (HFONT)SelectObject(hdc, hfHud);
+        hfOld = (HFONT)SelectObject(hdcDraw, hfHud);
     }
 
     TEXTMETRICW tm{};
     int lineH = 16;
-    if (GetTextMetricsW(hdc, &tm))
+    if (GetTextMetricsW(hdcDraw, &tm))
     {
         lineH = (std::max)(static_cast<int>(tm.tmHeight), 10);
     }
@@ -5595,39 +5635,39 @@ void Win32_HudPaged_PaintGdi(
     }
 
     {
-        const int saved = SaveDC(hdc);
-        IntersectClipRect(hdc, rcStat.left, rcStat.top, rcStat.right, rcStat.bottom);
+        const int saved = SaveDC(hdcDraw);
+        IntersectClipRect(hdcDraw, rcStat.left, rcStat.top, rcStat.right, rcStat.bottom);
         const bool statusSubdued =
             hwnd && IsWindow(hwnd) && Win32_MainWindow_IsFillMonitorPresentationMode(hwnd);
-        SetTextColor(hdc, statusSubdued ? colHudStatusSubdued : colHudBright);
-        DrawTextW(hdc, statusCombined, -1, &rcStat, DT_LEFT | DT_TOP | DT_NOPREFIX | DT_WORDBREAK);
-        SetTextColor(hdc, colHudBright);
-        RestoreDC(hdc, saved);
+        SetTextColor(hdcDraw, statusSubdued ? colHudStatusSubdued : colHudBright);
+        DrawTextW(hdcDraw, statusCombined, -1, &rcStat, DT_LEFT | DT_TOP | DT_NOPREFIX | DT_WORDBREAK);
+        SetTextColor(hdcDraw, colHudBright);
+        RestoreDC(hdcDraw, saved);
     }
 
     wchar_t titleEll[160] = {};
     wcscpy_s(titleEll, kHudPagedPageTitles[s_hudPagedIndex]);
 
     {
-        const int saved = SaveDC(hdc);
-        IntersectClipRect(hdc, rcTitle.left, rcTitle.top, rcTitle.right, rcTitle.bottom);
+        const int saved = SaveDC(hdcDraw);
+        IntersectClipRect(hdcDraw, rcTitle.left, rcTitle.top, rcTitle.right, rcTitle.bottom);
         DrawTextW(
-            hdc,
+            hdcDraw,
             titleEll,
             -1,
             &rcTitle,
             DT_LEFT | DT_TOP | DT_NOPREFIX | DT_SINGLELINE | DT_END_ELLIPSIS | DT_MODIFYSTRING);
-        RestoreDC(hdc, saved);
+        RestoreDC(hdcDraw, saved);
     }
 
     wchar_t frac[32] = {};
     swprintf_s(frac, _countof(frac), L"%d/%d", s_hudPagedIndex + 1, kHudPagedCount);
 
     {
-        const int saved = SaveDC(hdc);
-        IntersectClipRect(hdc, rcFrac.left, rcFrac.top, rcFrac.right, rcFrac.bottom);
-        DrawTextW(hdc, frac, -1, &rcFrac, DT_RIGHT | DT_TOP | DT_NOPREFIX | DT_SINGLELINE);
-        RestoreDC(hdc, saved);
+        const int saved = SaveDC(hdcDraw);
+        IntersectClipRect(hdcDraw, rcFrac.left, rcFrac.top, rcFrac.right, rcFrac.bottom);
+        DrawTextW(hdcDraw, frac, -1, &rcFrac, DT_RIGHT | DT_TOP | DT_NOPREFIX | DT_SINGLELINE);
+        RestoreDC(hdcDraw, saved);
     }
 
     const int menuTop = headerTop + headerRowH + bandGap;
@@ -5636,14 +5676,14 @@ void Win32_HudPaged_PaintGdi(
     rcMenuMeasure.top = menuTop;
     rcMenuMeasure.right = clientW - margin;
     rcMenuMeasure.bottom = clientH;
-    DrawTextW(hdc, menuBuf, -1, &rcMenuMeasure, DT_LEFT | DT_TOP | DT_NOPREFIX | DT_CALCRECT);
+    DrawTextW(hdcDraw, menuBuf, -1, &rcMenuMeasure, DT_LEFT | DT_TOP | DT_NOPREFIX | DT_CALCRECT);
     const int menuH = static_cast<int>(rcMenuMeasure.bottom - rcMenuMeasure.top);
     RECT rcMenuDraw = {};
     rcMenuDraw.left = contentLeft;
     rcMenuDraw.top = menuTop;
     rcMenuDraw.right = clientW - margin;
     rcMenuDraw.bottom = menuTop + menuH;
-    DrawTextW(hdc, menuBuf, -1, &rcMenuDraw, DT_LEFT | DT_TOP | DT_NOPREFIX);
+    DrawTextW(hdcDraw, menuBuf, -1, &rcMenuDraw, DT_LEFT | DT_TOP | DT_NOPREFIX);
 
     const int bodyTop = menuTop + menuH + bandGap + bodyExtraTopPad;
     RECT rcBody = {};
@@ -5653,19 +5693,32 @@ void Win32_HudPaged_PaintGdi(
     rcBody.bottom = clientH - margin;
     if (rcBody.bottom > rcBody.top)
     {
-        DrawTextW(hdc, bodyBuf, -1, &rcBody, DT_LEFT | DT_TOP | DT_NOPREFIX | DT_WORDBREAK);
+        DrawTextW(hdcDraw, bodyBuf, -1, &rcBody, DT_LEFT | DT_TOP | DT_NOPREFIX | DT_WORDBREAK);
     }
 
     if (hfOld != nullptr)
     {
-        SelectObject(hdc, hfOld);
-    }
-    if (hfHud != nullptr)
-    {
-        DeleteObject(hfHud);
+        SelectObject(hdcDraw, hfOld);
     }
 
-    SetTextColor(hdc, prevCol);
+    if (useOffscreen)
+    {
+        BitBlt(hdc, 0, 0, clientW, clientH, hdcMem, 0, 0, SRCCOPY);
+    }
+    if (hdcMem != nullptr)
+    {
+        if (hbmpOld != nullptr)
+        {
+            SelectObject(hdcMem, hbmpOld);
+        }
+        if (hbmpMem != nullptr)
+        {
+            DeleteObject(hbmpMem);
+        }
+        DeleteDC(hdcMem);
+    }
+
+    SetTextColor(hdc, hdcPrevText);
 }
 
 // menuOpen 中は T14 行スクロールを動かさない前提。キャッシュされたレイアウトで選択行が見えるよう scroll を補正。
