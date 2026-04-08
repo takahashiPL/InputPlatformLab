@@ -147,9 +147,13 @@ static size_t s_t14FirstVisibleModeIndex = 0;
 // ページ式 HUD: 0=T14,1=T15,2=T16,3=T18,4=T19,5=T17。既定は T14（表示モード一覧）。
 static int s_hudPagedIndex = 0;
 static constexpr int kHudPagedCount = 6;
-// T19: 表示内容が変わったときだけ WM_PAINT を誘発するための直前スナップショット
-static wchar_t s_hudPagedT19LastBody[16384] = {};
-static bool s_hudPagedT19LastBodyHasSnapshot = false;
+// T19: 論理行とアナログ表示を分けてスナップショット（論理は即時、analog-only は間引き）
+static constexpr bool kT19InvalidateDebugLog = false;
+static constexpr int kT19AnalogThrottleMs = 66;
+static wchar_t s_hudPagedT19LastLogical[16384] = {};
+static wchar_t s_hudPagedT19LastAnalog[16384] = {};
+static bool s_hudPagedT19HasSnapshot = false;
+static ULONGLONG s_hudPagedT19LastAnalogInvalidateTick = 0;
 
 // T15: 希望解像度 → 最近似 mode（列挙キャッシュのみ。適用はしない）
 struct DisplayModeMatchResult
@@ -5116,6 +5120,30 @@ static float Win32_HudPaged_T19NormalizeTrigger(UINT8 t)
     return static_cast<float>(t) / 255.0f;
 }
 
+// 表示専用: 微小揺れで本文が毎 tick 変わらないよう deadzone + 量子化（内部スナップショットは変更しない）
+static constexpr float kT19StickDeadzoneDisplay = 0.08f;
+static constexpr float kT19TriggerDeadzoneDisplay = 0.02f;
+
+static float Win32_HudPaged_T19StabilizeStickAxisDisplay(float normalized)
+{
+    float x = normalized;
+    if (fabsf(x) < kT19StickDeadzoneDisplay)
+    {
+        x = 0.f;
+    }
+    return std::roundf(x * 20.f) / 20.f;
+}
+
+static float Win32_HudPaged_T19StabilizeTriggerDisplay(float normalized01)
+{
+    float x = normalized01;
+    if (x < kT19TriggerDeadzoneDisplay)
+    {
+        x = 0.f;
+    }
+    return std::roundf(x * 100.f) / 100.f;
+}
+
 static const wchar_t* Win32_HudPaged_T19Mark(bool on)
 {
     return on ? L"\u3007" : L" ";
@@ -5179,7 +5207,7 @@ static void Win32_HudPaged_AppendBodyLine(wchar_t* buf, size_t bufCount, const w
     wcscat_s(buf, bufCount, L"\r\n");
 }
 
-static void Win32_HudPaged_FillT19PageBody(wchar_t* buf, size_t bufCount)
+static void Win32_HudPaged_FillT19LogicalSection(wchar_t* buf, size_t bufCount)
 {
     buf[0] = L'\0';
     const LogicalInputState* li = InputCore_LogicalInputState();
@@ -5235,18 +5263,33 @@ static void Win32_HudPaged_FillT19PageBody(wchar_t* buf, size_t bufCount)
             static_cast<unsigned int>(f.holdFrames));
         Win32_HudPaged_AppendBodyLine(buf, bufCount, line);
     }
+}
+
+// buf に追記（論理ブロックの直後に空行 + analog: + 表示用安定化アナログ）。li 無効時は何もしない。
+static void Win32_HudPaged_FillT19AnalogSectionInto(wchar_t* buf, size_t bufCount)
+{
+    if (!buf || bufCount < 2)
+    {
+        return;
+    }
+    const LogicalInputState* li = InputCore_LogicalInputState();
+    if (!li)
+    {
+        return;
+    }
 
     Win32_HudPaged_AppendBodyLine(buf, bufCount, L"");
     Win32_HudPaged_AppendBodyLine(buf, bufCount, L"analog:");
 
     const VirtualInputSnapshot& v = s_virtualInputCurr;
-    const float lsx = Win32_HudPaged_T19NormalizeStickAxis(v.leftStickX);
-    const float lsy = Win32_HudPaged_T19NormalizeStickAxis(v.leftStickY);
-    const float rsx = Win32_HudPaged_T19NormalizeStickAxis(v.rightStickX);
-    const float rsy = Win32_HudPaged_T19NormalizeStickAxis(v.rightStickY);
-    const float lt = Win32_HudPaged_T19NormalizeTrigger(v.leftTriggerRaw);
-    const float rt = Win32_HudPaged_T19NormalizeTrigger(v.rightTriggerRaw);
+    const float lsx = Win32_HudPaged_T19StabilizeStickAxisDisplay(Win32_HudPaged_T19NormalizeStickAxis(v.leftStickX));
+    const float lsy = Win32_HudPaged_T19StabilizeStickAxisDisplay(Win32_HudPaged_T19NormalizeStickAxis(v.leftStickY));
+    const float rsx = Win32_HudPaged_T19StabilizeStickAxisDisplay(Win32_HudPaged_T19NormalizeStickAxis(v.rightStickX));
+    const float rsy = Win32_HudPaged_T19StabilizeStickAxisDisplay(Win32_HudPaged_T19NormalizeStickAxis(v.rightStickY));
+    const float lt = Win32_HudPaged_T19StabilizeTriggerDisplay(Win32_HudPaged_T19NormalizeTrigger(v.leftTriggerRaw));
+    const float rt = Win32_HudPaged_T19StabilizeTriggerDisplay(Win32_HudPaged_T19NormalizeTrigger(v.rightTriggerRaw));
 
+    wchar_t line[384] = {};
     wchar_t bar[32] = {};
 
     swprintf_s(line, _countof(line), L"LS  x:%+.2f  y:%+.2f", static_cast<double>(lsx), static_cast<double>(lsy));
@@ -5273,6 +5316,19 @@ static void Win32_HudPaged_FillT19PageBody(wchar_t* buf, size_t bufCount)
     Win32_HudPaged_T19FormatTriggerBar(rt, bar, _countof(bar));
     swprintf_s(line, _countof(line), L"RT  %.2f   %s", static_cast<double>(rt), bar);
     Win32_HudPaged_AppendBodyLine(buf, bufCount, line);
+}
+
+static void Win32_HudPaged_FillT19PageBody(wchar_t* buf, size_t bufCount)
+{
+    buf[0] = L'\0';
+    const LogicalInputState* li = InputCore_LogicalInputState();
+    if (!li)
+    {
+        wcscpy_s(buf, bufCount, L"(LogicalInputState unavailable)\r\n");
+        return;
+    }
+    Win32_HudPaged_FillT19LogicalSection(buf, bufCount);
+    Win32_HudPaged_FillT19AnalogSectionInto(buf, bufCount);
 }
 
 void Win32_HudPaged_ResetScrollBar(HWND hwnd)
@@ -7373,22 +7429,56 @@ static void Win32_WndProc_OnXInputPollTimer(HWND hWnd)
 {
     Win32_XInputPollDigitalEdgesOnTimer(hWnd);
     Win32_LogicalInputTick_AfterPadAndKeyboardCurrent();
-    // T19: 論理＋アナログの表示文字列が前回と異なるときだけ再描画（毎 tick の全画面 invalidation はしない）
+    // T19: 論理行は即時 invalidation、アナログのみの変化は約 kT19AnalogThrottleMs 間隔で間引く（GDI ちらつき低減）
     if (Win32_HudPaged_IsEnabled() && s_hudPagedIndex == 4)
     {
-        wchar_t t19Now[16384] = {};
-        Win32_HudPaged_FillT19PageBody(t19Now, _countof(t19Now));
-        Win32_HudPaged_ClampTextLines(t19Now, _countof(t19Now), 32, 80);
-        if (!s_hudPagedT19LastBodyHasSnapshot || wcscmp(t19Now, s_hudPagedT19LastBody) != 0)
+        wchar_t logicalNow[16384] = {};
+        wchar_t analogNow[16384] = {};
+        Win32_HudPaged_FillT19LogicalSection(logicalNow, _countof(logicalNow));
+        Win32_HudPaged_FillT19AnalogSectionInto(analogNow, _countof(analogNow));
+        Win32_HudPaged_ClampTextLines(logicalNow, _countof(logicalNow), 32, 80);
+        Win32_HudPaged_ClampTextLines(analogNow, _countof(analogNow), 32, 80);
+
+        const bool logicalChanged =
+            !s_hudPagedT19HasSnapshot || wcscmp(logicalNow, s_hudPagedT19LastLogical) != 0;
+        const bool analogChanged =
+            !s_hudPagedT19HasSnapshot || wcscmp(analogNow, s_hudPagedT19LastAnalog) != 0;
+
+        if (logicalChanged)
         {
-            wcscpy_s(s_hudPagedT19LastBody, t19Now);
-            s_hudPagedT19LastBodyHasSnapshot = true;
+            wcscpy_s(s_hudPagedT19LastLogical, logicalNow);
+            wcscpy_s(s_hudPagedT19LastAnalog, analogNow);
+            s_hudPagedT19HasSnapshot = true;
+            s_hudPagedT19LastAnalogInvalidateTick = GetTickCount64();
             InvalidateRect(hWnd, nullptr, FALSE);
+            if (kT19InvalidateDebugLog)
+            {
+                OutputDebugStringW(L"[T19 inv] logical=1 analog=0 analog_throttled=0\r\n");
+            }
+        }
+        else if (analogChanged)
+        {
+            const ULONGLONG now = GetTickCount64();
+            const ULONGLONG since =
+                (s_hudPagedT19LastAnalogInvalidateTick == 0ULL)
+                    ? static_cast<ULONGLONG>(kT19AnalogThrottleMs)
+                    : (now - s_hudPagedT19LastAnalogInvalidateTick);
+            if (since >= static_cast<ULONGLONG>(kT19AnalogThrottleMs))
+            {
+                wcscpy_s(s_hudPagedT19LastAnalog, analogNow);
+                s_hudPagedT19LastAnalogInvalidateTick = now;
+                InvalidateRect(hWnd, nullptr, FALSE);
+                if (kT19InvalidateDebugLog)
+                {
+                    OutputDebugStringW(L"[T19 inv] logical=0 analog=1 analog_throttled=1\r\n");
+                }
+            }
         }
     }
     else
     {
-        s_hudPagedT19LastBodyHasSnapshot = false;
+        s_hudPagedT19HasSnapshot = false;
+        s_hudPagedT19LastAnalogInvalidateTick = 0;
     }
     Win32_UnifiedInputConsumerMenuTick(hWnd);
 }
