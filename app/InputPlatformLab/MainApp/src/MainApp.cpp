@@ -3853,6 +3853,9 @@ static constexpr bool kPs4BridgeResetDebugLog = false;
 #ifndef WIN32_PS4_SLOT99_SHOULDER_1LINE
 #define WIN32_PS4_SLOT99_SHOULDER_1LINE 0
 #endif
+// 実機で [PS4Bridge] を出す例（umbrella の WIN32_PS4_BRIDGE_DEBUG_LOG は使わない）:
+//   MainApp.vcxproj の Debug|x64 の PreprocessorDefinitions 先頭に WIN32_PS4_SLOT99_SHOULDER_1LINE=1; を付与するか、
+//   msbuild MainApp.vcxproj /p:Configuration=Debug /p:Platform=x64 /p:CL_AdditionalOptions="/DWIN32_PS4_SLOT99_SHOULDER_1LINE=1"
 #ifndef WIN32_PS4_VICHG_DEBUG_LOG
 #define WIN32_PS4_VICHG_DEBUG_LOG 0
 #endif
