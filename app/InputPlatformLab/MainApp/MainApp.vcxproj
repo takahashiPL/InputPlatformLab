@@ -108,11 +108,12 @@
       <GenerateDebugInformation>true</GenerateDebugInformation>
     </Link>
   </ItemDefinitionGroup>
+  <!-- Share→Select 診断: Debug|x64 で [DS4FaceRaw] / [LOGICALDBG] を出す。検証完了後は先頭の WIN32_*=1; を 2 つ削除して既定 off に戻す。 -->
   <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">
     <ClCompile>
       <WarningLevel>Level3</WarningLevel>
       <SDLCheck>true</SDLCheck>
-      <PreprocessorDefinitions>_DEBUG;_WINDOWS;%(PreprocessorDefinitions)</PreprocessorDefinitions>
+      <PreprocessorDefinitions>WIN32_DS4_HID_FACE_RAW_1LINE=1;WIN32_LOGICAL_INPUT_DEBUG_PAD_TRANSITION=1;_DEBUG;_WINDOWS;%(PreprocessorDefinitions)</PreprocessorDefinitions>
       <ConformanceMode>true</ConformanceMode>
       <LanguageStandard>stdcpp20</LanguageStandard>
     </ClCompile>
