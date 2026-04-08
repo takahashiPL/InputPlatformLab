@@ -2224,6 +2224,59 @@ static void Win32_T17_CyclePresentationMode(HWND hwnd)
     }
 }
 
+// candidate==lastApplied でもデスクトップ復帰・CDS・再生成が要るケースを除き、重い経路を省略する。
+static bool Win32_T17_ShouldSkipNoopApply(HWND hwnd, T17PresentationMode candidate, T17PresentationMode lastApplied)
+{
+    if (candidate != lastApplied)
+    {
+        return false;
+    }
+    // フルスクリーン解像度が掛かったまま Windowed/Borderless に戻すには CDS_RESET が必要（no-op ではない）。
+    if (s_t17FullscreenDisplayAppliedNow &&
+        (candidate == T17PresentationMode::Windowed || candidate == T17PresentationMode::Borderless))
+    {
+        return false;
+    }
+
+    switch (candidate)
+    {
+    case T17PresentationMode::Windowed:
+    {
+        int pw = 0;
+        int ph = 0;
+        if (!Win32_T16_ResolveWindowedTargetPhysicalSize(pw, ph, false))
+        {
+            return false;
+        }
+        return pw == s_t16LastTargetPhysicalW && ph == s_t16LastTargetPhysicalH;
+    }
+    case T17PresentationMode::Borderless:
+    {
+        if (!hwnd || !IsWindow(hwnd) || s_displayMonitorsCache.empty() ||
+            kT14SelectedMonitorIndex >= s_displayMonitorsCache.size())
+        {
+            return false;
+        }
+        const RECT& mr = s_displayMonitorsCache[kT14SelectedMonitorIndex].monitor_rect;
+        const int mw = static_cast<int>(mr.right - mr.left);
+        const int mh = static_cast<int>(mr.bottom - mr.top);
+        RECT wr{};
+        if (!GetWindowRect(hwnd, &wr))
+        {
+            return false;
+        }
+        const int ow = static_cast<int>(wr.right - wr.left);
+        const int oh = static_cast<int>(wr.bottom - wr.top);
+        return ow == mw && oh == mh && wr.left == mr.left && wr.top == mr.top;
+    }
+    case T17PresentationMode::Fullscreen:
+        // CDS 未適用なら初回適用が必要（no-op ではない）。
+        return s_t17FullscreenDisplayAppliedNow;
+    default:
+        return false;
+    }
+}
+
 // F6 で選んだ候補を実際の枠・CDS・再生成に反映する。Enter の短タップは WM_INPUT でラッチしタイマーで 1 回消費。
 static void Win32_T17_ApplyCurrentPresentationMode(HWND hwnd)
 {
@@ -2245,6 +2298,19 @@ static void Win32_T17_ApplyCurrentPresentationMode(HWND hwnd)
         Win32_T17_ModeLabel(candidate),
         Win32_T17_ModeLabel(lastAppliedBefore));
     OutputDebugStringW(begin);
+
+    if (Win32_T17_ShouldSkipNoopApply(hwnd, candidate, lastAppliedBefore))
+    {
+        wchar_t skip[288] = {};
+        swprintf_s(
+            skip,
+            _countof(skip),
+            L"[T17] APPLY SKIP no-op candidate=%s applied=%s\r\n",
+            Win32_T17_ModeLabel(candidate),
+            Win32_T17_ModeLabel(lastAppliedBefore));
+        OutputDebugStringW(skip);
+        return;
+    }
 
     bool desktopResetAttempted = false;
     LONG desktopResetResult = DISP_CHANGE_SUCCESSFUL;
