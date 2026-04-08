@@ -275,6 +275,8 @@ struct T18ControllerIdentifySnapshot
 static T18ControllerIdentifySnapshot s_t18{};
 static T18ControllerIdentifySnapshot s_t18LogPrev{};
 static bool s_t18HasLogPrev = false;
+// ページ式 HUD で T18 入場時の forced snapshot が hid_found=0 だった場合、次に hid_found=1 になるまで 1 回だけ deferred ログを出す。
+static bool s_t18PageEnterDeferredPending = false;
 
 // T14〜T18 のまとまり（このファイル内のサンプル用デバッグ範囲）:
 //   T14: 列挙モードの選択・表示（T15 近傍の * 表示など）
@@ -5742,6 +5744,10 @@ void Win32_HudPaged_AdvancePage(int delta)
         return;
     }
     s_hudPagedIndex = n;
+    if (old == kHudPagedPageIndexT18 && n != kHudPagedPageIndexT18)
+    {
+        s_t18PageEnterDeferredPending = false;
+    }
     if (Win32_HudPaged_IsEnabled() && n == kHudPagedPageIndexT18 && old != kHudPagedPageIndexT18)
     {
         Win32_T18_RefreshControllerIdentifySnapshot(false);
@@ -7308,6 +7314,7 @@ static void Win32_T18_LogCurrentSnapshotForced()
     Win32_T18_OutputSnapshotDebugLines(s_t18);
     s_t18LogPrev = s_t18;
     s_t18HasLogPrev = true;
+    s_t18PageEnterDeferredPending = !s_t18.hid_found;
 }
 
 static void Win32_T18_RefreshControllerIdentifySnapshot(bool emitDiffLog)
@@ -7445,6 +7452,24 @@ static void Win32_T18_RefreshControllerIdentifySnapshot(bool emitDiffLog)
 
     Win32_T18_FillIdentifyRationale(snap, snap.rationale, _countof(snap.rationale));
     s_t18 = snap;
+
+    if (s_t18PageEnterDeferredPending && s_t18.hid_found)
+    {
+        const bool pathChanged =
+            !s_t18HasLogPrev || wcscmp(s_t18.device_path, s_t18LogPrev.device_path) != 0;
+        if (pathChanged && s_t18.device_path[0] != L'\0')
+        {
+            wchar_t lg[2048] = {};
+            swprintf_s(lg, _countof(lg), L"[T18] device_path(full)=%s\r\n", s_t18.device_path);
+            OutputDebugStringW(lg);
+        }
+        OutputDebugStringW(L"[T18] page-enter deferred snapshot\r\n");
+        Win32_T18_OutputSnapshotDebugLines(s_t18);
+        s_t18LogPrev = s_t18;
+        s_t18HasLogPrev = true;
+        s_t18PageEnterDeferredPending = false;
+    }
+
     if (emitDiffLog)
     {
         Win32_T18_LogIfChanged();
