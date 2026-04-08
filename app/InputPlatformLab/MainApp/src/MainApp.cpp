@@ -154,6 +154,8 @@ static wchar_t s_hudPagedT19LastLogical[16384] = {};
 static wchar_t s_hudPagedT19LastAnalog[16384] = {};
 static bool s_hudPagedT19HasSnapshot = false;
 static ULONGLONG s_hudPagedT19LastAnalogInvalidateTick = 0;
+// T19 同期 RedrawWindow 時の再入防止（WM_PAINT 中は InvalidateRect にフォールバック）
+static bool s_hudPagedPaintInProgress = false;
 // ページ式 HUD GDI: Consolas を fontPx 単位でキャッシュ（WM_PAINT ごとの CreateFont を避ける）
 static HFONT s_hudPagedGdiCachedFont = nullptr;
 static int s_hudPagedGdiCachedFontPx = -1;
@@ -7477,6 +7479,23 @@ static void Win32_WndProc_OnRawInput(LPARAM lParam)
     }
 }
 
+// T19 のみ: 差分検出後すぐ GDI を揃えるため同期 repaint。WM_PAINT 再入時は非同期 invalidation に落とす。
+static void Win32_HudPaged_T19RequestRepaint(HWND hWnd)
+{
+    if (!hWnd || !IsWindow(hWnd))
+    {
+        return;
+    }
+    if (s_hudPagedPaintInProgress)
+    {
+        InvalidateRect(hWnd, nullptr, FALSE);
+    }
+    else
+    {
+        RedrawWindow(hWnd, nullptr, nullptr, RDW_INVALIDATE | RDW_UPDATENOW | RDW_NOERASE);
+    }
+}
+
 // WM_TIMER: XInput（内部で DS4 Raw 優先など）→ 共通論理ボタン → メニュー用 Consumer 統合。
 static void Win32_WndProc_OnXInputPollTimer(HWND hWnd)
 {
@@ -7503,10 +7522,17 @@ static void Win32_WndProc_OnXInputPollTimer(HWND hWnd)
             wcscpy_s(s_hudPagedT19LastAnalog, analogNow);
             s_hudPagedT19HasSnapshot = true;
             s_hudPagedT19LastAnalogInvalidateTick = GetTickCount64();
-            InvalidateRect(hWnd, nullptr, FALSE);
+            const wchar_t* repaintTag = s_hudPagedPaintInProgress ? L"async" : L"sync";
+            Win32_HudPaged_T19RequestRepaint(hWnd);
             if (kT19InvalidateDebugLog)
             {
-                OutputDebugStringW(L"[T19 inv] logical=1 analog=0 analog_throttled=0\r\n");
+                wchar_t dbg[160] = {};
+                swprintf_s(
+                    dbg,
+                    _countof(dbg),
+                    L"[T19 inv] logical=1 analog=0 analog_throttled=0 repaint=%s\r\n",
+                    repaintTag);
+                OutputDebugStringW(dbg);
             }
         }
         else if (analogChanged)
@@ -7520,10 +7546,17 @@ static void Win32_WndProc_OnXInputPollTimer(HWND hWnd)
             {
                 wcscpy_s(s_hudPagedT19LastAnalog, analogNow);
                 s_hudPagedT19LastAnalogInvalidateTick = now;
-                InvalidateRect(hWnd, nullptr, FALSE);
+                const wchar_t* repaintTag = s_hudPagedPaintInProgress ? L"async" : L"sync";
+                Win32_HudPaged_T19RequestRepaint(hWnd);
                 if (kT19InvalidateDebugLog)
                 {
-                    OutputDebugStringW(L"[T19 inv] logical=0 analog=1 analog_throttled=1\r\n");
+                    wchar_t dbg[160] = {};
+                    swprintf_s(
+                        dbg,
+                        _countof(dbg),
+                        L"[T19 inv] logical=0 analog=1 analog_throttled=1 repaint=%s\r\n",
+                        repaintTag);
+                    OutputDebugStringW(dbg);
                 }
             }
         }
@@ -7836,6 +7869,7 @@ static void Win32_WndProc_OnMouseWheel(HWND hWnd, WPARAM wParam)
 // T30/T33: 1 フレーム — D3D clear → D2D 1 行（renderer）→ Present →（オプション）GDI オーバーレイ
 static void Win32_MainView_PaintFrame(HWND hWnd)
 {
+    s_hudPagedPaintInProgress = true;
     PAINTSTRUCT ps;
     HDC hdc = BeginPaint(hWnd, &ps);
     // T26/T33: renderer（clear → D2D 1 行 → Present）→ 任意で GDI debug overlay
@@ -7878,6 +7912,7 @@ static void Win32_MainView_PaintFrame(HWND hWnd)
     }
 #endif
     EndPaint(hWnd, &ps);
+    s_hudPagedPaintInProgress = false;
 }
 
 static void Win32_WndProc_OnPaint(HWND hWnd)
