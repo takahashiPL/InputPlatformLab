@@ -5294,6 +5294,18 @@ static void Win32_HudPaged_FillT19LogicalSection(wchar_t* buf, size_t bufCount)
         return;
     }
 
+    // Consolas 等幅: 左3列の後に press / release / push / hold を固定幅で同一アンカーに揃える
+    // 0-based 列開始（左ブロック 6+sp+10+sp+16+2sp = 36 文字目から press）。fmt 変更時は値を合わせること。
+    [[maybe_unused]] static constexpr int kT19ColPress = 36;
+    [[maybe_unused]] static constexpr int kT19ColRelease = kT19ColPress + 5 + 1;
+    [[maybe_unused]] static constexpr int kT19ColPush = kT19ColRelease + 7 + 1;
+    [[maybe_unused]] static constexpr int kT19ColHold = kT19ColPush + 4 + 1;
+
+    static const wchar_t kT19LogicalFmtHeader[] =
+        L"%-6.6s %-10.10s %-16.16s  %-5s %-7s %-4s %4s";
+    static const wchar_t kT19LogicalFmtRow[] =
+        L"%-6.6s %-10.10s %-16.16s  %-5s %-7s %-4s %4u";
+
     static const struct
     {
         LogicalButtonId id;
@@ -5314,7 +5326,7 @@ static void Win32_HudPaged_FillT19LogicalSection(wchar_t* buf, size_t bufCount)
     swprintf_s(
         line,
         _countof(line),
-        L"%-6s %-10s %-16s  %s %s %s %s",
+        kT19LogicalFmtHeader,
         L"",
         L"",
         L"",
@@ -5330,7 +5342,7 @@ static void Win32_HudPaged_FillT19LogicalSection(wchar_t* buf, size_t bufCount)
         swprintf_s(
             line,
             _countof(line),
-            L"%-6s %-10s %-16s  %s %s %s %u",
+            kT19LogicalFmtRow,
             row.shortName,
             row.kbd,
             row.pad,
