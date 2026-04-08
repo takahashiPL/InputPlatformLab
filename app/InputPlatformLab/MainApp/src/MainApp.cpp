@@ -65,6 +65,12 @@
 #define RIDI_PRODUCTNAME 0x20000007
 #endif
 
+// T18: ページ入場時の forced / deferred 確認用ログ（既定 0）。1 で有効。差分ログ Win32_T18_LogIfChanged は別経路。
+#ifndef WIN32_T18_DEBUG_PAGE_ENTER_LOG
+#define WIN32_T18_DEBUG_PAGE_ENTER_LOG 0
+#endif
+static constexpr bool kT18DebugLog = (WIN32_T18_DEBUG_PAGE_ENTER_LOG != 0);
+
 // ---------------------------------------------------------------------------
 // T25: MainApp.cpp 内の中立ロジック整理（見出し・配置のみ。挙動は変更しない）
 //
@@ -7310,11 +7316,14 @@ static void Win32_T18_LogIfChanged()
 // ページ式 HUD: 非 T18 → T18 遷移時のみ（差分ログと重複しないよう Refresh(..., false) と併用）。
 static void Win32_T18_LogCurrentSnapshotForced()
 {
-    OutputDebugStringW(L"[T18] page-enter forced snapshot\r\n");
-    Win32_T18_OutputSnapshotDebugLines(s_t18);
+    if (kT18DebugLog)
+    {
+        OutputDebugStringW(L"[T18] page-enter forced snapshot\r\n");
+        Win32_T18_OutputSnapshotDebugLines(s_t18);
+    }
     s_t18LogPrev = s_t18;
     s_t18HasLogPrev = true;
-    s_t18PageEnterDeferredPending = !s_t18.hid_found;
+    s_t18PageEnterDeferredPending = (kT18DebugLog && !s_t18.hid_found);
 }
 
 static void Win32_T18_RefreshControllerIdentifySnapshot(bool emitDiffLog)
@@ -7453,7 +7462,7 @@ static void Win32_T18_RefreshControllerIdentifySnapshot(bool emitDiffLog)
     Win32_T18_FillIdentifyRationale(snap, snap.rationale, _countof(snap.rationale));
     s_t18 = snap;
 
-    if (s_t18PageEnterDeferredPending && s_t18.hid_found)
+    if (kT18DebugLog && s_t18PageEnterDeferredPending && s_t18.hid_found)
     {
         const bool pathChanged =
             !s_t18HasLogPrev || wcscmp(s_t18.device_path, s_t18LogPrev.device_path) != 0;
