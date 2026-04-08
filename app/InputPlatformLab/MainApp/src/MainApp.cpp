@@ -189,8 +189,23 @@ struct Win32_HudPaged_T19LogicalButtonDisplaySnap
     bool push;
     UINT8 displayHold;
 };
+// T19「pad extras」: 肩・トリガー・スティック押し込み・West/North（共通 logical 8 行とは別スナップショットで差分判定）
+struct Win32_HudPaged_T19PadExtrasDisplaySnap
+{
+    Win32_HudPaged_T19LogicalButtonDisplaySnap l1;
+    Win32_HudPaged_T19LogicalButtonDisplaySnap r1;
+    Win32_HudPaged_T19LogicalButtonDisplaySnap l2;
+    Win32_HudPaged_T19LogicalButtonDisplaySnap r2;
+    Win32_HudPaged_T19LogicalButtonDisplaySnap l3;
+    Win32_HudPaged_T19LogicalButtonDisplaySnap r3;
+    Win32_HudPaged_T19LogicalButtonDisplaySnap west;
+    Win32_HudPaged_T19LogicalButtonDisplaySnap north;
+    UINT8 l2rawQ;
+    UINT8 r2rawQ;
+};
 static constexpr size_t kT19LogicalDisplayRowCount = 8;
 static Win32_HudPaged_T19LogicalButtonDisplaySnap s_hudPagedT19LastLogicalSnap[kT19LogicalDisplayRowCount] = {};
+static Win32_HudPaged_T19PadExtrasDisplaySnap s_hudPagedT19LastPadExtrasSnap = {};
 static wchar_t s_hudPagedT19LastAnalog[16384] = {};
 static bool s_hudPagedT19HasSnapshot = false;
 static ULONGLONG s_hudPagedT19LastAnalogInvalidateTick = 0;
@@ -5625,6 +5640,19 @@ static float Win32_HudPaged_T19StabilizeTriggerDisplay(float normalized01)
     return std::roundf(x * 100.f) / 100.f;
 }
 
+// 差分判定・表示の raw は analog ブロックと同じ安定化（微小揺れで T19 が毎 tick 更新されないようにする）
+static UINT8 Win32_HudPaged_T19QuantizeTriggerRawForSnap(UINT8 raw)
+{
+    const float n = Win32_HudPaged_T19NormalizeTrigger(raw);
+    const float s = Win32_HudPaged_T19StabilizeTriggerDisplay(n);
+    unsigned q = static_cast<unsigned>(std::lround(s * 255.0f));
+    if (q > 255u)
+    {
+        q = 255u;
+    }
+    return static_cast<UINT8>(q);
+}
+
 static const wchar_t* Win32_HudPaged_T19Mark(bool on)
 {
     return on ? L"*" : L" ";
@@ -5641,6 +5669,22 @@ static UINT8 Win32_HudPaged_T19DisplayHoldFrames(UINT8 holdFrames)
     }
     return static_cast<UINT8>(
         (static_cast<unsigned int>(holdFrames) / kT19HoldDisplayQuantStep) * kT19HoldDisplayQuantStep);
+}
+
+static void Win32_HudPaged_T19FillOneLogicalButtonSnap(
+    const LogicalInputState& li,
+    LogicalButtonId id,
+    Win32_HudPaged_T19LogicalButtonDisplaySnap* out)
+{
+    if (!out)
+    {
+        return;
+    }
+    const LogicalButtonFrameState& f = LogicalInputState_Frame(li, id);
+    out->press = f.press;
+    out->release = f.release;
+    out->push = f.push;
+    out->displayHold = Win32_HudPaged_T19DisplayHoldFrames(f.holdFrames);
 }
 
 static void Win32_HudPaged_T19FillLogicalDisplaySnapshot(
@@ -5664,11 +5708,7 @@ static void Win32_HudPaged_T19FillLogicalDisplaySnapshot(
     };
     for (size_t i = 0; i < kT19LogicalDisplayRowCount; ++i)
     {
-        const LogicalButtonFrameState& f = LogicalInputState_Frame(li, kRowIds[i]);
-        out[i].press = f.press;
-        out[i].release = f.release;
-        out[i].push = f.push;
-        out[i].displayHold = Win32_HudPaged_T19DisplayHoldFrames(f.holdFrames);
+        Win32_HudPaged_T19FillOneLogicalButtonSnap(li, kRowIds[i], &out[i]);
     }
 }
 
@@ -5690,6 +5730,41 @@ static bool Win32_HudPaged_T19LogicalDisplaySnapshotEqual(
         }
     }
     return true;
+}
+
+static void Win32_HudPaged_T19FillPadExtrasDisplaySnapshot(
+    const LogicalInputState& li,
+    const VirtualInputSnapshot& v,
+    Win32_HudPaged_T19PadExtrasDisplaySnap* out)
+{
+    if (!out)
+    {
+        return;
+    }
+    Win32_HudPaged_T19FillOneLogicalButtonSnap(li, LogicalButtonId::L1, &out->l1);
+    Win32_HudPaged_T19FillOneLogicalButtonSnap(li, LogicalButtonId::R1, &out->r1);
+    Win32_HudPaged_T19FillOneLogicalButtonSnap(li, LogicalButtonId::L2, &out->l2);
+    Win32_HudPaged_T19FillOneLogicalButtonSnap(li, LogicalButtonId::R2, &out->r2);
+    Win32_HudPaged_T19FillOneLogicalButtonSnap(li, LogicalButtonId::L3, &out->l3);
+    Win32_HudPaged_T19FillOneLogicalButtonSnap(li, LogicalButtonId::R3, &out->r3);
+    Win32_HudPaged_T19FillOneLogicalButtonSnap(li, LogicalButtonId::West, &out->west);
+    Win32_HudPaged_T19FillOneLogicalButtonSnap(li, LogicalButtonId::North, &out->north);
+    out->l2rawQ = Win32_HudPaged_T19QuantizeTriggerRawForSnap(v.leftTriggerRaw);
+    out->r2rawQ = Win32_HudPaged_T19QuantizeTriggerRawForSnap(v.rightTriggerRaw);
+}
+
+static bool Win32_HudPaged_T19PadExtrasSnapshotEqual(
+    const Win32_HudPaged_T19PadExtrasDisplaySnap& a,
+    const Win32_HudPaged_T19PadExtrasDisplaySnap& b)
+{
+    static auto snapEq = [](const Win32_HudPaged_T19LogicalButtonDisplaySnap& x,
+                            const Win32_HudPaged_T19LogicalButtonDisplaySnap& y) -> bool {
+        return x.press == y.press && x.release == y.release && x.push == y.push &&
+            x.displayHold == y.displayHold;
+    };
+    return snapEq(a.l1, b.l1) && snapEq(a.r1, b.r1) && snapEq(a.l2, b.l2) && snapEq(a.r2, b.r2) &&
+        snapEq(a.l3, b.l3) && snapEq(a.r3, b.r3) && snapEq(a.west, b.west) && snapEq(a.north, b.north) &&
+        a.l2rawQ == b.l2rawQ && a.r2rawQ == b.r2rawQ;
 }
 
 static void Win32_HudPaged_T19FormatStickAxisBar(float v, wchar_t* out, size_t outCount)
@@ -5821,6 +5896,104 @@ static void Win32_HudPaged_FillT19LogicalSection(wchar_t* buf, size_t bufCount)
     }
 }
 
+// 共通 logical 表の直後: 肩・スティック押し込み・West/North、L2/R2 は論理列 + 安定化 raw（analog と同じ量子化）
+static void Win32_HudPaged_FillT19PadExtrasSection(wchar_t* buf, size_t bufCount)
+{
+    if (!buf || bufCount < 2)
+    {
+        return;
+    }
+    const LogicalInputState* li = InputCore_LogicalInputState();
+    if (!li)
+    {
+        return;
+    }
+    const VirtualInputSnapshot& v = s_virtualInputCurr;
+
+    Win32_HudPaged_AppendBodyLine(buf, bufCount, L"");
+    Win32_HudPaged_AppendBodyLine(buf, bufCount, L"pad extras:");
+
+    static const wchar_t kT19PadExtrasHdr[] =
+        L"%-6.6s %-10.10s %-16.16s  %-5s %-7s %-4s %4s";
+    static const wchar_t kT19PadExtrasRow[] =
+        L"%-6.6s %-10.10s %-16.16s  %-5s %-7s %-4s %4u";
+    static const wchar_t kT19PadExtrasTrigRow[] =
+        L"%-6.6s %-10.10s %-16.16s  %-5s %-7s %-4s %4u  raw %3u";
+
+    wchar_t line[384] = {};
+    swprintf_s(
+        line,
+        _countof(line),
+        kT19PadExtrasHdr,
+        L"",
+        L"",
+        L"",
+        L"press",
+        L"release",
+        L"push",
+        L"hold");
+    Win32_HudPaged_AppendBodyLine(buf, bufCount, line);
+
+    auto appendRow = [&](LogicalButtonId id, const wchar_t* shortName, const wchar_t* padHint) {
+        const LogicalButtonFrameState& f = LogicalInputState_Frame(*li, id);
+        swprintf_s(
+            line,
+            _countof(line),
+            kT19PadExtrasRow,
+            shortName,
+            L"\u2014",
+            padHint,
+            Win32_HudPaged_T19Mark(f.press),
+            Win32_HudPaged_T19Mark(f.release),
+            Win32_HudPaged_T19Mark(f.push),
+            static_cast<unsigned int>(Win32_HudPaged_T19DisplayHoldFrames(f.holdFrames)));
+        Win32_HudPaged_AppendBodyLine(buf, bufCount, line);
+    };
+
+    appendRow(LogicalButtonId::L1, L"L1", L"L1 shoulder");
+    appendRow(LogicalButtonId::R1, L"R1", L"R1 shoulder");
+
+    {
+        const LogicalButtonFrameState& f = LogicalInputState_Frame(*li, LogicalButtonId::L2);
+        const UINT8 rq = Win32_HudPaged_T19QuantizeTriggerRawForSnap(v.leftTriggerRaw);
+        swprintf_s(
+            line,
+            _countof(line),
+            kT19PadExtrasTrigRow,
+            L"L2",
+            L"\u2014",
+            L"L2 trigger",
+            Win32_HudPaged_T19Mark(f.press),
+            Win32_HudPaged_T19Mark(f.release),
+            Win32_HudPaged_T19Mark(f.push),
+            static_cast<unsigned int>(Win32_HudPaged_T19DisplayHoldFrames(f.holdFrames)),
+            static_cast<unsigned int>(rq));
+        Win32_HudPaged_AppendBodyLine(buf, bufCount, line);
+    }
+    {
+        const LogicalButtonFrameState& f = LogicalInputState_Frame(*li, LogicalButtonId::R2);
+        const UINT8 rq = Win32_HudPaged_T19QuantizeTriggerRawForSnap(v.rightTriggerRaw);
+        swprintf_s(
+            line,
+            _countof(line),
+            kT19PadExtrasTrigRow,
+            L"R2",
+            L"\u2014",
+            L"R2 trigger",
+            Win32_HudPaged_T19Mark(f.press),
+            Win32_HudPaged_T19Mark(f.release),
+            Win32_HudPaged_T19Mark(f.push),
+            static_cast<unsigned int>(Win32_HudPaged_T19DisplayHoldFrames(f.holdFrames)),
+            static_cast<unsigned int>(rq));
+        Win32_HudPaged_AppendBodyLine(buf, bufCount, line);
+    }
+
+    appendRow(LogicalButtonId::L3, L"L3", L"L3 click");
+    appendRow(LogicalButtonId::R3, L"R3", L"R3 click");
+    appendRow(LogicalButtonId::West, L"West", L"Square / West");
+    appendRow(LogicalButtonId::North, L"North", L"Triangle / North");
+}
+
 // buf に追記（論理ブロックの直後に空行 + analog: + 表示用安定化アナログ）。li 無効時は何もしない。
 static void Win32_HudPaged_FillT19AnalogSectionInto(wchar_t* buf, size_t bufCount)
 {
@@ -5884,6 +6057,7 @@ static void Win32_HudPaged_FillT19PageBody(wchar_t* buf, size_t bufCount)
         return;
     }
     Win32_HudPaged_FillT19LogicalSection(buf, bufCount);
+    Win32_HudPaged_FillT19PadExtrasSection(buf, bufCount);
     Win32_HudPaged_FillT19AnalogSectionInto(buf, bufCount);
 }
 
@@ -8596,20 +8770,26 @@ static void Win32_WndProc_OnXInputPollTimer(HWND hWnd)
     {
         wchar_t analogNow[16384] = {};
         Win32_HudPaged_T19LogicalButtonDisplaySnap logicalSnapNow[kT19LogicalDisplayRowCount] = {};
+        Win32_HudPaged_T19PadExtrasDisplaySnap padExtrasNow = {};
         const LogicalInputState* liTimer = InputCore_LogicalInputState();
         if (liTimer)
         {
             Win32_HudPaged_T19FillLogicalDisplaySnapshot(*liTimer, logicalSnapNow, _countof(logicalSnapNow));
+            Win32_HudPaged_T19FillPadExtrasDisplaySnapshot(*liTimer, s_virtualInputCurr, &padExtrasNow);
         }
         Win32_HudPaged_FillT19AnalogSectionInto(analogNow, _countof(analogNow));
         Win32_HudPaged_ClampTextLines(analogNow, _countof(analogNow), 32, 80);
 
+        const bool padExtrasChanged =
+            !s_hudPagedT19HasSnapshot ||
+            !Win32_HudPaged_T19PadExtrasSnapshotEqual(padExtrasNow, s_hudPagedT19LastPadExtrasSnap);
         const bool logicalChanged =
             !s_hudPagedT19HasSnapshot ||
             !Win32_HudPaged_T19LogicalDisplaySnapshotEqual(
                 logicalSnapNow,
                 s_hudPagedT19LastLogicalSnap,
-                kT19LogicalDisplayRowCount);
+                kT19LogicalDisplayRowCount) ||
+            padExtrasChanged;
         const bool analogChanged =
             !s_hudPagedT19HasSnapshot || wcscmp(analogNow, s_hudPagedT19LastAnalog) != 0;
 
@@ -8647,6 +8827,7 @@ static void Win32_WndProc_OnXInputPollTimer(HWND hWnd)
                 sizeof(s_hudPagedT19LastLogicalSnap),
                 logicalSnapNow,
                 sizeof(logicalSnapNow));
+            s_hudPagedT19LastPadExtrasSnap = padExtrasNow;
             wcscpy_s(s_hudPagedT19LastAnalog, analogNow);
             s_hudPagedT19HasSnapshot = true;
             s_hudPagedT19LastAnalogInvalidateTick = GetTickCount64();
