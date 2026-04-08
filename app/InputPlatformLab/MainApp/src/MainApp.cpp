@@ -5810,6 +5810,42 @@ static void Win32_HudPaged_T19FormatTriggerBar(float v, wchar_t* out, size_t out
     swprintf_s(out, outCount, L"[%s]", w);
 }
 
+// analog ブロック用: 行幅を詰め、見切れ（ClampTextLines の 80 文字）を避けやすくする
+static void Win32_HudPaged_T19FormatStickAxisBarCompact(float v, wchar_t* out, size_t outCount)
+{
+    int pos = static_cast<int>(std::lround((v + 1.0f) * 2.0f));
+    if (pos < 0)
+    {
+        pos = 0;
+    }
+    if (pos > 4)
+    {
+        pos = 4;
+    }
+    wchar_t w[6] = {L'.', L'.', L'.', L'.', L'.', L'\0'};
+    w[pos] = L'*';
+    swprintf_s(out, outCount, L"[%s]", w);
+}
+
+static void Win32_HudPaged_T19FormatTriggerBarCompact(float v, wchar_t* out, size_t outCount)
+{
+    int filled = static_cast<int>(std::lround(v * 6.0f));
+    if (filled < 0)
+    {
+        filled = 0;
+    }
+    if (filled > 6)
+    {
+        filled = 6;
+    }
+    wchar_t w[8] = {};
+    for (int i = 0; i < 6; ++i)
+    {
+        w[i] = (i < filled) ? L'#' : L'.';
+    }
+    swprintf_s(out, outCount, L"[%s]", w);
+}
+
 static void Win32_HudPaged_AppendBodyLine(wchar_t* buf, size_t bufCount, const wchar_t* line)
 {
     if (!buf || bufCount < 2 || !line)
@@ -5834,6 +5870,9 @@ static void Win32_HudPaged_FillT19LogicalSection(wchar_t* buf, size_t bufCount)
         wcscpy_s(buf, bufCount, L"(LogicalInputState unavailable)\r\n");
         return;
     }
+
+    Win32_HudPaged_AppendBodyLine(buf, bufCount, L"logical:");
+    Win32_HudPaged_AppendBodyLine(buf, bufCount, L"");
 
     // Consolas 等幅: 左3列の後に press / release / push / hold を固定幅で同一アンカーに揃える
     // 0-based 列開始（左ブロック 6+sp+10+sp+16+2sp = 36 文字目から press）。fmt 変更時は値を合わせること。
@@ -5912,6 +5951,7 @@ static void Win32_HudPaged_FillT19PadExtrasSection(wchar_t* buf, size_t bufCount
 
     Win32_HudPaged_AppendBodyLine(buf, bufCount, L"");
     Win32_HudPaged_AppendBodyLine(buf, bufCount, L"pad extras:");
+    Win32_HudPaged_AppendBodyLine(buf, bufCount, L"");
 
     static const wchar_t kT19PadExtrasHdr[] =
         L"%-6.6s %-10.10s %-16.16s  %-5s %-7s %-4s %4s";
@@ -5950,8 +5990,8 @@ static void Win32_HudPaged_FillT19PadExtrasSection(wchar_t* buf, size_t bufCount
         Win32_HudPaged_AppendBodyLine(buf, bufCount, line);
     };
 
-    appendRow(LogicalButtonId::L1, L"L1", L"L1 shoulder");
-    appendRow(LogicalButtonId::R1, L"R1", L"R1 shoulder");
+    appendRow(LogicalButtonId::L1, L"L1", L"shldr");
+    appendRow(LogicalButtonId::R1, L"R1", L"shldr");
 
     {
         const LogicalButtonFrameState& f = LogicalInputState_Frame(*li, LogicalButtonId::L2);
@@ -5962,7 +6002,7 @@ static void Win32_HudPaged_FillT19PadExtrasSection(wchar_t* buf, size_t bufCount
             kT19PadExtrasTrigRow,
             L"L2",
             L"\u2014",
-            L"L2 trigger",
+            L"trig",
             Win32_HudPaged_T19Mark(f.press),
             Win32_HudPaged_T19Mark(f.release),
             Win32_HudPaged_T19Mark(f.push),
@@ -5979,7 +6019,7 @@ static void Win32_HudPaged_FillT19PadExtrasSection(wchar_t* buf, size_t bufCount
             kT19PadExtrasTrigRow,
             L"R2",
             L"\u2014",
-            L"R2 trigger",
+            L"trig",
             Win32_HudPaged_T19Mark(f.press),
             Win32_HudPaged_T19Mark(f.release),
             Win32_HudPaged_T19Mark(f.push),
@@ -5988,10 +6028,10 @@ static void Win32_HudPaged_FillT19PadExtrasSection(wchar_t* buf, size_t bufCount
         Win32_HudPaged_AppendBodyLine(buf, bufCount, line);
     }
 
-    appendRow(LogicalButtonId::L3, L"L3", L"L3 click");
-    appendRow(LogicalButtonId::R3, L"R3", L"R3 click");
-    appendRow(LogicalButtonId::West, L"West", L"Square / West");
-    appendRow(LogicalButtonId::North, L"North", L"Triangle / North");
+    appendRow(LogicalButtonId::L3, L"L3", L"click");
+    appendRow(LogicalButtonId::R3, L"R3", L"click");
+    appendRow(LogicalButtonId::West, L"West", L"Square");
+    appendRow(LogicalButtonId::North, L"North", L"Tri");
 }
 
 // buf に追記（論理ブロックの直後に空行 + analog: + 表示用安定化アナログ）。li 無効時は何もしない。
@@ -6009,6 +6049,7 @@ static void Win32_HudPaged_FillT19AnalogSectionInto(wchar_t* buf, size_t bufCoun
 
     Win32_HudPaged_AppendBodyLine(buf, bufCount, L"");
     Win32_HudPaged_AppendBodyLine(buf, bufCount, L"analog:");
+    Win32_HudPaged_AppendBodyLine(buf, bufCount, L"");
 
     const VirtualInputSnapshot& v = s_virtualInputCurr;
     const float lsx = Win32_HudPaged_T19StabilizeStickAxisDisplay(Win32_HudPaged_T19NormalizeStickAxis(v.leftStickX));
@@ -6021,29 +6062,26 @@ static void Win32_HudPaged_FillT19AnalogSectionInto(wchar_t* buf, size_t bufCoun
     wchar_t line[384] = {};
     wchar_t bar[32] = {};
 
-    swprintf_s(line, _countof(line), L"LS  x:%+.2f  y:%+.2f", static_cast<double>(lsx), static_cast<double>(lsy));
-    Win32_HudPaged_AppendBodyLine(buf, bufCount, line);
-    Win32_HudPaged_T19FormatStickAxisBar(lsx, bar, _countof(bar));
+    // LSx/LSy に数値とバーを 1 行ずつ（LS/RS の重複サマリ行は省略して行数と窮屈さを削減）
+    Win32_HudPaged_T19FormatStickAxisBarCompact(lsx, bar, _countof(bar));
     swprintf_s(line, _countof(line), L"LSx %+.2f  %s", static_cast<double>(lsx), bar);
     Win32_HudPaged_AppendBodyLine(buf, bufCount, line);
-    Win32_HudPaged_T19FormatStickAxisBar(lsy, bar, _countof(bar));
+    Win32_HudPaged_T19FormatStickAxisBarCompact(lsy, bar, _countof(bar));
     swprintf_s(line, _countof(line), L"LSy %+.2f  %s", static_cast<double>(lsy), bar);
     Win32_HudPaged_AppendBodyLine(buf, bufCount, line);
 
-    swprintf_s(line, _countof(line), L"RS  x:%+.2f  y:%+.2f", static_cast<double>(rsx), static_cast<double>(rsy));
-    Win32_HudPaged_AppendBodyLine(buf, bufCount, line);
-    Win32_HudPaged_T19FormatStickAxisBar(rsx, bar, _countof(bar));
+    Win32_HudPaged_T19FormatStickAxisBarCompact(rsx, bar, _countof(bar));
     swprintf_s(line, _countof(line), L"RSx %+.2f  %s", static_cast<double>(rsx), bar);
     Win32_HudPaged_AppendBodyLine(buf, bufCount, line);
-    Win32_HudPaged_T19FormatStickAxisBar(rsy, bar, _countof(bar));
+    Win32_HudPaged_T19FormatStickAxisBarCompact(rsy, bar, _countof(bar));
     swprintf_s(line, _countof(line), L"RSy %+.2f  %s", static_cast<double>(rsy), bar);
     Win32_HudPaged_AppendBodyLine(buf, bufCount, line);
 
-    Win32_HudPaged_T19FormatTriggerBar(lt, bar, _countof(bar));
-    swprintf_s(line, _countof(line), L"LT  %.2f   %s", static_cast<double>(lt), bar);
+    Win32_HudPaged_T19FormatTriggerBarCompact(lt, bar, _countof(bar));
+    swprintf_s(line, _countof(line), L"LT  %.2f  %s", static_cast<double>(lt), bar);
     Win32_HudPaged_AppendBodyLine(buf, bufCount, line);
-    Win32_HudPaged_T19FormatTriggerBar(rt, bar, _countof(bar));
-    swprintf_s(line, _countof(line), L"RT  %.2f   %s", static_cast<double>(rt), bar);
+    Win32_HudPaged_T19FormatTriggerBarCompact(rt, bar, _countof(bar));
+    swprintf_s(line, _countof(line), L"RT  %.2f  %s", static_cast<double>(rt), bar);
     Win32_HudPaged_AppendBodyLine(buf, bufCount, line);
 }
 
@@ -6343,7 +6381,7 @@ void Win32_HudPaged_PaintGdi(
         break;
     case 4:
         Win32_HudPaged_FillT19PageBody(bodyBuf, _countof(bodyBuf));
-        Win32_HudPaged_ClampTextLines(bodyBuf, _countof(bodyBuf), 32, 80);
+        Win32_HudPaged_ClampTextLines(bodyBuf, _countof(bodyBuf), 40, 96);
         break;
     case 5:
         Win32_T17_AppendPaintSection(bodyBuf, _countof(bodyBuf), false, false, false);
@@ -6519,7 +6557,9 @@ void Win32_HudPaged_PaintGdi(
     rcMenuDraw.bottom = menuTop + menuH;
     DrawTextW(hdcDraw, menuBuf, -1, &rcMenuDraw, DT_LEFT | DT_TOP | DT_NOPREFIX);
 
-    const int bodyTop = menuTop + menuH + bandGap + bodyExtraTopPad;
+    const int t19BodyExtraGap =
+        (s_hudPagedIndex == kHudPagedPageIndexT19) ? (std::max)(2, lineH / 3) : 0;
+    const int bodyTop = menuTop + menuH + bandGap + bodyExtraTopPad + t19BodyExtraGap;
     RECT rcBody = {};
     rcBody.left = bodyLeft;
     rcBody.top = bodyTop;
@@ -8778,7 +8818,7 @@ static void Win32_WndProc_OnXInputPollTimer(HWND hWnd)
             Win32_HudPaged_T19FillPadExtrasDisplaySnapshot(*liTimer, s_virtualInputCurr, &padExtrasNow);
         }
         Win32_HudPaged_FillT19AnalogSectionInto(analogNow, _countof(analogNow));
-        Win32_HudPaged_ClampTextLines(analogNow, _countof(analogNow), 32, 80);
+        Win32_HudPaged_ClampTextLines(analogNow, _countof(analogNow), 40, 96);
 
         const bool padExtrasChanged =
             !s_hudPagedT19HasSnapshot ||
