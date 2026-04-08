@@ -108,11 +108,12 @@
       <GenerateDebugInformation>true</GenerateDebugInformation>
     </Link>
   </ItemDefinitionGroup>
+  <!-- PS4 slot=99 肩・トリガー・スティック: [PS4Bridge] のみ（WIN32_PS4_BRIDGE_DEBUG_LOG は付けない）。検証完了後は先頭の WIN32_PS4_SLOT99_SHOULDER_1LINE=1; を削除して既定 off。 -->
   <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">
     <ClCompile>
       <WarningLevel>Level3</WarningLevel>
       <SDLCheck>true</SDLCheck>
-      <PreprocessorDefinitions>_DEBUG;_WINDOWS;%(PreprocessorDefinitions)</PreprocessorDefinitions>
+      <PreprocessorDefinitions>WIN32_PS4_SLOT99_SHOULDER_1LINE=1;_DEBUG;_WINDOWS;%(PreprocessorDefinitions)</PreprocessorDefinitions>
       <ConformanceMode>true</ConformanceMode>
       <LanguageStandard>stdcpp20</LanguageStandard>
     </ClCompile>
