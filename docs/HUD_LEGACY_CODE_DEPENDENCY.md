@@ -233,6 +233,70 @@
 
 **読み方**: 「A＝方針として main 側に置き続けてよい」「B＝分離フェーズで最初に検討リストへ載せる」「C＝**いまのフェーズでは文書・小さなコメントに留める**」。同一要素が **B と C の両方**に関わる場合は、**データ契約の整理（B）**のあとに **実装移動**に進む想定とする。
 
+§8.3 B の各項目について **移設前に固めるべきデータ契約／呼び出し契約**は **§8.4**。
+
+### 8.4 §8.3 B の移設前提：データ契約／呼び出し契約（実装変更なしの明文化）
+
+**対象**: §8.3 B の **T46**、**T45 本体**、**FormatScroll の文言生成**、**ResetProvisionalLayoutCache の内訳**。コード参照は現状のシンボル名に合わせる（将来リネームしても **意味**は同じ）。
+
+#### 8.4.1 共通：`ComputeLayoutMetrics` 後半の **unified 経路**（legacy TU）
+
+| 項目 | 契約 |
+|------|------|
+| **入口** | `Win32_LegacyStacked_RunUnifiedMaxScrollClampAndT45(hwnd, u)`。`u` は `Win32_LegacyStacked_UnifiedScrollLayoutForT45`（`scrollContentHFinal`, `scrollViewportHFinal`, `maxScrollUnified`）。 |
+| **呼び出し順（固定）** | **①** `Win32_LegacyStacked_SetDbgMaxScrollAndClampScrollY(u.maxScrollUnified, …)` — MainApp 共有の `s_paintDbgMaxScroll` 更新と **`Win32_DebugOverlay_ClampScrollYToMaxScroll`**（`s_paintScrollY`）。**②** `Win32_LegacyStacked_LoadMainAppPaintDbgRead` — **クランプ後**の `scrollY` を含むスナップショット取得。**③** `Win32_DebugOverlay_LegacyStacked_InvokeT45(hwnd, u.scrollContentHFinal, u.scrollViewportHFinal, mainAppRead.scrollY)`。 |
+| **shared state 依存** | **MainApp `extern`**（`s_paintDbgMaxScroll`, `s_paintScrollY` ほか `LoadMainAppPaintDbgRead` が読む列）と **T44**（clamp）。**T45 に渡す `pos` は ①② のあとの `scrollY`** であり、**unified の `maxScrollUnified` と論理 content/viewport から単独再計算した値に差し替えない**こと（SI と本文オフセットの整合）。 |
+| **崩すと危険** | **② の前に InvokeT45** すると `pos` が古い／未クランプになり **SetScrollInfo と GDI 描画の scrollY が不一致**。**① を省略**すると maxScroll と SI の range がズレる。 |
+
+#### 8.4.2 T45：`Win32_T45_ApplyWindowedScrollInfo`（main TU static）／`InvokeT45`
+
+| 項目 | 契約 |
+|------|------|
+| **入力** | `hwnd`, `scrollContentH`, `scrollViewportH`, `pos`（論理スクロール位置。unified 経路では **Load 済み `scrollY`**）。 |
+| **出力（副作用）** | **Windowed かつ非 fill-monitor** のときのみ `Win32_UpdateNativeScrollbarsWindowedOnly(SB_VERT, SCROLLINFO …)`。**標準デバッグ** `[T45] SI final …`。 |
+| **T46 更新** | **同一関数内**で、上記成功パス終了時に **`s_t46LastSiValid = true`** と `nMax` / `nPage` / `nPos` / `maxScroll_si`（`nMax - nPage + 1` 系）を static に格納。**fill-monitor または hwnd 無効**では **T46 を無効化**（`s_t46LastSiValid = false`）のみ — **SetScrollInfo なし**。 |
+| **数値関係（論理）** | `nMax = max(0, scrollContentH - 1)`、`nPage = max(1, scrollViewportH)`、`maxScroll_si = max(0, nMax - nPage + 1)`。呼び出し側の `maxScrollUnified` は `max(0, scrollContentHFinal - scrollViewportHFinal)` と **同一次元**であることが前提。 |
+| **移す前に固めるべきこと** | **早期 return 条件**（fill-monitor）と **T46 無効化**の対応表。**`InvokeT45` のシグネチャ**（legacy → main の 1 ホップ）を維持するか、**scroll_win32 専用 TU** に **SetScrollInfo＋T46 更新**をまとめて移すかの決定。 |
+
+#### 8.4.3 T46：`s_t46LastSi*`／`s_t46LastSiValid`
+
+| 項目 |契約 |
+|------|------|
+| **入力** | **T45 の成功パスでのみ**意味のある更新（上記）。それ以外は **valid=false** または前フレームの残骸を読まないよう **Reset** で無効化。 |
+| **出力（読み手）** | **`Win32_DebugOverlay_FormatScrollDebugOverlay`** — `s_t46LastSiValid` が true のとき SI 行を付与；compact 帯・通常帯で分岐。**`Win32DebugOverlay_ScrollLog`** — fill-monitor では SI 行なし；valid 時は `nMax/nPage/nPos/maxScroll_si`；**valid でないときは** **GetScrollInfo フォールバック**。 |
+| **呼び出し順** | ** consumers は「T45 適用後・同一ペイント／ログセッション内」**で読むことが前提。**`ComputeLayoutMetrics` 内**では `RunUnifiedMaxScrollClampAndT45` の **後**に `MarkPaintLayoutMetricsFromPaintValid`（T52）と **`FormatScrollDebugOverlay`** が来る（§7.7 コメント木）。 |
+| **shared state 依存** | **main TU の file-static**（現状）。**FormatScroll** は引数で渡る contentH／scrollY 等と **T46 を併記** — **論理 maxScroll（content−vp）と SI の maxScroll_si は別物**として表示上は両方出す。 |
+| **崩すと危険** | **T46 だけ移し**て更新順をずらすと **[scroll] の SI 行と実バーが別フレーム**。**valid のまま古い hwnd での SI を表示**するとデバッグが誤誘導。 |
+| **移す前に固めるべきこと** | **単一 struct**（例: `nMax, nPage, nPos, maxScroll_si, valid`）と **更新者（T45 のみ）／無効化者（Reset・T45 早期 return）** の一覧。**FormatScroll / ScrollLog が読むフィールド集合**を **1 行に固定**。 |
+
+#### 8.4.4 `FormatScroll` の文言生成（`Win32_DebugOverlay_FormatScrollDebugOverlay`）
+
+| 項目 | 契約 |
+|------|------|
+| **入力** | 引数：モードラベル、content 系、`scrollY`、`rawClientH`、`scrollVpH`、F7/F8 ターゲット、`provisionalNoSi`、`compactScrollBand` 等（シグネチャは `Win32DebugOverlay.h`）。**T46** は **引数ではなく static**（§8.4.3）。 |
+| **出力** | バッファへ `[scroll]` テキスト（SI 行の有無は `s_t46LastSiValid` と fill-monitor 相当の分岐）。 |
+| **呼び出し順** | legacy **`ComputeLayoutMetrics`** 内では **unified＋Mark（T52）の後**、**ScrollTarget 計算の前後**に複数箇所から呼ばれ得る — **いずれも「レイアウト確定後」**が前提。 |
+| **崩すと危険** | **T46 契約を変えずに**ファイルだけ分けるのは可。**引数と static のどちらに SI を載せるか**を混在させると二重表示・未初期化。 |
+| **移す前に固めるべきこと** | **§8.4.3 の struct 化**が済んでから（または **FormatScroll を薄いラッパ＋共通生成関数**に分割する契約を固定）。 |
+
+#### 8.4.5 `Win32_DebugOverlay_ResetProvisionalLayoutCache`
+
+| 項目 | 契約 |
+|------|------|
+| **入力** | なし（公開 API）。 |
+| **呼び出し順（本体内部）** | **①** `Win32_LegacyStacked_ClearPaintLayoutMetricsFromPaintValid`（T52）**②** `Win32_LegacyStacked_ApplyMainAppPaintDbgResetProvisionalLayoutExtras`（MainApp 共有の暫定付随リセット）**③** `s_t46LastSiValid = false`。 |
+| **呼び出し元（例）** | `MainApp.cpp` 内のキャッシュ破棄タイミング（grep で固定）。**ページ式経路からも**呼ばれ得る。 |
+| **崩すと危険** | **T52 だけクリア**して T46 を残すと **「暫定レイアウト」ログと SI 行の組み合わせ**が不整合。**順序を入れ替える**と一瞬 **stale SI** が `[scroll]` に残る。 |
+| **移す前に固めるべきこと** | 呼び出し元一覧と **「暫定／確定」の定義**（`HUD_PAGED_ACCEPTANCE`・本書 §2 と矛盾しないこと）。T46 の **別 TU 移設**後は **無効化を同じトランザクション**で行う API にまとめる。 |
+
+#### 8.4.6 T45／T46 を動かす判断に使うチェックリスト（移設前）
+
+1. **unified の ①→②→③**（§8.4.1）を崩さない。  
+2. **fill-monitor** では T45 は SI を書かず T46 は無効 — **FormatScroll** は「(n/a — fill-monitor / no native scrollbar)」系の分岐と一致。  
+3. **T46 のフィールド意味**を struct で固定し、**更新は T45 のみ／無効化は T45 早期 return と Reset**。  
+4. **ScrollLog** の SI 行は **T46 → GetScrollInfo フォールバック**の順 — 契約を変えるなら両方更新。  
+5. **T19/T20** 本文ロジックには直接触れない（本契約は **デバッグオーバーレイ・スクロール補助**）。
+
 ---
 
 ## 9. 更新履歴
@@ -267,3 +331,4 @@
 | 2026-04-06 | **§5 / コメント整備**: `Win32DebugOverlay.cpp` / `bridge.h` / `internal.h` のファイル頭・`#pragma region` を、main / bridge / internal / legacy TU の現状境界に合わせて更新（挙動不変） |
 | 2026-04-06 | **§8 追加**: legacy 縦積み TU 分離後も main TU（`Win32DebugOverlay.cpp`）に残る T45/T46/T52/shared scroll 等の **残留理由・影響・分離余地** を表で整理。§1 表・§2.4 の `ComputeLayoutMetrics` 所在を legacy TU と明記。§7 冒頭から §8 へ参照（挙動不変） |
 | 2026-04-06 | **§8.3 追加**: main TU 残留要素の **仕分け**（今後も main／条件付きで移せる／今触ると危険）と短い理由・前提・保留理由（挙動不変） |
+| 2026-04-06 | **§8.4 追加**: §8.3 B の **データ契約／呼び出し契約**（unified ①②③、T45/T46、FormatScroll、Reset）。T45/T46 移設前チェックリスト（挙動不変） |
