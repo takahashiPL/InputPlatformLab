@@ -202,6 +202,37 @@
 - **T45 本体**は **main**、**呼び出しトリガ**の多くは **legacy の `RunUnifiedMaxScrollClampAndT45` → InvokeT45**（§7.7 D）。
 - 本書 §7 の古い記述で「`ComputeLayoutMetrics` が `Win32DebugOverlay.cpp` にある」ように読める箇所は、**§5・§1 表を優先**（実装は legacy TU）。
 
+### 8.3 仕分け：今後も main に残す／条件付きで移せる／今は触ると危険
+
+§8.1 の要素を **優先度・リスク**で仕分けする（**削除や大規模移動の確定ではない**）。`docs/HUD_LEGACY_MAINTENANCE_PRIORITIES.md` の「維持／削減／慎重」と併用する。
+
+#### A — 今後も main TU に置くのが妥当（既定）
+
+| 要素 | 理由 | 次に触るなら必要な前提 | いま大きく触らない理由 |
+|------|------|------------------------|------------------------|
+| **fill-monitor 判定**（`Win32_MainWindow_IsFillMonitorPresentationMode`、file-static 版） | **MainView の表示モード**の入口として、paged / legacy / T37 の前に必要なことが多い。**公開 API は既に 1 か所**。 | 別 TU に移すなら **HWND スタイルとスクロール抑止**の呼び出し順を変えないテスト方針。 | 変更は **入力・ペイント・スクロールバー**に直結（受け入れ再確認のコスト）。 |
+| **`Win32DebugOverlay.h` に載る共有スクロール API の「名前と実装の所在」** | **MainApp** と **legacy TU** が同じシンボルをリンクする **安定した境界**。ページ式でも参照し得る。 | 変更なし。**巨大化したら** §8.3 B の「文言だけ別 .cpp」などとセットで検討。 | API シグネチャや TU を増やすと **全呼び出し・ビルド依存**が動く。 |
+| **`Win32_DebugOverlay_LegacyStacked_InvokeT45`（bridge 実体が main）** | legacy → main の **1 ホップ**が既に固定され、T45 本体と隣接。 | T45 を別 `.cpp` に出すなら **InvokeT45 の定義位置**ごと移す（§8.3 B）。 | 向き先を変えると **legacy TU とリンク順**の見え方が変わる。 |
+
+#### B — 条件が揃えばさらに移せる（次段 refac の候補）
+
+| 要素 | 理由 | 次に触るなら必要な前提 | いま大きく触らない理由 |
+|------|------|------------------------|------------------------|
+| **T46**（`s_t46LastSi*` / `s_t46LastSiValid`） | `[scroll]` 表示と **同一 TU 内 static** だが、**スナップショットを struct 化**し `shared_link` や **読み取り専用バッファ**に載せれば、legacy 側生成にも寄せられる余地。 | **FormatScroll / ScrollLog** が読むフィールド契約を固定した **単一の型**と、**T45 直後の更新点**の一覧化。 | **§8.3 C** と同時に壊れやすい。**T19/T20 非対象**だが HUD ログ受け入れに波及し得る。 |
+| **T45 本体**（`Win32_T45_ApplyWindowedScrollInfo`） | **Win32 スクロールバー API** と同居が自然だが、**scroll_win32 専用 .cpp** に切り出すパターンはあり得る。 | **InvokeT45**・`Win32_UpdateNativeScrollbarsWindowedOnly`・**リンク対象**をまとめて移す。**fill-monitor スキップ**の分岐テスト。 | 変更は **SI・本文オフセット**に直結（§8.3 C）。 |
+| **`FormatScroll` の文言生成のみ** | ロジックが肥大化したとき **表示専用 .cpp** に分離し、main は **薄いラッパ**にできる **可能性**。 | **T46**・`LoadMainAppPaintDbgRead`・bridge getter との **データ契約**を変えない。 | 現状サイズで **分割の便益が小さい**（依存は残る）。 |
+| **`ResetProvisionalLayoutCache` の内訳** | T52 クリアと T46 無効化の **束ね**は、T46 の置き場が決まれば **legacy 側 Apply に寄せる**余地。 | **§8.1「その他」**と **§7.7 D** の対応表を先に更新。**呼び出し元**（ページ式側のキャッシュ破棄）を grep で固定。 | **二重クリア・取りこぼし**で暫定レイアウト表示がズレる。 |
+
+#### C — 依存が強く、今は触ると危険（防御的変更・文書優先）
+
+| 要素 | 理由 | 次に触るなら必要な前提 | いま大きく触らない理由 |
+|------|------|------------------------|------------------------|
+| **Shared scroll の実装**（`FormatScrollDebugOverlay` / `ScrollLog` / `ScrollTargetT17*` / `ClampScrollYToMaxScroll` / `MainView_SetScrollPos`） | **WM_VSCROLL・マウス・`s_paintScrollY`・`s_paintDbgMaxScroll`** と **入力経路**が絡む。**ページ式・レガシー両方**のログ・ジャンプに効く。 | **レガシー `WIN32_HUD_USE_PAGED_HUD=0`** ビルドでの手動確認、または **最小スクロール回帰手順**。**`HUD_PAGED_ACCEPTANCE.md`** の該当節との照合。 | 挙動差は **デバッグ表示と実スクロールの不一致**として顕在化しやすい。 |
+| **T45 → T46 の順序と SI 一貫性** | **1 フレーム内の更新順**に依存。**InvokeT45** から離すと読み取りズレが出やすい。 | **§7.7 D** の表と **unified** 経路の呼び出し木を揃えた設計メモ。 | **§8.3 B** の前提が揃うまで **本体ロジックは触らない**のが安全。 |
+| **T52（bridge 契約）** | 定義は legacy、**getter/Clear** は bridge。**Reset** が T46 と束ねられている。 | **Mark/Clear** の呼び出し元一覧と **暫定レイアウト**の意味を文書化。 | フラグの意味を変えると **ログ行の真偽**が変わる（見た目は小さく、追跡は難しい）。 |
+
+**読み方**: 「A＝方針として main 側に置き続けてよい」「B＝分離フェーズで最初に検討リストへ載せる」「C＝**いまのフェーズでは文書・小さなコメントに留める**」。同一要素が **B と C の両方**に関わる場合は、**データ契約の整理（B）**のあとに **実装移動**に進む想定とする。
+
 ---
 
 ## 9. 更新履歴
@@ -235,3 +266,4 @@
 | 2026-04-06 | **bridge 追記**: **`RunGdiPaintFromPaintEntry`** / **`RunComputeLayoutMetricsForD2dPrefill`** — main TU の `Win32DebugOverlay_Paint` / `PrefillHudLeftColumnForD2d` から `RunGdiPaint` / `RunComputeLayoutMetrics` への struct 組み立てを legacy TU に寄せる（挙動不変） |
 | 2026-04-06 | **§5 / コメント整備**: `Win32DebugOverlay.cpp` / `bridge.h` / `internal.h` のファイル頭・`#pragma region` を、main / bridge / internal / legacy TU の現状境界に合わせて更新（挙動不変） |
 | 2026-04-06 | **§8 追加**: legacy 縦積み TU 分離後も main TU（`Win32DebugOverlay.cpp`）に残る T45/T46/T52/shared scroll 等の **残留理由・影響・分離余地** を表で整理。§1 表・§2.4 の `ComputeLayoutMetrics` 所在を legacy TU と明記。§7 冒頭から §8 へ参照（挙動不変） |
+| 2026-04-06 | **§8.3 追加**: main TU 残留要素の **仕分け**（今後も main／条件付きで移せる／今触ると危険）と短い理由・前提・保留理由（挙動不変） |
