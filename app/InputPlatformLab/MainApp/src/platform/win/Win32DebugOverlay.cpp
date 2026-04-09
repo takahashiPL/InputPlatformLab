@@ -847,12 +847,100 @@ static void Win32_T60_FindT14AppendixMarkers(
 #pragma region Legacy stacked HUD (ComputeLayoutMetrics + PaintStackedLegacy)
 
 namespace {
+// D2D prefill: consolidates all `outHud->dbgHud*` writes from layout metrics (§7.7 category C); ComputeLayoutMetrics no longer touches `outHud` directly.
+void Win32_LegacyStacked_ApplyD2dHudPrefill(
+    WindowsRendererState* outHud,
+    const wchar_t* menuBuf,
+    const wchar_t* t14Buf,
+    const wchar_t* overlay,
+    int clientW,
+    int clientH,
+    int t37TopGap,
+    int row1H,
+    int bodyTopPx,
+    int t14DocTopAbsPx,
+    int row2TopPx,
+    const RECT& rcMenuDoc,
+    bool vmSplitActive,
+    const wchar_t* pVis,
+    const wchar_t* pT15,
+    int splitHPrefix,
+    int splitHVmBand,
+    bool dbgHudDrawScrollBand,
+    int dbgHudLeftColumnScrollYPx,
+    int scrollBandReservePx,
+    int dbgHudRestViewportTopPx)
+{
+    if (!outHud)
+    {
+        return;
+    }
+    outHud->dbgHudDrawScrollBand = dbgHudDrawScrollBand;
+    outHud->dbgHudLeftColumnText[0] = L'\0';
+    wcscpy_s(outHud->dbgHudLeftColumnText, _countof(outHud->dbgHudLeftColumnText), menuBuf);
+    wcscat_s(outHud->dbgHudLeftColumnText, _countof(outHud->dbgHudLeftColumnText), L"\r\n");
+    wcscat_s(outHud->dbgHudLeftColumnText, _countof(outHud->dbgHudLeftColumnText), t14Buf);
+    outHud->dbgHudLeftColumnTopPx = t37TopGap;
+    outHud->dbgHudLeftColumnScrollYPx = dbgHudLeftColumnScrollYPx;
+    outHud->dbgHudLeftColumnClipBottomPadPx = scrollBandReservePx;
+    outHud->dbgHudLeftColumnPrefillClientW = static_cast<std::uint32_t>(clientW);
+    outHud->dbgHudLeftColumnPrefillClientH = static_cast<std::uint32_t>(clientH);
+    wcscpy_s(outHud->dbgHudScrollBandText, _countof(outHud->dbgHudScrollBandText), overlay);
+    outHud->dbgHudScrollBandHeightPx = scrollBandReservePx;
+    wcscpy_s(outHud->dbgHudMenuBandText, _countof(outHud->dbgHudMenuBandText), menuBuf);
+    outHud->dbgHudFinalRow1HeightPx = row1H;
+    outHud->dbgHudFinalBodyTopPx = bodyTopPx;
+    outHud->dbgHudBodyT14DocTopPx = t14DocTopAbsPx;
+    outHud->dbgHudRow2TopPx = row2TopPx;
+    outHud->dbgHudMenuColumnHeightPx = static_cast<int>(rcMenuDoc.bottom);
+
+    outHud->dbgHudT14VmSplit = vmSplitActive;
+    if (vmSplitActive && pVis != nullptr && pT15 != nullptr)
+    {
+        wcscpy_s(outHud->dbgHudT14PrefixText, _countof(outHud->dbgHudT14PrefixText), s_paintDbgT14VmSplitPrefix);
+        const wchar_t* fvl = pVis + wcslen(L"visible modes:\r\n");
+        const size_t headingLen = static_cast<size_t>(fvl - pVis);
+        wcsncpy_s(
+            outHud->dbgHudVmHeadingText,
+            _countof(outHud->dbgHudVmHeadingText),
+            pVis,
+            headingLen);
+        outHud->dbgHudVmHeadingText[_countof(outHud->dbgHudVmHeadingText) - 1] = L'\0';
+        const size_t listChars = static_cast<size_t>(pT15 - fvl);
+        wcsncpy_s(
+            outHud->dbgHudVmListBandText,
+            _countof(outHud->dbgHudVmListBandText),
+            fvl,
+            listChars);
+        outHud->dbgHudVmListBandText[_countof(outHud->dbgHudVmListBandText) - 1] = L'\0';
+        wcscpy_s(outHud->dbgHudT14RestText, _countof(outHud->dbgHudT14RestText), s_paintDbgT14VmSplitRest);
+        outHud->dbgHudT14PrefixHeightPx = splitHPrefix;
+        outHud->dbgHudVmBandHeightPx = splitHVmBand;
+        outHud->dbgHudRestViewportTopPx = dbgHudRestViewportTopPx;
+        wcscpy_s(
+            outHud->dbgHudBodyBandText,
+            _countof(outHud->dbgHudBodyBandText),
+            s_paintDbgT14VmSplitRest);
+    }
+    else
+    {
+        outHud->dbgHudT14PrefixText[0] = L'\0';
+        outHud->dbgHudVmHeadingText[0] = L'\0';
+        outHud->dbgHudVmListBandText[0] = L'\0';
+        outHud->dbgHudT14RestText[0] = L'\0';
+        outHud->dbgHudT14PrefixHeightPx = 0;
+        outHud->dbgHudVmBandHeightPx = 0;
+        outHud->dbgHudRestViewportTopPx = 0;
+        wcscpy_s(outHud->dbgHudBodyBandText, _countof(outHud->dbgHudBodyBandText), t14Buf);
+    }
+}
+
 // Legacy: Win32_DebugOverlay_PrefillHudLeftColumnForD2d（!Win32_HudPaged_IsEnabled() 時）および
 // Win32_DebugOverlay_PaintStackedLegacy からのみ呼ばれる。ページ式 HUD 既定時は呼ばれない（Win32_HudPaged_PrefillD2d）。
 // スクロール・[scroll] 帯の高さ・T17 行位置などを計測。outHud 非 null のときは D2D final HUD 用に左列全文（menu+t14）とスクロール値を書き込む。
 //
 // Side-effect map (categories; not every assignment): ① file-top scratch (this TU), ② MainApp extern s_paintDbg* / line height,
-// ③ outHud dbgHud* when non-null, ④ Win32_T45_ApplyWindowedScrollInfo → T46 snapshot + T52 validity.  HUD_LEGACY_CODE_DEPENDENCY.md §7.7
+// ③ outHud dbgHud* when non-null (via Win32_LegacyStacked_ApplyD2dHudPrefill), ④ Win32_T45_ApplyWindowedScrollInfo → T46 snapshot + T52 validity.  HUD_LEGACY_CODE_DEPENDENCY.md §7.7
 void Win32_DebugOverlay_ComputeLayoutMetrics(const Win32_LegacyStacked_LayoutMetricsParams& p)
 {
     HWND hwnd = p.common.hwnd;
@@ -1329,64 +1417,28 @@ refill_budget:
 
     if (outHud)
     {
-        outHud->dbgHudDrawScrollBand = s_paintDbgT53ScrollBandDrawEnabled;
-        outHud->dbgHudLeftColumnText[0] = L'\0';
-        wcscpy_s(outHud->dbgHudLeftColumnText, _countof(outHud->dbgHudLeftColumnText), menuBuf);
-        wcscat_s(outHud->dbgHudLeftColumnText, _countof(outHud->dbgHudLeftColumnText), L"\r\n");
-        wcscat_s(outHud->dbgHudLeftColumnText, _countof(outHud->dbgHudLeftColumnText), t14Buf);
-        outHud->dbgHudLeftColumnTopPx = t37TopGap;
-        outHud->dbgHudLeftColumnScrollYPx = s_paintScrollY;
-        outHud->dbgHudLeftColumnClipBottomPadPx = s_paintDbgScrollBandReservePx;
-        outHud->dbgHudLeftColumnPrefillClientW = static_cast<std::uint32_t>(clientW);
-        outHud->dbgHudLeftColumnPrefillClientH = static_cast<std::uint32_t>(clientH);
-        wcscpy_s(outHud->dbgHudScrollBandText, _countof(outHud->dbgHudScrollBandText), overlay);
-        outHud->dbgHudScrollBandHeightPx = s_paintDbgScrollBandReservePx;
-        wcscpy_s(outHud->dbgHudMenuBandText, _countof(outHud->dbgHudMenuBandText), menuBuf);
-        outHud->dbgHudFinalRow1HeightPx = row1H;
-        outHud->dbgHudFinalBodyTopPx = bodyTopPx;
-        outHud->dbgHudBodyT14DocTopPx = t14DocTopAbsPx;
-        outHud->dbgHudRow2TopPx = row2TopPx;
-        outHud->dbgHudMenuColumnHeightPx = static_cast<int>(rcMenuDoc.bottom);
-
-        outHud->dbgHudT14VmSplit = vmSplitActive;
-        if (vmSplitActive && pVis != nullptr && pT15 != nullptr)
-        {
-            wcscpy_s(outHud->dbgHudT14PrefixText, _countof(outHud->dbgHudT14PrefixText), s_paintDbgT14VmSplitPrefix);
-            const wchar_t* fvl = pVis + wcslen(L"visible modes:\r\n");
-            const size_t headingLen = static_cast<size_t>(fvl - pVis);
-            wcsncpy_s(
-                outHud->dbgHudVmHeadingText,
-                _countof(outHud->dbgHudVmHeadingText),
-                pVis,
-                headingLen);
-            outHud->dbgHudVmHeadingText[_countof(outHud->dbgHudVmHeadingText) - 1] = L'\0';
-            const size_t listChars = static_cast<size_t>(pT15 - fvl);
-            wcsncpy_s(
-                outHud->dbgHudVmListBandText,
-                _countof(outHud->dbgHudVmListBandText),
-                fvl,
-                listChars);
-            outHud->dbgHudVmListBandText[_countof(outHud->dbgHudVmListBandText) - 1] = L'\0';
-            wcscpy_s(outHud->dbgHudT14RestText, _countof(outHud->dbgHudT14RestText), s_paintDbgT14VmSplitRest);
-            outHud->dbgHudT14PrefixHeightPx = splitHPrefix;
-            outHud->dbgHudVmBandHeightPx = splitHVmBand;
-            outHud->dbgHudRestViewportTopPx = s_paintDbgRestViewportTopPx;
-            wcscpy_s(
-                outHud->dbgHudBodyBandText,
-                _countof(outHud->dbgHudBodyBandText),
-                s_paintDbgT14VmSplitRest);
-        }
-        else
-        {
-            outHud->dbgHudT14PrefixText[0] = L'\0';
-            outHud->dbgHudVmHeadingText[0] = L'\0';
-            outHud->dbgHudVmListBandText[0] = L'\0';
-            outHud->dbgHudT14RestText[0] = L'\0';
-            outHud->dbgHudT14PrefixHeightPx = 0;
-            outHud->dbgHudVmBandHeightPx = 0;
-            outHud->dbgHudRestViewportTopPx = 0;
-            wcscpy_s(outHud->dbgHudBodyBandText, _countof(outHud->dbgHudBodyBandText), t14Buf);
-        }
+        Win32_LegacyStacked_ApplyD2dHudPrefill(
+            outHud,
+            menuBuf,
+            t14Buf,
+            overlay,
+            clientW,
+            clientH,
+            t37TopGap,
+            row1H,
+            bodyTopPx,
+            t14DocTopAbsPx,
+            row2TopPx,
+            rcMenuDoc,
+            vmSplitActive,
+            pVis,
+            pT15,
+            splitHPrefix,
+            splitHVmBand,
+            s_paintDbgT53ScrollBandDrawEnabled,
+            s_paintScrollY,
+            s_paintDbgScrollBandReservePx,
+            s_paintDbgRestViewportTopPx);
     }
 
     {

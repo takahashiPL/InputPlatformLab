@@ -173,7 +173,7 @@
 |------|----------------|--------------|------|
 | **A — ファイル先頭スクラッチ**（無名名前空間） | `s_paintDbgFinalBodyTopPx`、`s_paintDbgBodyT14DocTopPx`、`s_paintDbgFinalRow1HeightPx`、`s_paintDbgRow2TopPx`、`s_paintDbgT14VmSplitActive`、`s_paintDbgT17DocYRestScroll`、`s_paintDbgRestViewportTopPx`、`s_paintDbgT53ScrollBandDrawEnabled`、`s_paintDbgT14VmSplitPrefix` / `VmBand` / `Rest` と各 `*H` | `ComputeLayoutMetrics` が **書き**、`PaintStackedLegacy` が **読み**（GDI クリップ・分割描画） | §7.2 の宣言順の理由。将来 `.cpp` 分割時は **スクラッチごと移す**か **getter** が必要。 |
 | **B — MainApp extern（`s_paintDbg*` 等）** | 例: `s_paintDbgContentHeight`、`s_paintDbgContentHeightBase`、`s_paintDbgExtraBottomPadding`、`s_paintDbgClientW`/`H`、`s_paintDbgT17DocY`、`s_paintDbgMaxScroll`、`s_paintDbgScrollBandReservePx`、`s_paintDbgLayoutRestVpBudgetHint`、`s_paintDbgT14*` 系、`s_paintScrollLinePx` 等 | ほぼ **`ComputeLayoutMetrics`** に代入が集中 | `MainApp.cpp` 定義。入力・T37・滾動 UI と共有（§2.3）。 |
-| **C — D2D プレフィル（`outHud`）** | `WindowsRendererState::dbgHud*` 各フィールド（左列テキスト、スクロールバンド、vmSplit バンド等） | `outHud != nullptr` の **`ComputeLayoutMetrics`** 分岐 | Prefill（legacy）経路。 |
+| **C — D2D プレフィル（`outHud`）** | `WindowsRendererState::dbgHud*` 各フィールド（左列テキスト、スクロールバンド、vmSplit バンド等） | **`Win32_LegacyStacked_ApplyD2dHudPrefill`**（`ComputeLayoutMetrics` 内、`outHud != nullptr` 時のみ）。`ComputeLayoutMetrics` 本体は `outHud->` を直接書かない。 | Prefill（legacy）経路。vmSplit 用の文字列コピーは引き続きファイル先頭スクラッチ（`s_paintDbgT14VmSplit*`）を読む。 |
 | **D — T45 / T46 / T52** | `Win32_T45_ApplyWindowedScrollInfo` 経由で **`s_t46LastSi*`**；**`s_paintDbgLayoutMetricsFromPaintValid`** | **`ComputeLayoutMetrics`** 後半（スクロール範囲確定後） | `ScrollLog` / `FormatScrollDebugOverlay` が **読む**（§7.3）。adapter へ寄せるなら **T45 呼び出しのラッパ**が別論点。 |
 | **E — GDI ラスタ（永続グローバルではない）** | `DrawTextW`、`SetTextColor`、`OffsetViewportOrgEx`（`s_paintScrollY` を参照） | **`PaintStackedLegacy`** | フレームバッファ上の可視出力。状態テーブルでは **B に含めない**。 |
 
@@ -191,3 +191,4 @@
 | 2026-04-06 | **§7.5 追加**: legacy パイプライン入出力境界（`Win32_LegacyStacked_*` 束・shared / extern / 副作用） |
 | 2026-04-06 | **§7.6 追加**: 副作用の出口と `RunGdiPaint` / `RunComputeLayoutMetrics` adapter |
 | 2026-04-06 | **§7.7 追加**: legacy 本体が更新する shared / scratch / T45・T46 / GDI の区分表 |
+| 2026-04-06 | **§7.7 追記**: `outHud->dbgHud*` 書き込みを `Win32_LegacyStacked_ApplyD2dHudPrefill` に集約（挙動不変） |
