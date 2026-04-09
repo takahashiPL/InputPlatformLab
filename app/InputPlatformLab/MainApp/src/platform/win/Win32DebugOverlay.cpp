@@ -964,7 +964,7 @@ void Win32_LegacyStacked_ApplyScratchT53ScrollBandDrawEnabled(HWND hwnd, int res
           budgetT53 < WIN32_OVERLAY_T53_OMIT_SCROLL_BAND_BUDGET_PX);
 }
 
-// vmSplit: scratch buffers + DrawText heights + s_paintDbgT17DocYRestScroll. MainApp extern assignments return via `out` (caller applies).
+// vmSplit category A: scratch buffers + DrawText heights + s_paintDbgT17DocYRestScroll (no MainApp extern). Category B subset: ApplyVmSplitMainAppExternFromScratchPass.
 struct Win32_LegacyStacked_VmSplitScratchPassOut {
     int splitHPrefix{};
     int splitHVmBand{};
@@ -1112,11 +1112,23 @@ bool Win32_LegacyStacked_RunVmSplitScratchPass(
     return true;
 }
 
+// Category B — MainApp extern: vmSplit scratch pass `out` → s_paintDbgT17DocY and optional T14 doc layout (HUD_LEGACY_CODE_DEPENDENCY §7.7).
+void Win32_LegacyStacked_ApplyVmSplitMainAppExternFromScratchPass(
+    const Win32_LegacyStacked_VmSplitScratchPassOut& vsp)
+{
+    s_paintDbgT17DocY = vsp.t17DocY;
+    if (vsp.t14LayoutOutValid)
+    {
+        s_paintDbgT14VisibleModesDocStartY = vsp.t14VisibleModesDocStartY;
+        s_paintDbgT14LayoutValid = vsp.t14LayoutValid;
+    }
+}
+
 // Legacy: Win32_DebugOverlay_PrefillHudLeftColumnForD2d（!Win32_HudPaged_IsEnabled() 時）および
 // Win32_DebugOverlay_PaintStackedLegacy からのみ呼ばれる。ページ式 HUD 既定時は呼ばれない（Win32_HudPaged_PrefillD2d）。
 // スクロール・[scroll] 帯の高さ・T17 行位置などを計測。outHud 非 null のときは D2D final HUD 用に左列全文（menu+t14）とスクロール値を書き込む。
 //
-// Side-effect map (categories; not every assignment): ① file-top scratch (ApplyScratch* / ResetVmSplit* / ClearScratchRestViewportTop helpers), ② MainApp extern s_paintDbg* / line height,
+// Side-effect map (categories; not every assignment): ① file-top scratch (ApplyScratch* / ResetVmSplit* / ClearScratchRestViewportTop helpers), ② MainApp extern s_paintDbg* / line height (vmSplit T17/T14 subset: ApplyVmSplitMainAppExternFromScratchPass),
 // ③ outHud dbgHud* when non-null (via Win32_LegacyStacked_ApplyD2dHudPrefill), ④ Win32_T45_ApplyWindowedScrollInfo → T46 snapshot + T52 validity.  HUD_LEGACY_CODE_DEPENDENCY.md §7.7
 void Win32_DebugOverlay_ComputeLayoutMetrics(const Win32_LegacyStacked_LayoutMetricsParams& p)
 {
@@ -1254,12 +1266,7 @@ refill_budget:
             contentHeight = vsp.contentHeight;
             maxScroll = vsp.maxScroll;
             t17DocY = vsp.t17DocY;
-            s_paintDbgT17DocY = t17DocY;
-            if (vsp.t14LayoutOutValid)
-            {
-                s_paintDbgT14VisibleModesDocStartY = vsp.t14VisibleModesDocStartY;
-                s_paintDbgT14LayoutValid = vsp.t14LayoutValid;
-            }
+            Win32_LegacyStacked_ApplyVmSplitMainAppExternFromScratchPass(vsp);
         }
         else
         {
