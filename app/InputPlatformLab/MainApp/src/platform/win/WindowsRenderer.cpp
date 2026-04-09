@@ -19,6 +19,8 @@
 // T36: Fullscreen のみ committed オフスクリーン実験（ログ [T36][RT]）。Borderless と T34 は別リソース。
 // グリッド: cell=(1280*64)/denomPhysW。denom は MainApp が毎フレーム設定（既定: T14 Enter 確定幅。無ければ client 幅）。
 // GDI・BeginPaint/EndPaint は MainApp（Win32_MainView_PaintFrame）側。
+//
+// T35 §5 観測軸（ログ接頭辞 axis=…）: mode=T17/MainApp、committed=T14 grid、[T34][RT]/[T36][RT]=offscreen、最終 HUD 帯=D2D/GDI final。
 // ---------------------------------------------------------------------------
 
 // [GRID] mode=... の 1 回ログ用（MainApp の WindowsRenderer_DebugGrid_ResetLogOnce と共有）
@@ -432,7 +434,7 @@ static void WindowsRenderer_InternalDrawDebugGridLines(
         swprintf_s(
             line,
             _countof(line),
-            L"[GRID] mode=scaleRef1280x64 basis=%s denomPhysW=%u cellPx=%u client=%ux%u dpi=%u\r\n",
+            L"[GRID] axis=committed gridMode=scaleRef1280x64 basis=%s denomPhysW=%u cellPx=%u client=%ux%u dpi=%u\r\n",
             WindowsRenderer_GridBasisLabel(s->gridDebugBasis),
             static_cast<unsigned int>(denom),
             static_cast<unsigned int>(stepPx),
@@ -638,7 +640,7 @@ static HRESULT WindowsRenderer_DrawD2DContentToSurface(
     return hr;
 }
 
-// 最終 swapchain backbuffer: T39 3 帯（row1 cand/act, row2 menu, body T14 スクロール）+ 下端 [scroll]
+// axis=final: swapchain の最終バックバッファへ HUD 帯を描画（[T34]/[T36] の offscreen RT 上の draw とは別段階）。GDI ページ式 HUDとは別経路。
 static HRESULT WindowsRenderer_DrawHudD2DOnFinalBackbuffer(
     WindowsRendererState* s,
     UINT cw,
@@ -1082,7 +1084,7 @@ static bool WindowsRenderer_InternalEnsureBorderlessOffscreenRT(WindowsRendererS
         wchar_t line[192] = {};
         swprintf_s(
             line,
-            L"[T34][RT] offscreen create FAILED hr=0x%08X\r\n",
+            L"[T34][RT] axis=offscreen offscreen create FAILED hr=0x%08X\r\n",
             static_cast<unsigned int>(hr));
         OutputDebugStringW(line);
         return false;
@@ -1094,7 +1096,7 @@ static bool WindowsRenderer_InternalEnsureBorderlessOffscreenRT(WindowsRendererS
         return false;
     }
     wchar_t line[192] = {};
-    swprintf_s(line, L"[T34][RT] offscreen create %ux%u\r\n", w, h);
+    swprintf_s(line, L"[T34][RT] axis=offscreen offscreen create %ux%u\r\n", w, h);
     OutputDebugStringW(line);
     return true;
 }
@@ -1270,7 +1272,7 @@ static bool WindowsRenderer_TryBorderlessOffscreenPresent(WindowsRendererState* 
     // 安全上限（実験用）。超える場合はフォールバック。
     if (ow > 8192u || oh > 8192u)
     {
-        OutputDebugStringW(L"[T34][RT] offscreen skip: dimension > 8192\r\n");
+        OutputDebugStringW(L"[T34][RT] axis=offscreen offscreen skip: dimension > 8192\r\n");
         return false;
     }
 
@@ -1303,7 +1305,7 @@ static bool WindowsRenderer_TryBorderlessOffscreenPresent(WindowsRendererState* 
     }
     {
         wchar_t line[192] = {};
-        swprintf_s(line, L"[T34][RT] draw offscreen %ux%u\r\n", ow, oh);
+        swprintf_s(line, L"[T34][RT] axis=offscreen draw offscreen %ux%u\r\n", ow, oh);
         OutputDebugStringW(line);
     }
     const bool firstDiag = !s_t33FirstFrameDiagDone;
@@ -1353,7 +1355,7 @@ static bool WindowsRenderer_TryBorderlessOffscreenPresent(WindowsRendererState* 
         wchar_t line[192] = {};
         swprintf_s(
             line,
-            L"[T34][RT] composite source bitmap FAILED hr=0x%08X\r\n",
+            L"[T34][RT] axis=offscreen composite source bitmap FAILED hr=0x%08X\r\n",
             static_cast<unsigned int>(hr));
         OutputDebugStringW(line);
         srcBmp = nullptr;
@@ -1371,7 +1373,7 @@ static bool WindowsRenderer_TryBorderlessOffscreenPresent(WindowsRendererState* 
 
     {
         wchar_t line[224] = {};
-        swprintf_s(line, L"[T34][RT] composite to backbuffer client=%ux%u\r\n", cw, ch);
+        swprintf_s(line, L"[T34][RT] axis=offscreen composite to backbuffer client=%ux%u\r\n", cw, ch);
         OutputDebugStringW(line);
     }
 
@@ -1434,7 +1436,7 @@ static bool WindowsRenderer_TryBorderlessOffscreenPresent(WindowsRendererState* 
     if (FAILED(hr))
     {
         wchar_t line[160] = {};
-        swprintf_s(line, L"[T34][RT] composite EndDraw hr=0x%08X\r\n", static_cast<unsigned int>(hr));
+        swprintf_s(line, L"[T34][RT] axis=offscreen composite EndDraw hr=0x%08X\r\n", static_cast<unsigned int>(hr));
         OutputDebugStringW(line);
     }
 
@@ -1497,7 +1499,7 @@ static bool WindowsRenderer_InternalEnsureFullscreenOffscreenRT(WindowsRendererS
         wchar_t line[192] = {};
         swprintf_s(
             line,
-            L"[T36][RT] offscreen create FAILED hr=0x%08X\r\n",
+            L"[T36][RT] axis=offscreen offscreen create FAILED hr=0x%08X\r\n",
             static_cast<unsigned int>(hr));
         OutputDebugStringW(line);
         return false;
@@ -1506,11 +1508,11 @@ static bool WindowsRenderer_InternalEnsureFullscreenOffscreenRT(WindowsRendererS
     if (FAILED(hr) || s->fullscreenOffscreenRtv == nullptr)
     {
         WindowsRenderer_ReleaseFullscreenOffscreen(s);
-        OutputDebugStringW(L"[T36][RT] offscreen create FAILED (CreateRenderTargetView)\r\n");
+        OutputDebugStringW(L"[T36][RT] axis=offscreen offscreen create FAILED (CreateRenderTargetView)\r\n");
         return false;
     }
     wchar_t line[192] = {};
-    swprintf_s(line, L"[T36][RT] offscreen create %ux%u\r\n", w, h);
+    swprintf_s(line, L"[T36][RT] axis=offscreen offscreen create %ux%u\r\n", w, h);
     OutputDebugStringW(line);
     return true;
 }
@@ -1527,7 +1529,7 @@ static bool WindowsRenderer_TryFullscreenOffscreenPresent(WindowsRendererState* 
     }
     if (ow > 8192u || oh > 8192u)
     {
-        OutputDebugStringW(L"[T36][RT] skip: dimension > 8192\r\n");
+        OutputDebugStringW(L"[T36][RT] axis=offscreen skip: dimension > 8192\r\n");
         return false;
     }
 
@@ -1555,13 +1557,13 @@ static bool WindowsRenderer_TryFullscreenOffscreenPresent(WindowsRendererState* 
         __uuidof(IDXGISurface), reinterpret_cast<void**>(&osurf));
     if (FAILED(hr) || osurf == nullptr)
     {
-        OutputDebugStringW(L"[T36][RT] fallback: QueryInterface(IDXGISurface) offscreen\r\n");
+        OutputDebugStringW(L"[T36][RT] axis=offscreen fallback: QueryInterface(IDXGISurface) offscreen\r\n");
         WindowsRenderer_InternalBindMainRtAndViewport(state);
         return false;
     }
     {
         wchar_t line[192] = {};
-        swprintf_s(line, L"[T36][RT] draw offscreen %ux%u\r\n", ow, oh);
+        swprintf_s(line, L"[T36][RT] axis=offscreen draw offscreen %ux%u\r\n", ow, oh);
         OutputDebugStringW(line);
     }
     const bool firstDiag = !s_t33FirstFrameDiagDone;
@@ -1590,7 +1592,7 @@ static bool WindowsRenderer_TryFullscreenOffscreenPresent(WindowsRendererState* 
         __uuidof(IDXGISurface), reinterpret_cast<void**>(&osurf2));
     if (FAILED(hr) || osurf2 == nullptr)
     {
-        OutputDebugStringW(L"[T36][RT] fallback: QueryInterface(IDXGISurface) for composite\r\n");
+        OutputDebugStringW(L"[T36][RT] axis=offscreen fallback: QueryInterface(IDXGISurface) for composite\r\n");
         WindowsRenderer_InternalBindMainRtAndViewport(state);
         return false;
     }
@@ -1614,7 +1616,7 @@ static bool WindowsRenderer_TryFullscreenOffscreenPresent(WindowsRendererState* 
         wchar_t line[192] = {};
         swprintf_s(
             line,
-            L"[T36][RT] composite source bitmap FAILED hr=0x%08X\r\n",
+            L"[T36][RT] axis=offscreen composite source bitmap FAILED hr=0x%08X\r\n",
             static_cast<unsigned int>(hr));
         OutputDebugStringW(line);
         WindowsRenderer_InternalBindMainRtAndViewport(state);
@@ -1631,7 +1633,7 @@ static bool WindowsRenderer_TryFullscreenOffscreenPresent(WindowsRendererState* 
 
     {
         wchar_t line[224] = {};
-        swprintf_s(line, L"[T36][RT] composite to backbuffer client=%ux%u\r\n", cw, ch);
+        swprintf_s(line, L"[T36][RT] axis=offscreen composite to backbuffer client=%ux%u\r\n", cw, ch);
         OutputDebugStringW(line);
     }
 
@@ -1640,7 +1642,7 @@ static bool WindowsRenderer_TryFullscreenOffscreenPresent(WindowsRendererState* 
     if (FAILED(hr) || backBuffer == nullptr)
     {
         srcBmp->Release();
-        OutputDebugStringW(L"[T36][RT] fallback: GetBuffer backbuffer\r\n");
+        OutputDebugStringW(L"[T36][RT] axis=offscreen fallback: GetBuffer backbuffer\r\n");
         return false;
     }
     IDXGISurface* bSurf = nullptr;
@@ -1649,7 +1651,7 @@ static bool WindowsRenderer_TryFullscreenOffscreenPresent(WindowsRendererState* 
     if (FAILED(hr) || bSurf == nullptr)
     {
         srcBmp->Release();
-        OutputDebugStringW(L"[T36][RT] fallback: backbuffer IDXGISurface\r\n");
+        OutputDebugStringW(L"[T36][RT] axis=offscreen fallback: backbuffer IDXGISurface\r\n");
         return false;
     }
     const D2D1_BITMAP_PROPERTIES1 dstProps = D2D1::BitmapProperties1(
@@ -1663,7 +1665,7 @@ static bool WindowsRenderer_TryFullscreenOffscreenPresent(WindowsRendererState* 
     if (FAILED(hr) || dstBmp == nullptr)
     {
         srcBmp->Release();
-        OutputDebugStringW(L"[T36][RT] fallback: CreateBitmapFromDxgiSurface dst\r\n");
+        OutputDebugStringW(L"[T36][RT] axis=offscreen fallback: CreateBitmapFromDxgiSurface dst\r\n");
         return false;
     }
 
@@ -1697,9 +1699,9 @@ static bool WindowsRenderer_TryFullscreenOffscreenPresent(WindowsRendererState* 
     if (FAILED(hr))
     {
         wchar_t line[160] = {};
-        swprintf_s(line, L"[T36][RT] composite EndDraw hr=0x%08X\r\n", static_cast<unsigned int>(hr));
+        swprintf_s(line, L"[T36][RT] axis=offscreen composite EndDraw hr=0x%08X\r\n", static_cast<unsigned int>(hr));
         OutputDebugStringW(line);
-        OutputDebugStringW(L"[T36][RT] fallback: EndDraw failed\r\n");
+        OutputDebugStringW(L"[T36][RT] axis=offscreen fallback: EndDraw failed\r\n");
     }
 
     (void)WindowsRenderer_DrawHudD2DOnFinalBackbuffer(state, cw, ch, firstDiag);
@@ -2069,6 +2071,7 @@ void WindowsRenderer_Frame(
         return;
     }
 
+    // mode 切替時のみ 1 行: どの presentation で T34/T36 offscreen が「あり得るか」（axis=offscreen は経路；axis=mode は Windowed/Borderless/Fullscreen）。
     static int s_lastT35PresentationModeLog = -1;
     const int cur = static_cast<int>(presentationMode);
     if (cur != s_lastT35PresentationModeLog)
@@ -2076,13 +2079,13 @@ void WindowsRenderer_Frame(
         switch (presentationMode)
         {
         case WindowsRendererPresentationMode::Borderless:
-            OutputDebugStringW(L"[T35] offscreen enabled: Borderless\r\n");
+            OutputDebugStringW(L"[T35] axis=offscreen policy: T34 offscreen path eligible (Borderless)\r\n");
             break;
         case WindowsRendererPresentationMode::Fullscreen:
-            OutputDebugStringW(L"[T35] offscreen disabled: Fullscreen\r\n");
+            OutputDebugStringW(L"[T35] axis=offscreen policy: T34 ineligible; T36 experimental (Fullscreen)\r\n");
             break;
         case WindowsRendererPresentationMode::Windowed:
-            OutputDebugStringW(L"[T35] offscreen disabled: Windowed\r\n");
+            OutputDebugStringW(L"[T35] axis=offscreen policy: T34/T36 offscreen ineligible (Windowed)\r\n");
             break;
         }
         s_lastT35PresentationModeLog = cur;

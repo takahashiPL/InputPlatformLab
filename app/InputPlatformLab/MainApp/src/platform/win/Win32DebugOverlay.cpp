@@ -82,6 +82,7 @@ void Win32DebugOverlay_Paint(
 // Shared overlay — ページ式・レガシー双方が参照し得る表示・スクロールバー・[scroll] テキスト・T44/T45/T46。
 // レガシー専用のレイアウト計測・scratch の実体は legacy TU。bridge.h の getter / LoadMainAppPaintDbgRead はここから呼ばれる。
 // docs/HUD_LEGACY_CODE_DEPENDENCY.md §7.4。
+// axis=final: 同一 WM_PAINT のクライアント HDC 上の GDI オーバーレイ（ページ式本文・メニュー帯等）。T34/T36 の offscreen 解像度とは別軸（t35 §4）。
 #pragma region Shared overlay (presentation, scrollbars, [scroll] text)
 
 // Presentation / window chrome (scrollbars, fill-monitor; shared with paged and legacy paths).

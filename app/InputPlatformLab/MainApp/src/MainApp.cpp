@@ -1432,6 +1432,7 @@ static void Win32_T37_PrepareVirtualBodyOverlay(HWND hwnd)
     st.t37VirtualBodyOverlayRequested = true;
 }
 
+// axis=committed: gridDebug* と T34/T36 に渡す phys 寸法は T14 Enter 確定の s_lastCommittedGrid*。T17 targetPhys/client と数値が違っても別軸（t35 §3）。
 static void Win32_RefreshRendererGridDebugParams(HWND hwnd)
 {
     RECT rc{};
@@ -1500,7 +1501,7 @@ static void Win32_RefreshRendererGridDebugParams(HWND hwnd)
             swprintf_s(
                 fb,
                 _countof(fb),
-                L"[GRID] fallback denom=client cw=%u (no committed grid snapshot yet)\r\n",
+                L"[GRID] axis=committed fallback denom=client cw=%u (no committed grid snapshot yet)\r\n",
                 static_cast<unsigned int>(cw));
             OutputDebugStringW(fb);
         }
@@ -2043,6 +2044,12 @@ static void Win32_T16_RecreateMainWindowFromCurrentSelection(HWND oldHwnd)
 //
 // 方針（T16 再生成・高解像度モニタ含む）。モード別の正式方針（window/client・swapchain・offscreen・Present・GDI）は docs/t35_display_mode_policy.md（T35 固定）。T34 committed は T17 の targetPhys/client/outer とは別軸。
 // T17 ログと T14 committed の数値を揃える作業は t35_display_mode_policy.md §5（将来・別タスク）。ここでは方針を変えない。
+//
+// T35 §5 観測軸（ログの読み分け。数値が一致しなくても「軸が違うだけ」の場合がある）:
+//   axis=mode       — T17 の presentation（Windowed/Borderless/Fullscreen）と実ウィンドウ outer/client/style。NOT T14 committed の W×H。
+//   axis=committed  — T14 Enter で確定した grid 物理寸法（レンダラ分母・T34/T36 オフスクリーン入力）。NOT presentation のみの話。
+//   axis=offscreen  — [T34][RT]/[T36][RT] の RT 作成・draw・composite。NOT GDI オーバーレイの最終配置。
+//   axis=final      — swapchain 最終バックバッファ上の HUD 帯・GDI オーバーレイ（WindowsRenderer / Win32DebugOverlay）。NOT offscreen RT の中身そのもの。
 // - Windowed: T14 選択モード（なければ T15 最近傍）をクライアント物理サイズに解決し、AdjustWindowRectExForDpi で外枠。
 //   fillMonitorPhysical は使わない。
 // - Borderless: デスクトップ解像度は CDS で変えない。選択モニタの monitor_rect 全面に WS_POPUP（fillMonitorPhysical）。
@@ -2081,7 +2088,7 @@ static LONG Win32_T17_ResetMonitor0DisplaySettings()
     swprintf_s(
         line,
         _countof(line),
-        L"[T17] ChangeDisplaySettingsEx reset (CDS_RESET) result=%ld\r\n",
+        L"[T17] axis=mode ChangeDisplaySettingsEx reset (CDS_RESET) result=%ld\r\n",
         static_cast<long>(r));
     OutputDebugStringW(line);
     s_t17FullscreenDisplayAppliedNow = false;
@@ -2172,7 +2179,7 @@ static bool Win32_T17_BuildFillMonitorConfig(HWND hwnd, MainWindowConfig& out, b
         swprintf_s(
             line,
             _countof(line),
-            L"[T17] fill config: outer=cdsModePhys %dx%d at (%d,%d) (not cached monitor_rect size)\r\n",
+            L"[T17] axis=mode fill config: outer=cdsModePhys %dx%d at (%d,%d) (not cached monitor_rect size)\r\n",
             physW,
             physH,
             out.createPhysicalX,
@@ -2189,7 +2196,7 @@ static bool Win32_T17_BuildFillMonitorConfig(HWND hwnd, MainWindowConfig& out, b
         swprintf_s(
             line,
             _countof(line),
-            L"[T17] fill config: outer=fullMonitor cached rect %dx%d at (%d,%d)\r\n",
+            L"[T17] axis=mode fill config: outer=fullMonitor cached rect %dx%d at (%d,%d)\r\n",
             out.createPhysicalW,
             out.createPhysicalH,
             out.createPhysicalX,
@@ -2215,6 +2222,7 @@ static bool Win32_T17_BuildFillMonitorConfig(HWND hwnd, MainWindowConfig& out, b
     return true;
 }
 
+// axis=mode: 実ウィンドウの見え方・枠（[T17] STATE）。T14 committed や [T34][RT] とは別軸（t35 §3）。
 static void Win32_T17_LogStateVisibleMode(HWND hwnd, T17PresentationMode visibleMode, int cdsApplied01)
 {
     if (!hwnd || !IsWindow(hwnd))
@@ -2235,7 +2243,7 @@ static void Win32_T17_LogStateVisibleMode(HWND hwnd, T17PresentationMode visible
     swprintf_s(
         line,
         _countof(line),
-        L"[T17] STATE visibleMode=%s cdsApplied=%d outerPhys=%dx%d clientPhys=%dx%d "
+        L"[T17] axis=mode STATE visibleMode=%s cdsApplied=%d outerPhys=%dx%d clientPhys=%dx%d "
         L"style=0x%08lX exStyle=0x%08lX\r\n",
         Win32_T17_ModeLabel(visibleMode),
         cdsApplied01,
@@ -2266,7 +2274,7 @@ static void Win32_T17_CyclePresentationMode(HWND hwnd)
     swprintf_s(
         line,
         _countof(line),
-        L"[T17] mode cycle seq=%u key=F6 -> candidate=%s\r\n",
+        L"[T17] axis=mode mode cycle seq=%u key=F6 -> candidate=%s\r\n",
         s_t17CycleSeq,
         Win32_T17_ModeLabel(s_t17CurrentPresentationMode));
     OutputDebugStringW(line);
@@ -2345,7 +2353,7 @@ static void Win32_T17_ApplyCurrentPresentationMode(HWND hwnd)
     swprintf_s(
         begin,
         _countof(begin),
-        L"[T17] APPLY BEGIN seq=%u candidate=%s lastApplied=%s\r\n",
+        L"[T17] axis=mode APPLY BEGIN seq=%u candidate=%s lastApplied=%s\r\n",
         s_t17ApplySeq,
         Win32_T17_ModeLabel(candidate),
         Win32_T17_ModeLabel(lastAppliedBefore));
@@ -2357,7 +2365,7 @@ static void Win32_T17_ApplyCurrentPresentationMode(HWND hwnd)
         swprintf_s(
             skip,
             _countof(skip),
-            L"[T17] APPLY SKIP no-op candidate=%s applied=%s\r\n",
+            L"[T17] axis=mode APPLY SKIP no-op candidate=%s applied=%s\r\n",
             Win32_T17_ModeLabel(candidate),
             Win32_T17_ModeLabel(lastAppliedBefore));
         OutputDebugStringW(skip);
@@ -2375,7 +2383,7 @@ static void Win32_T17_ApplyCurrentPresentationMode(HWND hwnd)
         swprintf_s(
             resetLog,
             _countof(resetLog),
-            L"[T17] APPLY desktop reset (CDS_RESET) result=%ld\r\n",
+            L"[T17] axis=mode APPLY desktop reset (CDS_RESET) result=%ld\r\n",
             static_cast<long>(desktopResetResult));
         OutputDebugStringW(resetLog);
     }
@@ -2417,7 +2425,7 @@ static void Win32_T17_ApplyCurrentPresentationMode(HWND hwnd)
         swprintf_s(
             cdsLog,
             _countof(cdsLog),
-            L"[T17] APPLY CDS result=%ld mode=%dx%d %dbpp %dHz\r\n",
+            L"[T17] axis=mode APPLY CDS result=%ld cdsModePhys=%dx%d %dbpp %dHz\r\n",
             static_cast<long>(r),
             mw,
             mh,
@@ -2432,7 +2440,8 @@ static void Win32_T17_ApplyCurrentPresentationMode(HWND hwnd)
         }
         else
         {
-            OutputDebugStringW(L"[T17] APPLY CDS failed; fallback Borderless (recreate fill monitor, no CDS)\r\n");
+            OutputDebugStringW(
+                L"[T17] axis=mode APPLY CDS failed; fallback Borderless (recreate fill monitor, no CDS)\r\n");
             appliedMode = T17PresentationMode::Borderless;
             built = Win32_T17_BuildFillMonitorConfig(hwnd, cfg, false);
         }
@@ -2452,7 +2461,7 @@ static void Win32_T17_ApplyCurrentPresentationMode(HWND hwnd)
         swprintf_s(
             endFail,
             _countof(endFail),
-            L"[T17] APPLY END seq=%u result=fail reason=build_config\r\n",
+            L"[T17] axis=mode APPLY END seq=%u result=fail reason=build_config\r\n",
             s_t17ApplySeq);
         OutputDebugStringW(endFail);
         return;
@@ -2491,7 +2500,7 @@ static void Win32_T17_ApplyCurrentPresentationMode(HWND hwnd)
         swprintf_s(
             gridCommitLine,
             _countof(gridCommitLine),
-            L"[GRID] commit t14Idx=%zu t14Mode=%dx%d committedGrid=%dx%d\r\n",
+            L"[GRID] axis=committed commit t14Idx=%zu t14Mode=%dx%d committedGrid=%dx%d\r\n",
             gridSnapT14Idx,
             gridSnapW,
             gridSnapH,
@@ -2545,7 +2554,7 @@ static void Win32_T17_ApplyCurrentPresentationMode(HWND hwnd)
             swprintf_s(
                 gridSkipLine,
                 _countof(gridSkipLine),
-                L"[GRID] commit skip: invalid T14 snapshot idx=%zu applyOk=1\r\n",
+                L"[GRID] axis=committed commit skip: invalid T14 snapshot idx=%zu applyOk=1\r\n",
                 gridSnapT14Idx);
             OutputDebugStringW(gridSkipLine);
         }
@@ -2564,7 +2573,7 @@ static void Win32_T17_ApplyCurrentPresentationMode(HWND hwnd)
         swprintf_s(
             recLog,
             _countof(recLog),
-            L"[T17] APPLY RECREATE result=ok candidate=%s applied=%s fillOuter=%s "
+            L"[T17] axis=mode APPLY RECREATE result=ok candidate=%s applied=%s fillOuter=%s "
             L"targetPhys=%dx%d client=%dx%d outer=%dx%d\r\n",
             Win32_T17_ModeLabel(candidate),
             Win32_T17_ModeLabel(appliedMode),
@@ -2632,7 +2641,7 @@ static void Win32_T17_ApplyCurrentPresentationMode(HWND hwnd)
         swprintf_s(
             endOk,
             _countof(endOk),
-            L"[T17] APPLY END seq=%u applied=%s fullscreenDisplayAppliedNow=%d\r\n",
+            L"[T17] axis=mode APPLY END seq=%u applied=%s fullscreenDisplayAppliedNow=%d\r\n",
             s_t17ApplySeq,
             Win32_T17_ModeLabel(appliedMode),
             s_t17FullscreenDisplayAppliedNow ? 1 : 0);
@@ -2665,13 +2674,13 @@ static void Win32_T17_ApplyCurrentPresentationMode(HWND hwnd)
         swprintf_s(
             recFail,
             _countof(recFail),
-            L"[T17] APPLY RECREATE result=fail\r\n");
+            L"[T17] axis=mode APPLY RECREATE result=fail\r\n");
         OutputDebugStringW(recFail);
         wchar_t endFail[192] = {};
         swprintf_s(
             endFail,
             _countof(endFail),
-            L"[T17] APPLY END seq=%u result=fail reason=recreate\r\n",
+            L"[T17] axis=mode APPLY END seq=%u result=fail reason=recreate\r\n",
             s_t17ApplySeq);
         OutputDebugStringW(endFail);
     }
