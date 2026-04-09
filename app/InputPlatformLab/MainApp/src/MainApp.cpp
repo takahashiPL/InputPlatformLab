@@ -162,14 +162,15 @@ struct DisplayMonitorInfo
 
 static std::vector<DisplayMonitorInfo> s_displayMonitorsCache;
 
-// T14 UI: 表示は visibleModeCount 行のみ。スタック HUD では menuOpen 中は ↑↓ が 2x2 のみ。ページ式 HUD では menuOpen 中もキーボード ↑↓ は T14 でモード一覧の >、←→ は全ページでページ送り（2x2 の横はパッド優先）。
+// T14 UI: 表示は visibleModeCount 行のみ。レガシー縦積み HUD（WIN32_HUD_USE_PAGED_HUD=0）では menuOpen 中は ↑↓ が 2x2 のみ。
+// 通常運用のページ式 HUD では menuOpen 中もキーボード ↑↓ は T14 でモード一覧の >、←→ は全ページでページ送り（2x2 の横はパッド優先）。
 static constexpr bool kT14KeyboardSelDebugLog = false; // true で [T14sel] 1 行（回帰確認用）
 static constexpr size_t kT14VisibleModeCount = 8;
 static constexpr size_t kT14SelectedMonitorIndex = 0;
 static size_t s_t14SelectedModeIndex = 0;
 static size_t s_t14FirstVisibleModeIndex = 0;
-// ページ式 HUD: 0=T14,1=T15,2=T16,3=T18,4=T19,5=T17,6=T20。既定は T14（表示モード一覧）。
-// 受け入れ確認パック: docs/HUD_PAGED_ACCEPTANCE.md
+// ページ式 HUD（既定で有効）: 0=T14,1=T15,2=T16,3=T18,4=T19,5=T17,6=T20。既定ページは T14（表示モード一覧）。
+// 受け入れ: docs/HUD_PAGED_ACCEPTANCE.md
 static int s_hudPagedIndex = 0;
 static constexpr int kHudPagedCount = 7;
 static constexpr int kHudPagedPageIndexT14 = 0;
@@ -314,7 +315,7 @@ static bool s_t18PageEnterDeferredPending = false;
 //   T17: Windowed / Borderless / Fullscreen（F6 で候補循環、Enter で適用）
 //   T18: 画面上の「1 台」向け識別（Raw Input 先頭の HID ゲームパッド + XInput 先頭スロット）
 
-// メイン画面デバッグ表示の縦スクロール（T13〜T18 全体）。Win32DebugOverlay.cpp と共有。
+// メイン画面デバッグ表示の縦スクロール状態（レガシー縦積み HUD の本文スクロール。ページ式では帯リセット等で使われないことが多い）。Win32DebugOverlay.cpp と共有。
 int s_paintScrollY = 0;
 int s_paintScrollLinePx = 16; // WM_PAINT で TEXTMETRIC から更新
 int s_paintDbgContentHeight = 0;
@@ -491,7 +492,7 @@ static void Win32_WndProc_OnMouseWheel(HWND hWnd, WPARAM wParam);
 static void Win32_MainView_PaintFrame(HWND hWnd);
 static void Win32_WndProc_OnPaint(HWND hWnd);
 
-// Win32_FillMenuSamplePaintBuffers の分割（T14〜T17 本文 + T18 追記）
+// Win32_FillMenuSamplePaintBuffers の分割（T14〜T17 本文 + T18 追記）。レガシー縦積みの全文組み立てや T37 オフスクリーン経路で使用。ページ式 HUD の各ページ本文は Win32_HudPaged_Fill*（メニュー帯は MenuColumn のみ共有）。
 static void Win32_FillMenuSamplePaintBuffers_MenuColumn(
     wchar_t* menuBuf,
     size_t menuBufCount,
@@ -899,7 +900,7 @@ static void Win32_T14_TryScrollFromKeyboardEdges(bool upEdge, bool downEdge, HWN
         s_t14FirstVisibleModeIndex = s_t14SelectedModeIndex - (kT14VisibleModeCount - 1);
     }
 
-    // ページ式 HUD: 表示は固定 8 行ウィンドウのみ。stacked HUD 用の T58 paint-cache 幾何には依存しない。
+    // ページ式 HUD: 表示は固定 8 行ウィンドウのみ。レガシー縦積み用の T58 paint-cache 幾何には依存しない。
     if (!Win32_HudPaged_IsEnabled())
     {
         Win32_T58_AlignFirstVisibleToDocNoScroll(hwnd);
@@ -4660,7 +4661,7 @@ static void Win32_LogVirtualInputMenuSample_StateDumpIfChanged(
         return;
     }
 
-    // ページ式 HUD 運用時は stacked 用ダンプ（VirtualInputMenuSampleDump / T58T14IDX）を出さない。
+    // ページ式 HUD 運用時はレガシー縦積み用ダンプ（VirtualInputMenuSampleDump / T58T14IDX）を出さない。
     if (Win32_HudPaged_IsEnabled())
     {
         s_virtualInputMenuSampleDumpPrev = s;
@@ -5202,7 +5203,7 @@ static void Win32_FillMenuSamplePaintBuffers_AppendT16T18T17(
     Win32_T17_AppendPaintSection(t14Buf, t14BufCount, t59CompactHud, t60UltraCompact, t64FullscreenCompact);
 }
 
-// Win32DebugOverlay が WM_PAINT で読むバッファを組み立てる。T14〜T17 本文と T18 のスナップショットを含む。
+// Win32DebugOverlay が WM_PAINT（レガシー縦積み）や T37 等で読むバッファを組み立てる。ページ式 HUD の本文ページは Win32_HudPaged_Fill* が別経路。T14〜T17 本文と T18 のスナップショットを含む。
 void Win32_FillMenuSamplePaintBuffers(
     HWND hwnd,
     const RECT& rcClient,
@@ -6459,7 +6460,7 @@ void Win32_HudPaged_PaintGdi(
     const int titleW = (std::max)(0, innerW - statW - fracW - 2 * gapCol);
     // メニュー・本文の左端をタイトル帯と揃え、左カラム（status）より右のブロックに重心を寄せる。
     const int contentLeft = margin + statW + gapCol;
-    // T19 本文のみ: ウィンドウ左寄り（margin + 余白）で一覧を読みやすく。メニュー帯・3 帯は従来どおり contentLeft。
+    // T19 本文のみ: ウィンドウ左寄り（margin + 余白）で一覧を読みやすく。メニュー帯・3 帯は他ページと同様 contentLeft。
     const int bodyLeft =
         (s_hudPagedIndex == kHudPagedPageIndexT19) ? (margin + gapCol) : contentLeft;
 

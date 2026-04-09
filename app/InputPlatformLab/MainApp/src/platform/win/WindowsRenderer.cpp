@@ -453,7 +453,7 @@ static void WindowsRenderer_InternalDrawDebugGridLabels(
     {
         return;
     }
-    // ページ式 HUD 運用時は GDI 側の 3 帯に grid 要約を出す。D2D ラベルは重なりの原因になるため描画しない。
+    // ページ式 HUD（既定）では GDI 側の 3 帯に grid 要約を出す。D2D ラベルは重なりの原因になるため描画しない。
     if (Win32_HudPaged_IsEnabled())
     {
         return;
@@ -700,7 +700,7 @@ static HRESULT WindowsRenderer_DrawHudD2DOnFinalBackbuffer(
     s->d2dContext->BeginDraw();
     s->d2dContext->SetTransform(D2D1::Matrix3x2F::Identity());
 
-    // ページ式 HUD は GDI（Win32_HudPaged_PaintGdi）が全文を描く。ここで cand/act 等を描くと二重表示になる。
+    // ページ式 HUD 既定時は GDI（Win32_HudPaged_PaintGdi）が全文を描く。ここで cand/act 等を描くと二重表示になる。
     if (Win32_HudPaged_IsEnabled())
     {
         hr = s->d2dContext->EndDraw();

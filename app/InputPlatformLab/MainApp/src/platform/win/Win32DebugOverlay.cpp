@@ -52,7 +52,8 @@ static int s_paintDbgT14VmSplitPrefixH = 0;
 static int s_paintDbgT14VmSplitVmBandH = 0;
 
 // ---------------------------------------------------------------------------
-// GDI: D3D で塗ったクライアント上にデバッグ文字を載せる。縦スクロール・[scroll] オーバーレイ・T14/T17 行位置の計測。
+// GDI: D3D で塗ったクライアント上にデバッグ文字を載せる。
+// 通常運用（ページ式 HUD 既定）では Win32_HudPaged_PaintGdi が本文を描く。縦スクロール・[scroll]・T14/T17 行位置の計測は主にレガシー縦積み経路（PaintStackedLegacy）で使用。
 // ---------------------------------------------------------------------------
 
 // MainApp.cpp で定義（スクロール・レイアウトキャッシュ。入力/T14 オートフォローと共有）
@@ -1541,8 +1542,8 @@ refill_budget:
     s_paintDbgLayoutRestVpBudgetHint = restVpBudgetHint;
 }
 
-// 本文（メニュー + T14〜T18 テキスト）をスクロール付きで描画し、下端に [scroll] サマリを載せる。
-// 運用表示では Win32DebugOverlay_Paint がページ式 HUD を優先し、本関数はレガシー参照用。
+// 本文（メニュー + T14〜T18 テキスト）をスクロール付きで描画し、下端に [scroll] サマリを載せる（レガシー縦積み HUD）。
+// Win32DebugOverlay_Paint は既定でページ式 HUD を先に分岐し、本関数は WIN32_HUD_USE_PAGED_HUD=0 の互換経路のみ。
 static void Win32_DebugOverlay_PaintStackedLegacy(
     HWND hwnd,
     HDC hdc,
@@ -1794,6 +1795,7 @@ void Win32DebugOverlay_Paint(
         skipScrollBandGdi);
 }
 
+// D2D フレーム用の左列プレフィル。ページ式 HUD 既定時は Win32_HudPaged_PrefillD2d のみ。レガシー縦積み時のみ ComputeLayoutMetrics 経路。
 void Win32_DebugOverlay_PrefillHudLeftColumnForD2d(
     HWND hwnd,
     HDC hdc,

@@ -102,7 +102,7 @@ void Win32_DebugOverlay_FormatScrollDebugOverlay(
 
 // T55/T56: fill-monitor では T51 refill を抑止。HUD の contentBudgetPx（行数・tiny 判定）は MainApp で committed 仮想高と合成し、scroll 幾何とは分離（Win32DebugOverlay）
 
-// MainApp が WM_PAINT 用に組み立てたバッファを、GDI で描画するモジュール（D3D とは役割分担）。
+// MainApp が組み立てる全文バッファ（レガシー縦積み WM_PAINT・T37 オフスクリーン等）。ページ式 HUD の各ページ本文は Win32_HudPaged_Fill*（メニュー帯は MenuColumn のみ本系と共有）。
 // compactMenuForT37Layout: T37 有効時のみ左列メニューを短文化（T14 本文バッファは変えない）。
 void Win32_FillMenuSamplePaintBuffers(
     HWND hwnd,
@@ -117,7 +117,7 @@ void Win32_FillMenuSamplePaintBuffers(
 // T37 仮想本文オーバーレイ要求中（オフスクリーン経路）。GDI 左列のレイアウト分岐用。
 bool Win32_IsT37VirtualBodyOverlayActiveForLayout(void);
 
-// WM_PAINT 内・WindowsRenderer_Frame より前: 左列 HUD 全文（menu+t14）を D2D 用に state へ書き込む（GDI 計測と一致）
+// WM_PAINT 内・WindowsRenderer_Frame より前: 左列 HUD 全文（menu+t14）を D2D 用に state へ書き込む（GDI 計測と一致）。ページ式 HUD 既定時は Win32_HudPaged_PrefillD2d に早期分岐。
 void Win32_DebugOverlay_PrefillHudLeftColumnForD2d(
     HWND hwnd,
     HDC hdc,
