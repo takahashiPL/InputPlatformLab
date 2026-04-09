@@ -9,6 +9,7 @@ struct WindowsRendererState;
 // - D2D はグリッド・背景・非 HUD 描画のみ。ページ式有効時は HUD 文字を D2D で描かない。
 // - WIN32_HUD_USE_PAGED_HUD=0 のときのみ Win32_DebugOverlay_PaintStackedLegacy（レガシー縦積み）が
 //   描画経路になる互換・旧経路。既定ビルドでは無効のため、その専用ログは原則通らない。
+// 実コード依存の棚卸し: docs/HUD_LEGACY_CODE_DEPENDENCY.md
 #ifndef WIN32_HUD_USE_PAGED_HUD
 #define WIN32_HUD_USE_PAGED_HUD 1
 #endif
