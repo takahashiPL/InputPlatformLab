@@ -4,7 +4,8 @@
 
 ページ順は **コード上の `s_hudPagedIndex` / `kHudPagedPageTitles`** と一致（1/7 … 7/7）。
 
-**関連（実装の依存関係）**: ページ式とレガシー縦積み・T37 との **コード上の分界**は `docs/HUD_LEGACY_CODE_DEPENDENCY.md`。
+**関連（実装の依存関係）**: ページ式とレガシー縦積み・T37 との **コード上の分界**は `docs/HUD_LEGACY_CODE_DEPENDENCY.md`。  
+**関連（維持・削減の優先順位）**: `docs/HUD_LEGACY_MAINTENANCE_PRIORITIES.md`。
 
 ---
 

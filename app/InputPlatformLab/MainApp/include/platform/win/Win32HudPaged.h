@@ -10,6 +10,7 @@ struct WindowsRendererState;
 // - WIN32_HUD_USE_PAGED_HUD=0 のときのみ Win32_DebugOverlay_PaintStackedLegacy（レガシー縦積み）が
 //   描画経路になる互換・旧経路。既定ビルドでは無効のため、その専用ログは原則通らない。
 // 実コード依存の棚卸し: docs/HUD_LEGACY_CODE_DEPENDENCY.md
+// 維持・削減の優先順位: docs/HUD_LEGACY_MAINTENANCE_PRIORITIES.md
 #ifndef WIN32_HUD_USE_PAGED_HUD
 #define WIN32_HUD_USE_PAGED_HUD 1
 #endif
