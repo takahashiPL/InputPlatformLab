@@ -37,27 +37,30 @@
 //
 // Extraction: these must stay **declared above** Win32DebugOverlay_ScrollTargetT17* / IsT14VmSplitActive
 // (they read vmSplit state before the legacy #region in this .cpp). Splitting to another .cpp needs getters or TU reorder.
+// Grouped in an anonymous namespace below (internal linkage; same s_paintDbg* names — not T46 / T52 flags; see §7.3).
 // -----------------------------------------------------------------------------
+namespace {
 // GDI Paint と D2D final HUD で body クリップ先頭を共有（ComputeLayoutMetrics で更新）
-static int s_paintDbgFinalBodyTopPx = 0;
-static int s_paintDbgBodyT14DocTopPx = 0;
-static int s_paintDbgFinalRow1HeightPx = 0;
-static int s_paintDbgRow2TopPx = 0;
+int s_paintDbgFinalBodyTopPx = 0;
+int s_paintDbgBodyT14DocTopPx = 0;
+int s_paintDbgFinalRow1HeightPx = 0;
+int s_paintDbgRow2TopPx = 0;
 
 // T40: visible modes 帯を本文スクロールから分離
-static bool s_paintDbgT14VmSplitActive = false;
-static int s_paintDbgT17DocYRestScroll = 0;
-static int s_paintDbgRestViewportTopPx = 0;
+bool s_paintDbgT14VmSplitActive = false;
+int s_paintDbgT17DocYRestScroll = 0;
+int s_paintDbgRestViewportTopPx = 0;
 
 // T53: 極小 Windowed で [scroll] 帯の GDI 重ね描きを止める（レイアウト予約は維持）
-static bool s_paintDbgT53ScrollBandDrawEnabled = true;
+bool s_paintDbgT53ScrollBandDrawEnabled = true;
 
 // T40: GDI パス用（ComputeLayoutMetrics で更新、Paint が参照）
-static wchar_t s_paintDbgT14VmSplitPrefix[8192]{};
-static wchar_t s_paintDbgT14VmSplitVmBand[8192]{};
-static wchar_t s_paintDbgT14VmSplitRest[16384]{};
-static int s_paintDbgT14VmSplitPrefixH = 0;
-static int s_paintDbgT14VmSplitVmBandH = 0;
+wchar_t s_paintDbgT14VmSplitPrefix[8192]{};
+wchar_t s_paintDbgT14VmSplitVmBand[8192]{};
+wchar_t s_paintDbgT14VmSplitRest[16384]{};
+int s_paintDbgT14VmSplitPrefixH = 0;
+int s_paintDbgT14VmSplitVmBandH = 0;
+} // namespace
 
 // ---------------------------------------------------------------------------
 // GDI: D3D で塗ったクライアント上にデバッグ文字を載せる。

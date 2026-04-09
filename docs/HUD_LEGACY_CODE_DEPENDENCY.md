@@ -130,7 +130,7 @@
 
 ### 7.2 同一ファイル先頭に置く必要があるもの（宣言順）
 
-`Win32DebugOverlay.cpp` 先頭の **file-local `static`**（`s_paintDbgT14VmSplit*` 等）は、`Win32_DebugOverlay_ComputeLayoutMetrics` が **書き込み**、`Win32DebugOverlay_ScrollTargetT17*` / `Win32DebugOverlay_IsT14VmSplitActive` が **よりソース上で前**から読む。**C++ では名前は宣言より前に使えない**ため、この static 群をレガシー専用 `.cpp` へそのまま移すと、共有側のスクロール API を **前方宣言・getter 化・ファイル順の再配置**のいずれかで揃える必要がある。
+`Win32DebugOverlay.cpp` 先頭の **legacy 縦積み用スクラッチ**（`s_paintDbgT14VmSplit*` 等）は、`Win32_DebugOverlay_ComputeLayoutMetrics` が **書き込み**、`Win32DebugOverlay_ScrollTargetT17*` / `Win32DebugOverlay_IsT14VmSplitActive` が **よりソース上で前**から読む。**C++ では名前は宣言より前に使えない**ため、この群をレガシー専用 `.cpp` へそのまま移すと、共有側のスクロール API を **前方宣言・getter 化・ファイル順の再配置**のいずれかで揃える必要がある。実装では読みやすさのため **匿名名前空間**で束ねている（内部リンケージは維持、シンボル名は `s_paintDbg*` のまま）。
 
 ### 7.3 「レガシーで更新・共有で読む」ため分離が一緒に動きやすいもの
 
@@ -151,3 +151,4 @@
 | 2026-04-06 | 初版（実コード依存の棚卸し。ページ式正・レガシー互換・T37 共有を区分） |
 | 2026-04-06 | **コード上の境界**: `Win32DebugOverlay.cpp` の file-local static を legacy レイアウト用と明示、`ComputeLayoutMetrics` / `PaintStackedLegacy` / `Win32DebugOverlay_Paint` のコメントを整理。`MainApp.cpp` の共有 `s_paint*` にブロックヘッダ（挙動不変） |
 | 2026-04-06 | **§7 追加**: レガシー縦積みの将来分離メモ（パイプライン単位・宣言順・T46/共有読み取り・CALCRECT 共有） |
+| 2026-04-06 | **§7.2 追記**: legacy スクラッチを `Win32DebugOverlay.cpp` 先頭で **匿名名前空間**に束ねる実装（挙動・シンボル名は維持） |
