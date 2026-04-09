@@ -794,7 +794,7 @@ namespace {
 // Win32_DebugOverlay_PaintStackedLegacy からのみ呼ばれる。ページ式 HUD 既定時は呼ばれない（Win32_HudPaged_PrefillD2d）。
 // スクロール・[scroll] 帯の高さ・T17 行位置などを計測。outHud 非 null のときは D2D final HUD 用に左列全文（menu+t14）とスクロール値を書き込む。
 //
-// Side-effect map (categories; not every assignment): ① file-top scratch (ApplyScratch* / ResetVmSplit* / ClearScratchRestViewportTop helpers), ② MainApp extern s_paintDbg* / line height (vmSplit T17/T14: ApplyVmSplitMainAppExternFromScratchPass; scroll line: ApplyScrollLineMetricsFromHdc; maxScroll+clamp: SetDbgMaxScrollAndClampScrollY),
+// Side-effect map (categories; not every assignment): ① file-top scratch (ApplyScratch* / ResetVmSplit* / ClearScratchRestViewportTop helpers), ② MainApp extern s_paintDbg* / line height (vmSplit T17/T14: ApplyVmSplitMainAppExternFromScratchPass; scroll line: ApplyScrollLineMetricsFromHdc; maxScroll+clamp: SetDbgMaxScrollAndClampScrollY; 薄い write 束: ApplyMainAppPaintDbgContentAndClientGeometry / ApplyMainAppPaintDbgPostOverlayMeasures 等),
 // ③ outHud dbgHud* when non-null (via Win32_LegacyStacked_ApplyD2dHudPrefill), ④ unified clamp+T45 (RunUnifiedMaxScrollClampAndT45) → T46 inside T45; MarkPaintLayoutMetricsFromPaintValid (T52).  HUD_LEGACY_CODE_DEPENDENCY.md §7.7
 void Win32_DebugOverlay_ComputeLayoutMetrics(const Win32_LegacyStacked_LayoutMetricsParams& p)
 {
@@ -819,7 +819,7 @@ void Win32_DebugOverlay_ComputeLayoutMetrics(const Win32_LegacyStacked_LayoutMet
     wchar_t t14Buf[8192] = {};
 
 refill_budget:
-    s_paintDbgScrollBandReservePx = 0;
+    Win32_LegacyStacked_ApplyMainAppPaintDbgClearScrollBandReserve();
     Win32_LegacyStacked_ClearScratchRestViewportTop();
 
     Win32_FillMenuSamplePaintBuffers(
@@ -884,15 +884,14 @@ refill_budget:
     const int baseContentH = static_cast<int>(rcT14Doc.bottom) + t37TopGap;
 
     Win32_LegacyStacked_ResetVmSplitScratchFlags();
-    s_paintDbgRestViewportClientH = clientH;
+    Win32_LegacyStacked_ApplyMainAppPaintDbgRestViewportClientH(clientH);
 
     const wchar_t* pVis = wcsstr(t14Buf, L"visible modes:\r\n");
     const wchar_t* pT15 = wcsstr(t14Buf, L"\r\n--- T15 nearest resolution ---");
     const bool vmSplit = (pVis != nullptr && pT15 != nullptr && pT15 > pVis);
 
-    s_paintDbgT14LayoutValid = false;
     const int t14BaseY = static_cast<int>(rcT14Doc.top) + t37TopGap;
-    s_paintDbgT14ColumnBaseY = t14BaseY;
+    Win32_LegacyStacked_ApplyMainAppPaintDbgT14ColumnInit(t14BaseY);
 
     bool vmSplitActive = false;
     int splitHPrefix = 0;
@@ -961,8 +960,7 @@ refill_budget:
                     prefixLenVm,
                     &rcVm,
                     DT_LEFT | DT_TOP | DT_NOPREFIX | DT_WORDBREAK | DT_CALCRECT);
-                s_paintDbgT14VisibleModesDocStartY = static_cast<int>(rcVm.bottom);
-                s_paintDbgT14LayoutValid = true;
+                Win32_LegacyStacked_ApplyMainAppPaintDbgT14VisibleModesStart(static_cast<int>(rcVm.bottom));
             }
         }
 
@@ -989,7 +987,7 @@ refill_budget:
                 t17DocY = static_cast<int>(rcPre.bottom);
             }
         }
-        s_paintDbgT17DocY = t17DocY;
+        Win32_LegacyStacked_ApplyMainAppPaintDbgT17DocY(t17DocY);
 
         const int maxScrollBeforePadding = (std::max)(0, baseContentH - clientH);
         // T56: fill-monitor でも Windowed と同様に T17 到達分のみ（仮想解像度は contentBudget 側で扱う）
@@ -1000,12 +998,16 @@ refill_budget:
 
     Win32_LegacyStacked_ApplyScrollLineMetricsFromHdc(hdc);
 
-    s_paintDbgContentHeight = contentHeight;
-    s_paintDbgContentHeightBase = vmSplitActive ? splitHRest : baseContentH;
-    s_paintDbgExtraBottomPadding = extraBottomPadding;
-    s_paintDbgClientHeight = clientH;
-    s_paintDbgClientW = clientW;
-    s_paintDbgClientH = clientH;
+    {
+        Win32_LegacyStacked_MainAppPaintDbgApplyContentClient cc{};
+        cc.contentHeight = contentHeight;
+        cc.contentHeightBase = vmSplitActive ? splitHRest : baseContentH;
+        cc.extraBottomPadding = extraBottomPadding;
+        cc.clientHeight = clientH;
+        cc.clientW = clientW;
+        cc.clientH = clientH;
+        Win32_LegacyStacked_ApplyMainAppPaintDbgContentAndClientGeometry(cc);
+    }
 
     const int scrollYBeforePaint = s_paintScrollY;
     Win32_LegacyStacked_SetDbgMaxScrollAndClampScrollY(maxScroll, L"ComputeLayoutMetrics.phase1");
@@ -1063,7 +1065,7 @@ refill_budget:
         restVp2 = (std::max)(1, restVp2);
 
         Win32_LegacyStacked_SetRestViewportTopPx(splitRestTopPxEff);
-        s_paintDbgScrollBandReservePx = overlayReserve;
+        Win32_LegacyStacked_ApplyMainAppPaintDbgScrollBandReservePx(overlayReserve);
 
         {
             const int maxScrollBeforePaddingRest2 = (std::max)(0, splitHRest - restVp2);
@@ -1073,13 +1075,12 @@ refill_budget:
             const int contentH2 = splitHRest + extra2;
             const int maxScroll2 = (std::max)(0, contentH2 - restVp2);
             Win32_LegacyStacked_SetDbgMaxScrollAndClampScrollY(maxScroll2, L"ComputeLayoutMetrics.vmSplitRefine");
-            s_paintDbgContentHeight = contentH2;
-            s_paintDbgExtraBottomPadding = extra2;
+            Win32_LegacyStacked_ApplyMainAppPaintDbgVmSplitContentPadding(contentH2, extra2);
             maxScroll = maxScroll2;
             contentHeight = contentH2;
             extraBottomPadding = extra2;
         }
-        s_paintDbgRestViewportClientH = restVp2;
+        Win32_LegacyStacked_ApplyMainAppPaintDbgRestViewportClientH(restVp2);
 
         if (!layoutRefilledForBudget && restVp2 < WIN32_OVERLAY_T51_REFILL_RESTVP_PX)
         {
@@ -1154,13 +1155,8 @@ refill_budget:
     actualOverlayHeight =
         Win32_MainView_MeasureScrollOverlayTextHeight(hdc, clientW, overlay);
 
-    s_paintDbgActualOverlayHeight = actualOverlayHeight;
-
-    if (!vmSplitActive)
-    {
-        s_paintDbgScrollBandReservePx = (std::min)(actualOverlayHeight, clientH);
-        Win32_LegacyStacked_ClearScratchRestViewportTop();
-    }
+    Win32_LegacyStacked_ApplyMainAppPaintDbgPostOverlayMeasures(
+        vmSplitActive, actualOverlayHeight, clientH);
 
     Win32_LegacyStacked_ApplyScratchT53ScrollBandDrawEnabled(hwnd, restVpBudgetHint, clientH);
 
@@ -1387,10 +1383,8 @@ refill_budget:
                 hdc, clientW, p0, static_cast<int>(wcslen(p0)));
         }
 
-        s_paintDbgT14BeforeVisibleDocH = totalBeforeVisible;
-        s_paintDbgT14VisibleBlockDocH = hVmLines;
-        s_paintDbgT14AfterVisibleDocH = (std::max)(
-            0, s_paintDbgContentHeightBase - s_paintDbgT14BeforeVisibleDocH - s_paintDbgT14VisibleBlockDocH);
+        Win32_LegacyStacked_ApplyMainAppPaintDbgT14BudgetHeights(
+            totalBeforeVisible, hVmLines, s_paintDbgContentHeightBase);
 
         wchar_t t60[1024] = {};
         swprintf_s(
@@ -1443,7 +1437,7 @@ refill_budget:
         OutputDebugStringW(t57);
     }
 
-    s_paintDbgLayoutRestVpBudgetHint = restVpBudgetHint;
+    Win32_LegacyStacked_ApplyMainAppPaintDbgLayoutRestVpBudgetHint(restVpBudgetHint);
 }
 
 // Side-effect exit adapter: every call site that needs layout metrics (Prefill + first pass inside GDI paint) funnels here (docs §7.6).

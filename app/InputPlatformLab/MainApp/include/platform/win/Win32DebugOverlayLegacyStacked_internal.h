@@ -94,6 +94,35 @@ void Win32_LegacyStacked_ApplyMainAppPaintDbgScrollLineMetrics(int scrollLinePx)
 
 void Win32_LegacyStacked_ApplyMainAppPaintDbgResetProvisionalLayoutExtras(void);
 
+// ComputeLayoutMetrics → MainApp 共有への薄い write（順序依存が強い経路は本体に残す。T45/T46 本体は未変更）
+void Win32_LegacyStacked_ApplyMainAppPaintDbgClearScrollBandReserve(void);
+void Win32_LegacyStacked_ApplyMainAppPaintDbgRestViewportClientH(int scrollVpH);
+void Win32_LegacyStacked_ApplyMainAppPaintDbgT14ColumnInit(int t14BaseY);
+void Win32_LegacyStacked_ApplyMainAppPaintDbgT14VisibleModesStart(int visibleModesDocStartY);
+void Win32_LegacyStacked_ApplyMainAppPaintDbgT17DocY(int t17DocY);
+
+struct Win32_LegacyStacked_MainAppPaintDbgApplyContentClient {
+    int contentHeight{};
+    int contentHeightBase{};
+    int extraBottomPadding{};
+    int clientHeight{};
+    int clientW{};
+    int clientH{};
+};
+void Win32_LegacyStacked_ApplyMainAppPaintDbgContentAndClientGeometry(
+    const Win32_LegacyStacked_MainAppPaintDbgApplyContentClient& in);
+
+void Win32_LegacyStacked_ApplyMainAppPaintDbgScrollBandReservePx(int reservePx);
+void Win32_LegacyStacked_ApplyMainAppPaintDbgVmSplitContentPadding(int contentHeight, int extraBottomPadding);
+
+void Win32_LegacyStacked_ApplyMainAppPaintDbgPostOverlayMeasures(
+    bool vmSplitActive, int actualOverlayHeight, int clientH);
+
+void Win32_LegacyStacked_ApplyMainAppPaintDbgT14BudgetHeights(
+    int totalBeforeVisible, int hVmLines, int contentHeightBase);
+
+void Win32_LegacyStacked_ApplyMainAppPaintDbgLayoutRestVpBudgetHint(int hint);
+
 void Win32_LegacyStacked_ApplyD2dHudPrefill(
     WindowsRendererState* outHud,
     const wchar_t* menuBuf,

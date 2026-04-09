@@ -319,6 +319,80 @@ void Win32_LegacyStacked_ApplyMainAppPaintDbgResetProvisionalLayoutExtras(void)
     s_paintDbgActualOverlayHeight = 0;
 }
 
+void Win32_LegacyStacked_ApplyMainAppPaintDbgClearScrollBandReserve(void)
+{
+    s_paintDbgScrollBandReservePx = 0;
+}
+
+void Win32_LegacyStacked_ApplyMainAppPaintDbgRestViewportClientH(int scrollVpH)
+{
+    s_paintDbgRestViewportClientH = scrollVpH;
+}
+
+void Win32_LegacyStacked_ApplyMainAppPaintDbgT14ColumnInit(int t14BaseY)
+{
+    s_paintDbgT14LayoutValid = false;
+    s_paintDbgT14ColumnBaseY = t14BaseY;
+}
+
+void Win32_LegacyStacked_ApplyMainAppPaintDbgT14VisibleModesStart(int visibleModesDocStartY)
+{
+    s_paintDbgT14VisibleModesDocStartY = visibleModesDocStartY;
+    s_paintDbgT14LayoutValid = true;
+}
+
+void Win32_LegacyStacked_ApplyMainAppPaintDbgT17DocY(int t17DocY)
+{
+    s_paintDbgT17DocY = t17DocY;
+}
+
+void Win32_LegacyStacked_ApplyMainAppPaintDbgContentAndClientGeometry(
+    const Win32_LegacyStacked_MainAppPaintDbgApplyContentClient& in)
+{
+    s_paintDbgContentHeight = in.contentHeight;
+    s_paintDbgContentHeightBase = in.contentHeightBase;
+    s_paintDbgExtraBottomPadding = in.extraBottomPadding;
+    s_paintDbgClientHeight = in.clientHeight;
+    s_paintDbgClientW = in.clientW;
+    s_paintDbgClientH = in.clientH;
+}
+
+void Win32_LegacyStacked_ApplyMainAppPaintDbgScrollBandReservePx(int reservePx)
+{
+    s_paintDbgScrollBandReservePx = reservePx;
+}
+
+void Win32_LegacyStacked_ApplyMainAppPaintDbgVmSplitContentPadding(int contentHeight, int extraBottomPadding)
+{
+    s_paintDbgContentHeight = contentHeight;
+    s_paintDbgExtraBottomPadding = extraBottomPadding;
+}
+
+void Win32_LegacyStacked_ApplyMainAppPaintDbgPostOverlayMeasures(
+    bool vmSplitActive, int actualOverlayHeight, int clientH)
+{
+    s_paintDbgActualOverlayHeight = actualOverlayHeight;
+    if (!vmSplitActive)
+    {
+        s_paintDbgScrollBandReservePx = (std::min)(actualOverlayHeight, clientH);
+        Win32_LegacyStacked_ClearScratchRestViewportTop();
+    }
+}
+
+void Win32_LegacyStacked_ApplyMainAppPaintDbgT14BudgetHeights(
+    int totalBeforeVisible, int hVmLines, int contentHeightBase)
+{
+    s_paintDbgT14BeforeVisibleDocH = totalBeforeVisible;
+    s_paintDbgT14VisibleBlockDocH = hVmLines;
+    s_paintDbgT14AfterVisibleDocH =
+        (std::max)(0, contentHeightBase - totalBeforeVisible - hVmLines);
+}
+
+void Win32_LegacyStacked_ApplyMainAppPaintDbgLayoutRestVpBudgetHint(int hint)
+{
+    s_paintDbgLayoutRestVpBudgetHint = hint;
+}
+
 void Win32_LegacyStacked_ApplyMainAppPaintDbgScrollLineMetrics(int scrollLinePx)
 {
     s_paintScrollLinePx = scrollLinePx;
