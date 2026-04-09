@@ -177,8 +177,8 @@ static constexpr int kHudPagedPageIndexT18 = 3;
 static constexpr int kHudPagedPageIndexT19 = 4;
 static constexpr int kHudPagedPageIndexT17 = 5;
 static constexpr int kHudPagedPageIndexT20 = 6;
-// T19: 論理行とアナログ表示を分けてスナップショット（論理は即時、analog-only は間引き）
-// ページ式 HUD 診断: true のときのみ [HUDPAINT] を出す（タイマー T19 / paintframe / paintgdi）。通常運用は false。
+// T19: logical / pad L+R / analog を別スナップショットで差分判定（論理+pad は即時、analog のみ間引き）
+// ページ式 HUD 診断: true のときのみ [HUDPAINT]。通常運用は false。
 static constexpr bool kHudPagedPaintDebugLog = false;
 static constexpr int kT19AnalogThrottleMs = 66;
 // T19 論理表示スナップショット（タイマーは文字列ではなくこれで差分判定）
@@ -189,7 +189,7 @@ struct Win32_HudPaged_T19LogicalButtonDisplaySnap
     bool push;
     UINT8 displayHold;
 };
-// T19「pad extras」: 肩・トリガー・スティック押し込み・West/North（共通 logical 8 行とは別スナップショットで差分判定）
+// T19 pad L+R（UI 見出しと同義）: L1/R1/L2/R2/L3/R3/West/North（共通 logical 8 行とは別スナップショット）
 struct Win32_HudPaged_T19PadExtrasDisplaySnap
 {
     Win32_HudPaged_T19LogicalButtonDisplaySnap l1;
@@ -5596,7 +5596,15 @@ static void Win32_HudPaged_FillT18PageBody(wchar_t* buf, size_t bufCount)
         (whyHud[0] != L'\0') ? whyHud : L"(none)");
 }
 
-// T19: 論理ボタン + アナログ（ページ式 HUD 専用。表記は LogicalInput_FillCurrentDownFromSources と揃える）
+// T19 Input state（ページ式 HUD）— 論理表示は LogicalInput_FillCurrentDownFromSources / LogicalInputState と一致。
+// 本文: logical(8) + pad L+R(圧縮) + analog(3)。行数を増やさず標準サイズに収める。
+// 受け入れ（手動・標準ウィンドウで目視）:
+//   - keyboard: common logical（South…DPad）がキー入力と一致
+//   - PS4: common logical + pad L+R（L1…Tri）が入力と一致
+//   - XInput: common logical + pad L+R が入力と一致
+//   - L2/R2 の r は表示用安定化バイト（タイマー差分は analog と同じ量子化）
+//   - analog: LS/RS/LT/RT の値・バーが一致し、本文下端で切れない
+// WM_TIMER: 論理+pad 即時 InvalidateRect、analog のみ間引き — Win32_WndProc_OnXInputPollTimer 内。
 static float Win32_HudPaged_T19NormalizeStickAxis(INT16 x)
 {
     float v = static_cast<float>(x) / 32768.0f;
@@ -5871,9 +5879,7 @@ static void Win32_HudPaged_FillT19LogicalSection(wchar_t* buf, size_t bufCount)
         return;
     }
 
-    // 見出し行を表ヘッダと統合（空行を減らし標準サイズで analog まで収める）
-    // Consolas 等幅: 左3列の後に press / release / push / hold を固定幅で同一アンカーに揃える
-    // 0-based 列開始（左ブロック 6+sp+10+sp+16+2sp = 36 文字目から press）。fmt 変更時は値を合わせること。
+    // Consolas: 先頭列 logic:、左3列の後に press/release/push/hold（列アンカーは kT19Col*）
     [[maybe_unused]] static constexpr int kT19ColPress = 36;
     [[maybe_unused]] static constexpr int kT19ColRelease = kT19ColPress + 5 + 1;
     [[maybe_unused]] static constexpr int kT19ColPush = kT19ColRelease + 7 + 1;
@@ -5933,7 +5939,7 @@ static void Win32_HudPaged_FillT19LogicalSection(wchar_t* buf, size_t bufCount)
     }
 }
 
-// 共通 logical 表の直後: 肩・スティック押し込み・West/North（2 列で縦を圧縮）。L2/R2 は安定化 raw（analog と同じ量子化）
+// pad L+R: 2 列×4 行。押下3つは logical と同順（press·release·push）。h=hold、L2/R2 の r=安定化 raw
 static void Win32_HudPaged_FillT19PadExtrasSection(wchar_t* buf, size_t bufCount)
 {
     if (!buf || bufCount < 2)
@@ -5947,7 +5953,6 @@ static void Win32_HudPaged_FillT19PadExtrasSection(wchar_t* buf, size_t bufCount
     }
     const VirtualInputSnapshot& v = s_virtualInputCurr;
 
-    // 見出し: L+R=左右ペア。押下3つは logical と同順(pr/rl/pu)。h=hold / r=raw(安定化)。列は ||
     Win32_HudPaged_AppendBodyLine(buf, bufCount, L"pad L+R:");
 
     auto fmtDig = [&](wchar_t* dst, size_t dstCount, const wchar_t* name, LogicalButtonId id) {
@@ -6012,7 +6017,7 @@ static void Win32_HudPaged_FillT19PadExtrasSection(wchar_t* buf, size_t bufCount
     Win32_HudPaged_AppendBodyLine(buf, bufCount, line);
 }
 
-// buf に追記（先頭行を analog: LS… にまとめ、行数を抑える）。li 無効時は何もしない。
+// analog: 3 行（先頭を analog: LS… にまとめて行数削減）。li 無効時は何もしない。
 static void Win32_HudPaged_FillT19AnalogSectionInto(wchar_t* buf, size_t bufCount)
 {
     if (!buf || bufCount < 2)
@@ -8792,7 +8797,7 @@ static void Win32_WndProc_OnXInputPollTimer(HWND hWnd)
 {
     Win32_XInputPollDigitalEdgesOnTimer(hWnd);
     Win32_LogicalInputTick_AfterPadAndKeyboardCurrent();
-    // T19: 論理行は即時 invalidation、アナログのみの変化は約 kT19AnalogThrottleMs 間隔で間引く（GDI ちらつき低減）
+    // T19: 論理+pad 即時 InvalidateRect。analog のみの変化は kT19AnalogThrottleMs で間引き（T19 Input state コメント参照）
     if (Win32_HudPaged_IsEnabled() && s_hudPagedIndex == kHudPagedPageIndexT19)
     {
         wchar_t analogNow[16384] = {};
