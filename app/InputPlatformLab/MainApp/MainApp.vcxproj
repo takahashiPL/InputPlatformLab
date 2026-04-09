@@ -150,6 +150,7 @@
     <ClInclude Include="include\platform\win\WindowsInputBackend.h" />
     <ClInclude Include="include\platform\win\WindowsRenderer.h" />
     <ClInclude Include="include\platform\win\Win32DebugOverlay.h" />
+    <ClInclude Include="include\platform\win\Win32DebugOverlayLegacyStacked_internal.h" />
     <ClInclude Include="include\platform\win\Win32HudPaged.h" />
     <ClInclude Include="include\VirtualInputMenuSample.h" />
     <ClInclude Include="include\VirtualInputNeutral.h" />
@@ -159,6 +160,7 @@
     <ClCompile Include="src\ControllerClassification.cpp" />
     <ClCompile Include="src\platform\win\WindowsRenderer.cpp" />
     <ClCompile Include="src\platform\win\Win32DebugOverlay.cpp" />
+    <ClCompile Include="src\platform\win\Win32DebugOverlayLegacyStacked.cpp" />
     <ClCompile Include="src\MainApp.cpp" />
     <ClCompile Include="src\VirtualInputNeutral.cpp" />
     <ClCompile Include="src\LogicalInputState.cpp" />
