@@ -1124,11 +1124,29 @@ void Win32_LegacyStacked_ApplyVmSplitMainAppExternFromScratchPass(
     }
 }
 
+// Category B — scroll line metrics (MainApp extern): GetTextMetrics → s_paintScrollLinePx; always mirror s_paintDbgLineHeight.
+void Win32_LegacyStacked_ApplyScrollLineMetricsFromHdc(HDC hdc)
+{
+    TEXTMETRICW tm{};
+    if (GetTextMetricsW(hdc, &tm))
+    {
+        s_paintScrollLinePx = (std::max)(static_cast<int>(tm.tmHeight), 16);
+    }
+    s_paintDbgLineHeight = s_paintScrollLinePx;
+}
+
+// Category B — MainApp extern: set s_paintDbgMaxScroll then clamp s_paintScrollY (T45/T46 unchanged; callers keep ordering vs ScrollLog).
+void Win32_LegacyStacked_SetDbgMaxScrollAndClampScrollY(int maxScrollLogical, const wchar_t* where)
+{
+    s_paintDbgMaxScroll = maxScrollLogical;
+    Win32_DebugOverlay_ClampScrollYToMaxScroll(maxScrollLogical, where);
+}
+
 // Legacy: Win32_DebugOverlay_PrefillHudLeftColumnForD2d（!Win32_HudPaged_IsEnabled() 時）および
 // Win32_DebugOverlay_PaintStackedLegacy からのみ呼ばれる。ページ式 HUD 既定時は呼ばれない（Win32_HudPaged_PrefillD2d）。
 // スクロール・[scroll] 帯の高さ・T17 行位置などを計測。outHud 非 null のときは D2D final HUD 用に左列全文（menu+t14）とスクロール値を書き込む。
 //
-// Side-effect map (categories; not every assignment): ① file-top scratch (ApplyScratch* / ResetVmSplit* / ClearScratchRestViewportTop helpers), ② MainApp extern s_paintDbg* / line height (vmSplit T17/T14 subset: ApplyVmSplitMainAppExternFromScratchPass),
+// Side-effect map (categories; not every assignment): ① file-top scratch (ApplyScratch* / ResetVmSplit* / ClearScratchRestViewportTop helpers), ② MainApp extern s_paintDbg* / line height (vmSplit T17/T14: ApplyVmSplitMainAppExternFromScratchPass; scroll line: ApplyScrollLineMetricsFromHdc; maxScroll+clamp: SetDbgMaxScrollAndClampScrollY),
 // ③ outHud dbgHud* when non-null (via Win32_LegacyStacked_ApplyD2dHudPrefill), ④ Win32_T45_ApplyWindowedScrollInfo → T46 snapshot + T52 validity.  HUD_LEGACY_CODE_DEPENDENCY.md §7.7
 void Win32_DebugOverlay_ComputeLayoutMetrics(const Win32_LegacyStacked_LayoutMetricsParams& p)
 {
@@ -1332,12 +1350,7 @@ refill_budget:
         maxScroll = (std::max)(0, contentHeight - clientH);
     }
 
-    TEXTMETRICW tm{};
-    if (GetTextMetricsW(hdc, &tm))
-    {
-        s_paintScrollLinePx = (std::max)(static_cast<int>(tm.tmHeight), 16);
-    }
-    s_paintDbgLineHeight = s_paintScrollLinePx;
+    Win32_LegacyStacked_ApplyScrollLineMetricsFromHdc(hdc);
 
     s_paintDbgContentHeight = contentHeight;
     s_paintDbgContentHeightBase = vmSplitActive ? splitHRest : baseContentH;
@@ -1346,9 +1359,8 @@ refill_budget:
     s_paintDbgClientW = clientW;
     s_paintDbgClientH = clientH;
 
-    s_paintDbgMaxScroll = maxScroll;
     const int scrollYBeforePaint = s_paintScrollY;
-    Win32_DebugOverlay_ClampScrollYToMaxScroll(maxScroll, L"ComputeLayoutMetrics.phase1");
+    Win32_LegacyStacked_SetDbgMaxScrollAndClampScrollY(maxScroll, L"ComputeLayoutMetrics.phase1");
 
     int jumpF7 = Win32DebugOverlay_ScrollTargetT17WithTopMargin();
     int jumpF8 = Win32DebugOverlay_ScrollTargetT17Centered(hwnd);
@@ -1412,8 +1424,7 @@ refill_budget:
                 0, s_paintDbgT17DocYRestScroll - maxScrollBeforePaddingRest2);
             const int contentH2 = splitHRest + extra2;
             const int maxScroll2 = (std::max)(0, contentH2 - restVp2);
-            s_paintDbgMaxScroll = maxScroll2;
-            Win32_DebugOverlay_ClampScrollYToMaxScroll(maxScroll2, L"ComputeLayoutMetrics.vmSplitRefine");
+            Win32_LegacyStacked_SetDbgMaxScrollAndClampScrollY(maxScroll2, L"ComputeLayoutMetrics.vmSplitRefine");
             s_paintDbgContentHeight = contentH2;
             s_paintDbgExtraBottomPadding = extra2;
             maxScroll = maxScroll2;
@@ -1443,8 +1454,7 @@ refill_budget:
     const int scrollViewportHFinal = vmSplitActive ? s_paintDbgRestViewportClientH : clientH;
     const int maxScrollUnified = (std::max)(0, scrollContentHFinal - scrollViewportHFinal);
     {
-        s_paintDbgMaxScroll = maxScrollUnified;
-        Win32_DebugOverlay_ClampScrollYToMaxScroll(maxScrollUnified, L"ComputeLayoutMetrics.unified");
+        Win32_LegacyStacked_SetDbgMaxScrollAndClampScrollY(maxScrollUnified, L"ComputeLayoutMetrics.unified");
         Win32_T45_ApplyWindowedScrollInfo(hwnd, scrollContentHFinal, scrollViewportHFinal, s_paintScrollY);
     }
 
