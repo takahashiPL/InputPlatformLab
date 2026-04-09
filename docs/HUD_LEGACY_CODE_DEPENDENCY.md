@@ -125,7 +125,7 @@
 
 | 単位 | 内容 | 備考 |
 |------|------|------|
-| **Legacy stacked pipeline** | `Win32_DebugOverlay_ComputeLayoutMetrics` + `Win32_DebugOverlay_PaintStackedLegacy` | `Win32_DebugOverlay_PrefillHudLeftColumnForD2d` の legacy 分岐からも `ComputeLayoutMetrics` を呼ぶため、**D2D プレフィル**とリンク上は同じ束になりやすい。 |
+| **Legacy stacked pipeline** | `Win32_DebugOverlay_ComputeLayoutMetrics` + `Win32_DebugOverlay_PaintStackedLegacy` | `Win32_DebugOverlay_PrefillHudLeftColumnForD2d` の legacy 分岐からも `ComputeLayoutMetrics` を呼ぶため、**D2D プレフィル**とリンク上は同じ束になりやすい。**実装**: スクラッチ・前方宣言・本体を **同一匿名名前空間**（同一 TU 内の複数 `namespace { }` がマージ）に寄せ、将来の `.cpp` 切り出し単位として追いやすくしている（シンボル名は従来どおり）。 |
 | **GDI 入口の薄い分岐** | `Win32DebugOverlay_Paint` 内の `Win32_HudPaged_IsEnabled()` → `PaintStackedLegacy` | 既に短い。 |
 
 ### 7.2 同一ファイル先頭に置く必要があるもの（宣言順）
@@ -152,3 +152,4 @@
 | 2026-04-06 | **コード上の境界**: `Win32DebugOverlay.cpp` の file-local static を legacy レイアウト用と明示、`ComputeLayoutMetrics` / `PaintStackedLegacy` / `Win32DebugOverlay_Paint` のコメントを整理。`MainApp.cpp` の共有 `s_paint*` にブロックヘッダ（挙動不変） |
 | 2026-04-06 | **§7 追加**: レガシー縦積みの将来分離メモ（パイプライン単位・宣言順・T46/共有読み取り・CALCRECT 共有） |
 | 2026-04-06 | **§7.2 追記**: legacy スクラッチを `Win32DebugOverlay.cpp` 先頭で **匿名名前空間**に束ねる実装（挙動・シンボル名は維持） |
+| 2026-04-06 | **§7.1 追記**: `ComputeLayoutMetrics` / `PaintStackedLegacy` 本体も同一匿名名前空間に配置（前方宣言はファイル先頭ブロックへ集約） |

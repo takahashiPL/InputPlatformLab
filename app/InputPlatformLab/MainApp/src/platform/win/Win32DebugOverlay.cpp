@@ -60,6 +60,26 @@ wchar_t s_paintDbgT14VmSplitVmBand[8192]{};
 wchar_t s_paintDbgT14VmSplitRest[16384]{};
 int s_paintDbgT14VmSplitPrefixH = 0;
 int s_paintDbgT14VmSplitVmBandH = 0;
+
+// Legacy stacked pipeline — forward declarations (definitions in legacy #region below; same unnamed namespace).
+// Win32DebugOverlay_Paint / Win32_DebugOverlay_PrefillHudLeftColumnForD2d call into this linkage unit.
+void Win32_DebugOverlay_ComputeLayoutMetrics(
+    HWND hwnd,
+    HDC hdc,
+    const wchar_t* t17ModeLabelForOverlay,
+    const wchar_t* t17CandLabel,
+    const wchar_t* t17ActLabel,
+    WindowsRendererState* outHud,
+    bool logScroll);
+void Win32_DebugOverlay_PaintStackedLegacy(
+    HWND hwnd,
+    HDC hdc,
+    const wchar_t* t17ModeLabelForOverlay,
+    const wchar_t* t17CandLabel,
+    const wchar_t* t17ActLabel,
+    bool suppressT14BodyGdi,
+    bool skipMenuColumnGdi,
+    bool skipScrollBandGdi);
 } // namespace
 
 // ---------------------------------------------------------------------------
@@ -93,24 +113,7 @@ extern int s_paintDbgRestViewportClientH;
 
 #pragma region Public HUD overlay entry (GDI WM_PAINT)
 
-// Legacy static pipeline (definitions in this file, below shared helpers) — forward declarations so the public GDI entry can live first.
-static void Win32_DebugOverlay_ComputeLayoutMetrics(
-    HWND hwnd,
-    HDC hdc,
-    const wchar_t* t17ModeLabelForOverlay,
-    const wchar_t* t17CandLabel,
-    const wchar_t* t17ActLabel,
-    WindowsRendererState* outHud,
-    bool logScroll);
-static void Win32_DebugOverlay_PaintStackedLegacy(
-    HWND hwnd,
-    HDC hdc,
-    const wchar_t* t17ModeLabelForOverlay,
-    const wchar_t* t17CandLabel,
-    const wchar_t* t17ActLabel,
-    bool suppressT14BodyGdi,
-    bool skipMenuColumnGdi,
-    bool skipScrollBandGdi);
+// Legacy stacked pipeline: forward declarations live in the file-top anonymous namespace (with scratch).
 
 // HUD overlay — public entry (WM_PAINT): paged branch first, then legacy stacked.
 void Win32DebugOverlay_Paint(
@@ -831,13 +834,15 @@ static void Win32_T60_FindT14AppendixMarkers(
 // Implementations in this #region: Win32_DebugOverlay_ComputeLayoutMetrics, Win32_DebugOverlay_PaintStackedLegacy.
 // Depends on: shared CALCRECT/T60 helpers above; MainApp.cpp extern s_paint*; file-top static scratch; Win32_FillMenuSamplePaintBuffers via ComputeLayoutMetrics.
 // PrefillHudLeftColumnForD2d (D2D region below) calls ComputeLayoutMetrics when legacy — same extraction bundle in practice.
+// Implementations below are in the same anonymous namespace as scratch + forward decls (file top).
 // -----------------------------------------------------------------------------
 #pragma region Legacy stacked HUD (ComputeLayoutMetrics + PaintStackedLegacy)
 
+namespace {
 // Legacy: Win32_DebugOverlay_PrefillHudLeftColumnForD2d（!Win32_HudPaged_IsEnabled() 時）および
 // Win32_DebugOverlay_PaintStackedLegacy からのみ呼ばれる。ページ式 HUD 既定時は呼ばれない（Win32_HudPaged_PrefillD2d）。
 // スクロール・[scroll] 帯の高さ・T17 行位置などを計測。outHud 非 null のときは D2D final HUD 用に左列全文（menu+t14）とスクロール値を書き込む。
-static void Win32_DebugOverlay_ComputeLayoutMetrics(
+void Win32_DebugOverlay_ComputeLayoutMetrics(
     HWND hwnd,
     HDC hdc,
     const wchar_t* t17ModeLabelForOverlay,
@@ -1627,8 +1632,8 @@ refill_budget:
 }
 
 // Legacy stacked HUD — WIN32_HUD_USE_PAGED_HUD=0 の GDI 本文（メニュー + T14〜T18 縦積み + 下端 [scroll]）。
-// Win32DebugOverlay_Paint はページ式を先に分岐し、本 static は互換経路のみ。
-static void Win32_DebugOverlay_PaintStackedLegacy(
+// Win32DebugOverlay_Paint はページ式を先に分岐し、本関数は互換経路のみ。
+void Win32_DebugOverlay_PaintStackedLegacy(
     HWND hwnd,
     HDC hdc,
     const wchar_t* t17ModeLabelForOverlay,
@@ -1848,6 +1853,8 @@ static void Win32_DebugOverlay_PaintStackedLegacy(
 
     SetTextColor(hdc, prevTextColor);
 }
+
+} // namespace (legacy stacked pipeline; merges with file-top unnamed namespace)
 
 #pragma endregion
 
