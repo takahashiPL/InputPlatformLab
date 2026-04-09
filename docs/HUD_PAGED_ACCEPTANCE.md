@@ -15,20 +15,21 @@
 | **2026-04-09** | **ローカル目視**（Debug\|x64、`MainApp.exe` 前面、`←` `→` でページ送り、各ページキャプチャ確認） | T14・T15・T16・T17・T18・T20 のタイトル帯・本文が期待どおり表示。接続デバイス: **DS4（HID）1 台**（T18）。クライアント約 **645×498** で右端が一部切れる箇所あり |
 | **2026-04-09** | **T17 追加**（T17 ページで **F6** 候補循環・**Enter** 適用、画面キャプチャ／コード照合） | **Windowed→Borderless** 適用後に `cand=act=Borderless` と本文を目視確認。他遷移は下記 **T17 実確認サマリ** 参照 |
 | **2026-04-09** | **T15 / T16**（T15 で **↑↓** プリセット、`→` で T16、キャプチャ目視） | T15 の `[n/8]`・desired/nearest/delta/exact が **↑↓** で変化。T16 は **T14 選択由来**の target を表示（T15 プリセットと同一数字にならないのは**実装どおり**） |
+| **2026-04-09** | **T18 / T20**（ページ送りで T18・T20、キャプチャ目視） | T18: DS4 接続時に family/parser/support/product/why が読める。T20: HUD のマクロ行が **Debug\|x64** と一致（`BUILDINFO` と同一関数由来） |
 
 **限界**: **マルチモニタ・プライマリ切替・非接続コントローラ**などは、引き続きローカルで必要に応じて実施する。
 
 ### ローカル目視の推奨順（次回）
 
-優先順の **T17（主要）**・**T15/T16（Windowed・↑↓ 追従）** は **2026-04-09** まで実施済み。残りは下記。
+優先順の **T17（主要）**・**T15/T16**・**T18（DS4 接続時）/ T20（Debug）** は **2026-04-09** まで実施済み。残りは下記。
 
 | 順 | ページ / 内容 |
 |----|----------------|
 | 1 | T14: **↑↓** でのモード一覧スクロール・選択追従の手動確認 |
 | 2 | T17: **Fullscreen 系**の静止画で cand/act を最終確認（独占表示時は前面ウィンドウ／矩形に注意）。**monitor 差し替え** |
 | 3 | T15 / T16: **全 DPI・全モニタ**、T16 の **T15 nearest フォールバック**経路 |
-| 4 | T18: 非接続・再接続・複数デバイス・XInput 主体 |
-| 5 | T20: **Release** ビルドで本文が `config=Release` 等に変わること |
+| 4 | T18: **非接続・再接続**、**XInput 主体**、**ブリッジ経路変更**、複数デバイス |
+| 5 | T20: **Release\|x64** で `config=Release` 等を目視 |
 | 6 | 全ページ共通: **GDI/D2D 二重描画**の再確認（必要時） |
 
 （T19 は受け入れ候補版のため、必要に応じて入力網羅を追加。）
@@ -178,13 +179,16 @@ windowed / borderless / fullscreen 等のプレゼンテーション状態と ca
 
 **確認済み**  
 - (code) `Win32_HudPaged_FillT18PageBody` および T18 状態の参照がページ描画に接続。タイマー・WM_PAINT で更新される設計。  
-- **2026-04-09**: **DS4（VID/PID 0x054C/0x05C4）** 接続下で `family=PlayStation`、`parser=Ds4KnownHid`、製品名・why 行が表示されることを目視確認（XInput slot=-1 の状態）。
+- **2026-04-09**: **DS4（VID/PID 0x054C/0x05C4）** 接続下で `family=PlayStation`、`parser=Ds4KnownHid`、製品名・why 行が表示されることを目視確認（XInput slot=-1 の状態）。  
+- **2026-04-09（再確認）**: HUD で **family** / **parser** / **support**（行末は右端で切れる場合あり）/ **product** / **why**（`DS4 verified table` / `known HID report map`）が **読める**ことを目視確認。文書の **DS4 既定表示**（verified + known HID map）と一致。
 
 **条件付き確認済み**  
 - （空）
 
 **未確認**  
-- 非接続・再接続・複数デバイス切替の**網羅**、XInput 主体・全パーサ種別の目視。ブリッジ経路を変えた直後の更新確認。
+- **非接続**（`hid_found=0` 時の `No HID; no XInput slot.` 等）・**再接続**・**複数デバイス**の**網羅**目視。  
+- **XInput 主体**・**HORI / GenericHid** 等**全パーサ種別**の目視。  
+- **PS4 ブリッジ経路変更直後**のタイトル・本文更新（**[ ]** の項目は継続）。
 
 ---
 
@@ -226,17 +230,17 @@ windowed / borderless / fullscreen 等のプレゼンテーション状態と ca
 
 - [x] タイトル `T20 — Build / Debug flags`
 - [x] 本文が `[BUILDINFO]` と同内容のマクロ一覧（**Debug\|x64** で起動中 HUD 本文として目視）
-- [ ] Release/Debug 切替で表示が変わる
+- [ ] Release/Debug 切替で表示が変わる（**Release は未確認のまま**）
 
 **確認済み**  
-- (code) `Win32_FormatBuildDebugManifest` と T20 本文、起動時 `[BUILDINFO]` の**同一内容**が実装されている。  
-- **2026-04-09**: **Debug\|x64** で `config=Debug`、`platform=x64`、`WIN32_HUD_USE_PAGED_HUD=1` および列挙マクロが **0** である行を HUD 上で目視（`__DATE__` / `__TIME__` はビルド時刻に依存）。
+- (code) `Win32_FormatBuildDebugManifest` が **T20 本文**と **`Win32_EmitBuildInfoLogOnce`（`[BUILDINFO]`）** の**両方**で呼ばれ、**同一のマニフェスト文字列**が生成される（`MainApp.cpp`）。  
+- **2026-04-09**: **Debug\|x64** で HUD 上に `config=Debug`、`platform=x64`、`pagedHUD=on`（表記は行幅で切れる場合あり）、`WIN32_HUD_USE_PAGED_HUD=1`、列挙 PS4/論理/T18 系マクロが **0**、`__DATE__` / `__TIME__` 行を目視。**BUILDINFO 対応**は **(code) 同一関数** + **本HUD の行が起動時ログと一致する前提**で受け入れ（同一バイナリでは本文の差は出ない）。
 
 **条件付き確認済み**  
-- **Release** ビルドでの T20 本文（`config=Release` 等）は**未目視**。ビルド後に 1 回確認推奨。
+- **Release** ビルドでの T20 本文（`config=Release` 等）は**未目視**・**未ビルド**のまま。必要時に **Release\|x64** を 1 回ビルドして T20 を開き、`[ ]` を更新する。
 
 **未確認**  
-- **Release** ビルドでの表示。新マクロ追加時の一覧更新漏れ、ARM64 等レア構成での目視。
+- **Release\|x64**（および **ARM64** 等）での表示。新マクロ追加時の一覧更新漏れ。
 
 ---
 
@@ -268,3 +272,4 @@ windowed / borderless / fullscreen 等のプレゼンテーション状態と ca
 | **2026-04-09** | **ローカル目視**: T14–T20（優先順）のタイトル・本文・ページ送りを実施。HUD 受け入れチェックを更新。一時キャプチャは `docs/_hud_smoke_*/`（gitignore） |
 | **2026-04-09** | **T17 深掘り**: F6/Enter で主要遷移を実施し **W→Borderless** を目視確認。**noop skip**・Fullscreen 系はコード照合と受け入れ注意を `T17 実確認サマリ` に反映 |
 | **2026-04-09** | **T15/T16**: T15 の **↑↓** 追従と T16 本文を実確認。T15 プリセットと T16 target の**軸の違い**を文書化 |
+| **2026-04-09** | **T18/T20**: T18 の DS4 行を再目視。T20 と **`[BUILDINFO]`** の **同一関数**由来を明記。**Release** は未確認のまま整理 |
