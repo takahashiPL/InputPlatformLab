@@ -13,8 +13,8 @@
 |------|------|------|
 | `WIN32_HUD_USE_PAGED_HUD` | `Win32HudPaged.h` | `0` でレガシー縦積み描画経路を有効。既定 `1`。 |
 | `Win32_HudPaged_IsEnabled()` | `Win32HudPaged.h` | 上記マクロのインライン判定。 |
-| `Win32DebugOverlay_Paint` | `Win32DebugOverlay.cpp` | **最初の分岐**: 有効時は `Win32_HudPaged_PaintGdi` のみ、無効時は `Win32_DebugOverlay_PaintStackedLegacy`。 |
-| `Win32_DebugOverlay_PrefillHudLeftColumnForD2d` | `Win32DebugOverlay.cpp` | D2D フレーム前の左列プレフィル。有効時は `Win32_HudPaged_PrefillD2d` で早期 return。無効時は `Win32_DebugOverlay_ComputeLayoutMetrics`（全文バッファ＋計測）。 |
+| `Win32DebugOverlay_Paint` | `Win32DebugOverlay.cpp` | **最初の分岐**: 有効時は `Win32_HudPaged_PaintGdi` のみ、無効時は `RunGdiPaintFromPaintEntry` → legacy TU（`PaintStackedLegacy`）。 |
+| `Win32_DebugOverlay_PrefillHudLeftColumnForD2d` | `Win32DebugOverlay.cpp` | D2D フレーム前の左列プレフィル。有効時は `Win32_HudPaged_PrefillD2d` で早期 return。無効時は `RunComputeLayoutMetricsForD2dPrefill` → legacy TU（`ComputeLayoutMetrics`、全文バッファ＋計測）。 |
 | `WindowsRenderer_Frame` / D2D HUD 行 | `WindowsRenderer.cpp` | ページ式有効時は **T33 行の cand/act 等を描かない**（GDI が全文）。無効時は従来の D2D 左列＋本文バンド。 |
 
 `MainApp.cpp` の `Win32_MainView_PaintFrame` は毎フレーム `Win32_T37_PrepareVirtualBodyOverlay` → `PrefillHudLeftColumnForD2d` → `WindowsRenderer_Frame` → `Win32DebugOverlay_Paint` の順（条件付きマクロあり）。**T37** は合成パスで `Win32_FillMenuSamplePaintBuffers` を別途呼ぶ（下記 §3）。
@@ -65,7 +65,7 @@
 | 種別 | 代表 | 説明 |
 |------|------|------|
 | T37 仮想本文オーバーレイ | `Win32_T37_PrepareVirtualBodyOverlay` | **Borderless / Fullscreen** かつオフスクリーン合成が有効なときのみ。`Win32_FillMenuSamplePaintBuffers` で **全文バッファ**を組み、`s_paintScrollY` から `t37ScrollVirtualPx` を算出（本文文字列は空にする経路あり）。**ページ式 HUD 有無に依存せず**走り得る。 |
-| レイアウト計測 | `Win32_DebugOverlay_ComputeLayoutMetrics` | **Prefill（legacy 分岐）**と **PaintStackedLegacy** 内。`FillMenuSamplePaintBuffers` + `Win32_IsT37VirtualBodyOverlayActiveForLayout()` で T37 ギャップを反映。 |
+| レイアウト計測 | `Win32_DebugOverlay_ComputeLayoutMetrics`（実装は **legacy TU**） | **Prefill（legacy 分岐）**と **PaintStackedLegacy** 内。`FillMenuSamplePaintBuffers` + `Win32_IsT37VirtualBodyOverlayActiveForLayout()` で T37 ギャップを反映。 |
 | DWrite 本文描画 | `WindowsRenderer_TryDrawT37VirtualBodyOnCompositeTarget` 等 | `t37BodyText` / `t37ScrollVirtualPx`。本文文字列は準備側で空にする経路あり（GDI 二重回避）。 |
 | T37 ギャップ定数 | `WIN32_OVERLAY_T37_MENU_TOP_GAP_PX` | `Win32DebugOverlay.cpp` / `MainApp.cpp`（paged GDI の `t37TopGap`）で **レイアウト上端**に使用。 |
 
@@ -120,7 +120,7 @@
 
 ## 7. 将来のレガシー縦積み分離（`Win32DebugOverlay.cpp`）メモ
 
-**目的**: マクロ 0 互換経路を **別翻訳単位**へ移す検討時の、**切り出し単位**と **同一ファイルに残す理由**のメモ（実装タスクの確定ではない）。
+**目的**: マクロ 0 互換経路を **別翻訳単位**へ移す検討時の、**切り出し単位**と **同一ファイルに残す理由**のメモ（実装タスクの確定ではない）。**パイプライン本体を legacy TU に移したあとも main に残る連動**（T45 / T46 / shared scroll 等）は **§8**。
 
 ### 7.1 まとまりとして切り出しやすい単位（パイプライン）
 
@@ -180,7 +180,31 @@
 
 ---
 
-## 8. 更新履歴
+## 8. main TU（`Win32DebugOverlay.cpp`）に残る legacy 連動要素と残留理由
+
+レガシー縦積みの **パイプライン本体**（`ComputeLayoutMetrics` / `PaintStackedLegacy` / scratch の多く）は **`Win32DebugOverlayLegacyStacked.cpp`** へ移動済み（§5 / §7）。それでも **main TU** に残る要素は、次のとおり **「共有 API」「Win32 スクロールバー API の帰属」「T46 が [scroll] 表示と同居」** などの理由で、**いまは main に置くのが依存が最も読みやすい**、という整理である。**本節は削除方針の確定ではない**（判断材料の明文化）。
+
+### 8.1 要素別サマリ
+
+| 要素 | main TU にあるもの（目安） | なぜ今は main に残すか | ページ式 HUD との関係 | 触ると効きが大きいか | さらに分離できる余地 | 将来の位置づけ（目安） |
+|------|---------------------------|------------------------|----------------------|---------------------|---------------------|------------------------|
+| **T45** | `Win32_T45_ApplyWindowedScrollInfo`（static）、`Win32_DebugOverlay_LegacyStacked_InvokeT45` | **Windowed 時の `SetScrollInfo`（標準スクロールバー）** と `Win32_UpdateNativeScrollbarsWindowedOnly` が同一 TU にあり、legacy からは **InvokeT45 1 ホップ**で足りる。fill-monitor では T45 は実質スキップ。 | paged 本文は別経路だが、**ウィンドウ枠のスクロールバー**は MainView 全体の挙動として共有され得る。 | **高**（スクロール位置・SI 一貫性） | legacy TU に **丸ごと移す**と `InvokeT45` の向き先・リンク境界が増える。**別 `.cpp` に T45 だけ切り出す**は、shared ヘッダ＋単一実装ファイルのパターンなら検討余地。 | **長期は main 近傍 or 専用 small TU** が現実的。 |
+| **T46** | `s_t46LastSiNMax` 等、`s_t46LastSiValid`（main TU の static） | **T45 が SI を書いた直後のスナップショット**を `[scroll]` 文字列（`FormatScrollDebugOverlay`）が読む。**表示テキスト生成**を main の shared region に置く設計のまま。 | ページ式でも **FormatScroll が参照し得る**（レガシー専用ではない）。 | **中〜高**（デバッグ表示と SI の整合） | T46 を **legacy TU へ移す**と、`FormatScroll`（main）との **static 参照**が TU をまたぐ。**スナップショットを struct 化して shared_link 経由**などが次の候補。 | **次の整理候補**（[scroll] とセット）。 |
+| **T52** | main からは **bridge** の `Is` / `Clear` のみ（**実体 `s_paintDbgLayoutMetricsFromPaintValid` は legacy TU**） | **定義は legacy**、**公開 getter は bridge** に既に分離済み。main の `ResetProvisionalLayoutCache` が T52 クリアと **T46 無効化**をまとめて呼ぶ。 | ページ式でも「暫定レイアウト」ログ分岐に関わり得る。 | **中** | フラグ自体の移動は **済**。**Reset の責務分割**は可能だが手戻りリスクあり。 | **当面は現状維持**で可。 |
+| **Shared scroll（[scroll] / ScrollLog / Target）** | `Win32_DebugOverlay_FormatScrollDebugOverlay`、`Win32DebugOverlay_ScrollLog`、`Win32DebugOverlay_ScrollTargetT17*`、`Win32_DebugOverlay_ClampScrollYToMaxScroll`、`Win32DebugOverlay_MainView_SetScrollPos` | **Win32DebugOverlay.h で宣言される共有 API**であり、**MainApp**・**legacy TU** の両方から呼ばれる。**「オーバーレイ用スクロールの言語」**を 1 か所に置く。 | **ページ式・レガシー双方**が参照し得る（§2.3 / §7.4）。 | **高**（入力・WM_VSCROLL・ログの一貫性） | 文言生成だけ別 TU にするは **可能だが**、T46 / `s_paintScrollY` / bridge Read との **結合が強い**。 | **当面 main TU 中心**が安全。**巨大化したら**「scroll 文字列専用 .cpp」の切り出しが候補。 |
+| **表示モード（fill-monitor 等）** | `Win32_IsMainWindowFillMonitorPresentation`（static）、`Win32_MainWindow_IsFillMonitorPresentationMode` | **HWND のスタイル判定**とスクロールバー抑止の **入口**を overlay と共有。legacy / paged の分岐より前に必要なことが多い。 | **ページ式でも** fill-monitor 判定が入力・ペイントに絡む。 | **高** | 既に **`Win32_MainWindow_IsFillMonitorPresentationMode` は公開**。**static 版**を別 TU に移すメリットは限定的。 | **main 近傍に残す**想定。 |
+| **その他** | `Win32_DebugOverlay_ResetProvisionalLayoutCache`（T52 クリア + `ApplyMainAppPaintDbgResetProvisionalLayoutExtras` + **T46 無効化**） | **暫定レイアウト**と **SI スナップショット**を一括で無効化する **オーケストレーション**が main にある。 | ページ式でも「キャッシュ破棄」の呼び出し元があり得る。 | **中** | 処理を **legacy の Apply に寄せる**ことは可能だが、**T46 が main static** のままでは完全移動しにくい。 | **T46 の置き場とセット**で検討。 |
+
+### 8.2 読み方（誤解しやすい点）
+
+- **「legacy 関連」＝全部 legacy TU** ではない。**[scroll] 表示・ScrollLog・ジャンプ目標**は **HUD 全体の共有言語**として main TU に残る。
+- **T52 の真実の定義**は **legacy TU**；main は **bridge 経由で読むだけ**（§7.2）。
+- **T45 本体**は **main**、**呼び出しトリガ**の多くは **legacy の `RunUnifiedMaxScrollClampAndT45` → InvokeT45**（§7.7 D）。
+- 本書 §7 の古い記述で「`ComputeLayoutMetrics` が `Win32DebugOverlay.cpp` にある」ように読める箇所は、**§5・§1 表を優先**（実装は legacy TU）。
+
+---
+
+## 9. 更新履歴
 
 | 日付 | 内容 |
 |------|------|
@@ -210,3 +234,4 @@
 | 2026-04-06 | **§7.1 / §7.2 追記**: **`Win32DebugOverlayLegacyStacked_bridge.h`** を追加（main TU が include する最小橋渡し）。**`Win32DebugOverlayLegacyStacked_internal.h`** は bridge を include した legacy 実装向けの宣言に再編（`WindowsRenderer.h` は internal 側のみ。挙動不変） |
 | 2026-04-06 | **bridge 追記**: **`RunGdiPaintFromPaintEntry`** / **`RunComputeLayoutMetricsForD2dPrefill`** — main TU の `Win32DebugOverlay_Paint` / `PrefillHudLeftColumnForD2d` から `RunGdiPaint` / `RunComputeLayoutMetrics` への struct 組み立てを legacy TU に寄せる（挙動不変） |
 | 2026-04-06 | **§5 / コメント整備**: `Win32DebugOverlay.cpp` / `bridge.h` / `internal.h` のファイル頭・`#pragma region` を、main / bridge / internal / legacy TU の現状境界に合わせて更新（挙動不変） |
+| 2026-04-06 | **§8 追加**: legacy 縦積み TU 分離後も main TU（`Win32DebugOverlay.cpp`）に残る T45/T46/T52/shared scroll 等の **残留理由・影響・分離余地** を表で整理。§1 表・§2.4 の `ComputeLayoutMetrics` 所在を legacy TU と明記。§7 冒頭から §8 へ参照（挙動不変） |
