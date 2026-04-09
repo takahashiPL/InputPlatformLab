@@ -1,7 +1,7 @@
 #pragma once
 
 // Cross-TU bridge: legacy stacked I/O types + Win32_LegacyStacked_* entry points (HUD_LEGACY_CODE_DEPENDENCY.md §7).
-// MainApp の共有 s_paintDbg* は各 .cpp で extern。legacy 専用スクラッチの読取は LoadLayoutScratchRead / getter（定義は legacy .cpp）。
+// MainApp 共有のうち legacy が触る分は Win32MainAppPaintDbg_shared_link.h + Load/Apply API（定義は MainApp.cpp）。
 
 #include "WindowsRenderer.h"
 
@@ -74,6 +74,14 @@ void Win32_LegacyStacked_SetRestViewportTopPx(int px);
 
 bool Win32_LegacyStacked_IsPaintLayoutMetricsFromPaintValid(void);
 void Win32_LegacyStacked_ClearPaintLayoutMetricsFromPaintValid(void);
+
+// MainApp.cpp 共有 s_paintDbg* / scroll（§2.3）— legacy TU は shared_link.h の extern と下記 API に集約。
+struct Win32_LegacyStacked_MainAppPaintDbgRead {
+    int scrollY{};
+};
+void Win32_LegacyStacked_LoadMainAppPaintDbgRead(Win32_LegacyStacked_MainAppPaintDbgRead* out);
+
+void Win32_LegacyStacked_ApplyMainAppPaintDbgScrollLineMetrics(int scrollLinePx);
 
 void Win32_LegacyStacked_ApplyD2dHudPrefill(
     WindowsRendererState* outHud,

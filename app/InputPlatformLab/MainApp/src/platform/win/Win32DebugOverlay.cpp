@@ -3,6 +3,7 @@
 #include "WindowsRenderer.h"
 #include "Win32HudPaged.h"
 #include "Win32DebugOverlayLegacyStacked_internal.h"
+#include "Win32MainAppPaintDbg_shared_link.h"
 
 #include <algorithm>
 
@@ -46,23 +47,16 @@ void Win32_DebugOverlay_LegacyStacked_RunComputeLayoutMetrics(const Win32_Legacy
 // ---------------------------------------------------------------------------
 
 // MainApp.cpp で定義 — 共有オーバーレイ状態（レガシー ComputeLayoutMetrics / T37 / T14 追従 / ページ式での scroll リセット）。legacy 専用ではない。
-// docs/HUD_LEGACY_CODE_DEPENDENCY.md §2.3
-extern int s_paintScrollY;
-extern int s_paintScrollLinePx;
+// docs/HUD_LEGACY_CODE_DEPENDENCY.md §2.3 — scroll / 一部 s_paintDbg* は Win32MainAppPaintDbg_shared_link.h
 extern int s_paintDbgContentHeight;
 extern int s_paintDbgContentHeightBase;
 extern int s_paintDbgExtraBottomPadding;
 extern int s_paintDbgClientHeight;
-extern int s_paintDbgT17DocY;
-extern bool s_paintDbgT14LayoutValid;
-extern int s_paintDbgT14VisibleModesDocStartY;
-extern int s_paintDbgLineHeight;
 extern int s_paintDbgActualOverlayHeight;
 extern int s_paintDbgScrollBandReservePx;
 extern int s_paintDbgLayoutRestVpBudgetHint;
 extern int s_paintDbgClientW;
 extern int s_paintDbgClientH;
-extern int s_paintDbgMaxScroll;
 extern int s_paintDbgT14ColumnBaseY;
 extern int s_paintDbgT14BeforeVisibleDocH;
 extern int s_paintDbgT14VisibleBlockDocH;

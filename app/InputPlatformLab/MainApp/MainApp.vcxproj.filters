@@ -72,6 +72,9 @@
     <ClInclude Include="include\platform\win\Win32DebugOverlayLegacyStacked_internal.h">
       <Filter>include\platform\win</Filter>
     </ClInclude>
+    <ClInclude Include="include\platform\win\Win32MainAppPaintDbg_shared_link.h">
+      <Filter>include\platform\win</Filter>
+    </ClInclude>
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="src\MainApp.cpp">

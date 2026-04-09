@@ -2,18 +2,10 @@
 #include "Win32DebugOverlay.h"
 #include "WindowsRenderer.h"
 #include "Win32DebugOverlayLegacyStacked_internal.h"
+#include "Win32MainAppPaintDbg_shared_link.h"
 
 #include <algorithm>
 #include <cstdint>
-
-// MainApp.cpp — only symbols this TU reads/writes (not in internal.h; see HUD_LEGACY_CODE_DEPENDENCY.md §7).
-extern int s_paintScrollY;
-extern int s_paintScrollLinePx;
-extern int s_paintDbgT17DocY;
-extern bool s_paintDbgT14LayoutValid;
-extern int s_paintDbgT14VisibleModesDocStartY;
-extern int s_paintDbgLineHeight;
-extern int s_paintDbgMaxScroll;
 
 // Win32DebugOverlay.cpp — T45 wrapper (static T45 stays in that TU).
 void Win32_DebugOverlay_LegacyStacked_InvokeT45(HWND hwnd, int scrollContentH, int scrollViewportH, int pos);
@@ -292,6 +284,7 @@ bool Win32_LegacyStacked_RunVmSplitScratchPass(
 void Win32_LegacyStacked_ApplyVmSplitMainAppExternFromScratchPass(
     const Win32_LegacyStacked_VmSplitScratchPassOut& vsp)
 {
+    // MainApp 共有への書き込み塊（vmSplit 確定時）
     s_paintDbgT17DocY = vsp.t17DocY;
     if (vsp.t14LayoutOutValid)
     {
@@ -300,18 +293,38 @@ void Win32_LegacyStacked_ApplyVmSplitMainAppExternFromScratchPass(
     }
 }
 
+void Win32_LegacyStacked_LoadMainAppPaintDbgRead(Win32_LegacyStacked_MainAppPaintDbgRead* out)
+{
+    if (!out)
+    {
+        return;
+    }
+    out->scrollY = s_paintScrollY;
+}
+
+void Win32_LegacyStacked_ApplyMainAppPaintDbgScrollLineMetrics(int scrollLinePx)
+{
+    s_paintScrollLinePx = scrollLinePx;
+    s_paintDbgLineHeight = scrollLinePx;
+}
+
 void Win32_LegacyStacked_ApplyScrollLineMetricsFromHdc(HDC hdc)
 {
     TEXTMETRICW tm{};
     if (GetTextMetricsW(hdc, &tm))
     {
-        s_paintScrollLinePx = (std::max)(static_cast<int>(tm.tmHeight), 16);
+        Win32_LegacyStacked_ApplyMainAppPaintDbgScrollLineMetrics(
+            (std::max)(static_cast<int>(tm.tmHeight), 16));
     }
-    s_paintDbgLineHeight = s_paintScrollLinePx;
+    else
+    {
+        s_paintDbgLineHeight = s_paintScrollLinePx;
+    }
 }
 
 void Win32_LegacyStacked_SetDbgMaxScrollAndClampScrollY(int maxScrollLogical, const wchar_t* where)
 {
+    // MainApp 共有: maxScroll + scrollY clamp
     s_paintDbgMaxScroll = maxScrollLogical;
     Win32_DebugOverlay_ClampScrollYToMaxScroll(maxScrollLogical, where);
 }
@@ -321,7 +334,10 @@ void Win32_LegacyStacked_RunUnifiedMaxScrollClampAndT45(
     const Win32_LegacyStacked_UnifiedScrollLayoutForT45& u)
 {
     Win32_LegacyStacked_SetDbgMaxScrollAndClampScrollY(u.maxScrollUnified, L"ComputeLayoutMetrics.unified");
-    Win32_DebugOverlay_LegacyStacked_InvokeT45(hwnd, u.scrollContentHFinal, u.scrollViewportHFinal, s_paintScrollY);
+    Win32_LegacyStacked_MainAppPaintDbgRead mainAppRead{};
+    Win32_LegacyStacked_LoadMainAppPaintDbgRead(&mainAppRead);
+    Win32_DebugOverlay_LegacyStacked_InvokeT45(
+        hwnd, u.scrollContentHFinal, u.scrollViewportHFinal, mainAppRead.scrollY);
 }
 
 void Win32_LegacyStacked_MarkPaintLayoutMetricsFromPaintValid(void)
