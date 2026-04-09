@@ -93,3 +93,4 @@
 | 日付 | 内容 |
 |------|------|
 | 2026-04-06 | 初版（維持・削減・慎重・paged 寄せの優先順位とロードマップ） |
+| 2026-04-06 | `HUD_LEGACY_CODE_DEPENDENCY.md` と整合: `Win32DebugOverlay.cpp` / `MainApp.cpp` に legacy 境界のコメントブロック（挙動不変） |

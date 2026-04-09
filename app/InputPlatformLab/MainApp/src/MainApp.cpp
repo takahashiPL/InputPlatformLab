@@ -315,7 +315,13 @@ static bool s_t18PageEnterDeferredPending = false;
 //   T17: Windowed / Borderless / Fullscreen（F6 で候補循環、Enter で適用）
 //   T18: 画面上の「1 台」向け識別（Raw Input 先頭の HID ゲームパッド + XInput 先頭スロット）
 
-// メイン画面デバッグ表示の縦スクロール状態（レガシー縦積み HUD の本文スクロール。ページ式では帯リセット等で使われないことが多い）。Win32DebugOverlay.cpp と共有。
+// ---------------------------------------------------------------------------
+// Shared overlay layout / scroll (extern — Win32DebugOverlay.cpp とリンク共有)
+// - 更新の主因: レガシー縦積みの Win32_DebugOverlay_ComputeLayoutMetrics、T37 準備、T14 追従。
+// - ページ式 HUD 既定時: Win32_HudPaged_ResetScrollBar が s_paintScrollY を 0 にし、本文は Win32_HudPaged_* が別経路。
+// - 「legacy 専用」ではない。docs/HUD_LEGACY_CODE_DEPENDENCY.md §2.3、HUD_LEGACY_MAINTENANCE_PRIORITIES.md
+// ---------------------------------------------------------------------------
+// メイン画面デバッグ表示の縦スクロール（レガシー縦積み本文・T37 仮想スクロール換算など）。ページ式では帯リセット等で 0 になり得る。
 int s_paintScrollY = 0;
 int s_paintScrollLinePx = 16; // WM_PAINT で TEXTMETRIC から更新
 int s_paintDbgContentHeight = 0;

@@ -122,3 +122,4 @@
 | 日付 | 内容 |
 |------|------|
 | 2026-04-06 | 初版（実コード依存の棚卸し。ページ式正・レガシー互換・T37 共有を区分） |
+| 2026-04-06 | **コード上の境界**: `Win32DebugOverlay.cpp` の file-local static を legacy レイアウト用と明示、`ComputeLayoutMetrics` / `PaintStackedLegacy` / `Win32DebugOverlay_Paint` のコメントを整理。`MainApp.cpp` の共有 `s_paint*` にブロックヘッダ（挙動不変） |

@@ -30,6 +30,11 @@
 #define WIN32_OVERLAY_MIN_BODY_VIEWPORT_PX 64
 #endif
 
+// -----------------------------------------------------------------------------
+// File-local: legacy stacked layout scratch (Win32_DebugOverlay_ComputeLayoutMetrics +
+// Win32_DebugOverlay_PaintStackedLegacy). Not written when only Win32_HudPaged_PaintGdi runs.
+// docs/HUD_LEGACY_CODE_DEPENDENCY.md §2.2 / §2.3
+// -----------------------------------------------------------------------------
 // GDI Paint と D2D final HUD で body クリップ先頭を共有（ComputeLayoutMetrics で更新）
 static int s_paintDbgFinalBodyTopPx = 0;
 static int s_paintDbgBodyT14DocTopPx = 0;
@@ -56,7 +61,8 @@ static int s_paintDbgT14VmSplitVmBandH = 0;
 // 通常運用（ページ式 HUD 既定）では Win32_HudPaged_PaintGdi が本文を描く。縦スクロール・[scroll]・T14/T17 行位置の計測は主にレガシー縦積み経路（PaintStackedLegacy）で使用。
 // ---------------------------------------------------------------------------
 
-// MainApp.cpp で定義（スクロール・レイアウトキャッシュ。入力/T14 オートフォローと共有）
+// MainApp.cpp で定義 — 共有オーバーレイ状態（レガシー ComputeLayoutMetrics / T37 / T14 追従 / ページ式での scroll リセット）。legacy 専用ではない。
+// docs/HUD_LEGACY_CODE_DEPENDENCY.md §2.3
 extern int s_paintScrollY;
 extern int s_paintScrollLinePx;
 extern int s_paintDbgContentHeight;
@@ -149,14 +155,14 @@ void Win32_UpdateNativeScrollbarsWindowedOnly(HWND hwnd, int nBar, SCROLLINFO* s
     SetScrollInfo(hwnd, nBar, si, redraw);
 }
 
-// T46/T47: 直近の Windowed SetScrollInfo（fill-monitor では無効）— [scroll] 帯と [SCROLL] ログで共有
+// T46/T47: legacy レイアウト経路 — 直近の Windowed SetScrollInfo（fill-monitor では無効）。[scroll] 帯と [SCROLL] ログで共有。
 static int s_t46LastSiNMax = 0;
 static UINT s_t46LastSiNPage = 0;
 static int s_t46LastSiNPos = 0;
 static int s_t46LastSiMaxScrollSi = 0;
 static bool s_t46LastSiValid = false;
 
-// T52: 直近の Win32_DebugOverlay_ComputeLayoutMetrics が T45 まで完了し、contentH / scrollVpH / SI スナップショットが整合している
+// T52: legacy ComputeLayoutMetrics が T45 まで完了し、contentH / scrollVpH / SI スナップショットが整合している
 static bool s_paintDbgLayoutMetricsFromPaintValid = false;
 
 // F7 ジャンプ先: 「--- T17 presentation ---」行を上余白付きで見える scrollY。
@@ -751,8 +757,9 @@ static void Win32_T60_FindT14AppendixMarkers(
     }
 }
 
-// Prefill / WM_PAINT 共通: スクロール・[scroll] 帯の高さ・T17 行位置などを計測。
-// outHud 非 null のときは D2D final HUD 用に左列全文（menu+t14）とスクロール値を書き込む。
+// Legacy: Win32_DebugOverlay_PrefillHudLeftColumnForD2d（!Win32_HudPaged_IsEnabled() 時）および
+// Win32_DebugOverlay_PaintStackedLegacy からのみ呼ばれる。ページ式 HUD 既定時は呼ばれない（Win32_HudPaged_PrefillD2d）。
+// スクロール・[scroll] 帯の高さ・T17 行位置などを計測。outHud 非 null のときは D2D final HUD 用に左列全文（menu+t14）とスクロール値を書き込む。
 static void Win32_DebugOverlay_ComputeLayoutMetrics(
     HWND hwnd,
     HDC hdc,
@@ -1542,8 +1549,8 @@ refill_budget:
     s_paintDbgLayoutRestVpBudgetHint = restVpBudgetHint;
 }
 
-// 本文（メニュー + T14〜T18 テキスト）をスクロール付きで描画し、下端に [scroll] サマリを載せる（レガシー縦積み HUD）。
-// Win32DebugOverlay_Paint は既定でページ式 HUD を先に分岐し、本関数は WIN32_HUD_USE_PAGED_HUD=0 の互換経路のみ。
+// Legacy stacked HUD — WIN32_HUD_USE_PAGED_HUD=0 の GDI 本文（メニュー + T14〜T18 縦積み + 下端 [scroll]）。
+// Win32DebugOverlay_Paint はページ式を先に分岐し、本 static は互換経路のみ。
 static void Win32_DebugOverlay_PaintStackedLegacy(
     HWND hwnd,
     HDC hdc,
@@ -1765,6 +1772,7 @@ static void Win32_DebugOverlay_PaintStackedLegacy(
     SetTextColor(hdc, prevTextColor);
 }
 
+// HUD GDI 入口（WM_PAINT から）: ページ式を優先し、無効時のみレガシー縦積みへ。
 void Win32DebugOverlay_Paint(
     HWND hwnd,
     HDC hdc,
