@@ -281,16 +281,22 @@ bool Win32_LegacyStacked_RunVmSplitScratchPass(
     return true;
 }
 
-void Win32_LegacyStacked_ApplyVmSplitMainAppExternFromScratchPass(
+// vmSplit 確定時の MainApp extern への最小 write（ComputeLayoutMetrics はここ経由のみ）
+static void Win32_LegacyStacked_ApplyMainAppPaintDbgVmSplitScratchOutToExtern(
     const Win32_LegacyStacked_VmSplitScratchPassOut& vsp)
 {
-    // MainApp 共有への書き込み塊（vmSplit 確定時）
     s_paintDbgT17DocY = vsp.t17DocY;
     if (vsp.t14LayoutOutValid)
     {
         s_paintDbgT14VisibleModesDocStartY = vsp.t14VisibleModesDocStartY;
         s_paintDbgT14LayoutValid = vsp.t14LayoutValid;
     }
+}
+
+void Win32_LegacyStacked_ApplyVmSplitMainAppExternFromScratchPass(
+    const Win32_LegacyStacked_VmSplitScratchPassOut& vsp)
+{
+    Win32_LegacyStacked_ApplyMainAppPaintDbgVmSplitScratchOutToExtern(vsp);
 }
 
 void Win32_LegacyStacked_LoadMainAppPaintDbgRead(Win32_LegacyStacked_MainAppPaintDbgRead* out)
@@ -409,7 +415,7 @@ void Win32_LegacyStacked_ApplyScrollLineMetricsFromHdc(HDC hdc)
     }
     else
     {
-        s_paintDbgLineHeight = s_paintScrollLinePx;
+        Win32_LegacyStacked_ApplyMainAppPaintDbgScrollLineMetrics(s_paintScrollLinePx);
     }
 }
 
@@ -665,8 +671,9 @@ static void Win32_T60_FindT14AppendixMarkers(
 // Win32_DebugOverlay_PaintStackedLegacy からのみ呼ばれる。ページ式 HUD 既定時は呼ばれない（Win32_HudPaged_PrefillD2d）。
 // スクロール・[scroll] 帯の高さ・T17 行位置などを計測。outHud 非 null のときは D2D final HUD 用に左列全文（menu+t14）とスクロール値を書き込む。
 //
-// Side-effect map (categories; not every assignment): ① file-top scratch (ApplyScratch* / ResetVmSplit* / ClearScratchRestViewportTop helpers), ② MainApp extern s_paintDbg* / line height (vmSplit T17/T14: ApplyVmSplitMainAppExternFromScratchPass; scroll line: ApplyScrollLineMetricsFromHdc; maxScroll+clamp: SetDbgMaxScrollAndClampScrollY; 薄い write 束: ApplyMainAppPaintDbgContentAndClientGeometry / ApplyMainAppPaintDbgPostOverlayMeasures 等),
-// ③ outHud dbgHud* when non-null (via Win32_LegacyStacked_ApplyD2dHudPrefill), ④ unified clamp+T45 (RunUnifiedMaxScrollClampAndT45) → T46 inside T45; MarkPaintLayoutMetricsFromPaintValid (T52).  HUD_LEGACY_CODE_DEPENDENCY.md §7.7
+// Side-effect map (categories; not every assignment): ① file-top scratch (ApplyScratch* / ResetVmSplit* / ClearScratchRestViewportTop helpers), ② MainApp extern s_paintDbg* / line height（vmSplit: ApplyMainAppPaintDbgVmSplitScratchOutToExtern / ApplyVmSplitMainAppExternFromScratchPass; scroll line: ApplyScrollLineMetricsFromHdc; maxScroll+clamp: SetDbgMaxScrollAndClampScrollY; 薄い write 束: ApplyMainAppPaintDbgContentAndClientGeometry / ApplyMainAppPaintDbgPostOverlayMeasures 等）,
+// ③ [scroll] / ScrollLog 用の MainApp スナップショットは LoadMainAppPaintDbgRead（本体では s_paintDbg* を直接読まない）,
+// ④ outHud dbgHud* when non-null (via Win32_LegacyStacked_ApplyD2dHudPrefill), ⑤ unified clamp+T45 (RunUnifiedMaxScrollClampAndT45) → T46 inside T45; MarkPaintLayoutMetricsFromPaintValid (T52).  HUD_LEGACY_CODE_DEPENDENCY.md §7.7
 static void Win32_DebugOverlay_ComputeLayoutMetrics(const Win32_LegacyStacked_LayoutMetricsParams& p)
 {
     HWND hwnd = p.common.hwnd;
@@ -894,15 +901,17 @@ refill_budget:
 
     if (vmSplitActive)
     {
+        Win32_LegacyStacked_MainAppPaintDbgRead provMa{};
+        Win32_LegacyStacked_LoadMainAppPaintDbgRead(&provMa);
         Win32_DebugOverlay_FormatScrollDebugOverlay(
             overlay,
             _countof(overlay),
             t17ModeLabelForOverlay,
-            s_paintDbgContentHeightBase,
-            s_paintDbgExtraBottomPadding,
-            s_paintDbgContentHeight,
-            s_paintDbgT17DocY,
-            s_paintScrollY,
+            provMa.contentHeightBase,
+            provMa.extraBottomPadding,
+            provMa.contentHeight,
+            provMa.t17DocY,
+            provMa.scrollY,
             clientH,
             splitRestVp,
             jumpF7,
@@ -993,17 +1002,20 @@ refill_budget:
 
     Win32_LegacyStacked_MarkPaintLayoutMetricsFromPaintValid();
 
+    Win32_LegacyStacked_MainAppPaintDbgRead postUnifiedMa{};
+    Win32_LegacyStacked_LoadMainAppPaintDbgRead(&postUnifiedMa);
+
     if (logScroll)
     {
         Win32DebugOverlay_ScrollLog(
             L"WM_PAINT after SetScrollInfo",
             hwnd,
             scrollYBeforePaint,
-            s_paintScrollY,
-            s_paintDbgContentHeight,
-            s_paintDbgT17DocY,
+            postUnifiedMa.scrollY,
+            postUnifiedMa.contentHeight,
+            postUnifiedMa.t17DocY,
             vmSplitActive ? splitHRest : baseContentH,
-            s_paintDbgExtraBottomPadding);
+            postUnifiedMa.extraBottomPadding);
     }
 
     jumpF7 = Win32DebugOverlay_ScrollTargetT17WithTopMargin();
@@ -1012,13 +1024,13 @@ refill_budget:
         overlay,
         _countof(overlay),
         t17ModeLabelForOverlay,
-        s_paintDbgContentHeightBase,
-        s_paintDbgExtraBottomPadding,
-        s_paintDbgContentHeight,
-        s_paintDbgT17DocY,
-        s_paintScrollY,
-        s_paintDbgClientHeight,
-        s_paintDbgRestViewportClientH,
+        postUnifiedMa.contentHeightBase,
+        postUnifiedMa.extraBottomPadding,
+        postUnifiedMa.contentHeight,
+        postUnifiedMa.t17DocY,
+        postUnifiedMa.scrollY,
+        postUnifiedMa.clientHeight,
+        postUnifiedMa.restViewportClientH,
         jumpF7,
         jumpF8,
         false,

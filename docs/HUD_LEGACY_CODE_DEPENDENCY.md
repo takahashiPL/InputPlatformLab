@@ -205,4 +205,5 @@
 | 2026-04-06 | **§7.2 追記**: main TU の legacy スクラッチ／T52 参照を `LoadLayoutScratchRead` + getter/setter に寄せ、`Win32DebugOverlay.cpp` の `extern` ブロックを撤去（挙動不変） |
 | 2026-04-06 | **§5 / §7.2 追記**: MainApp 共有 `s_paintDbg*`／scroll の legacy 側 `extern` を `Win32MainAppPaintDbg_shared_link.h` に集約し、`LoadMainAppPaintDbgRead` / `ApplyMainAppPaintDbgScrollLineMetrics` を追加（挙動不変） |
 | 2026-04-06 | **§5 追記**: `shared_link.h` を overlay 用 MainApp `extern` 一式に拡張。`MainAppPaintDbgRead` を拡張し、ScrollTarget / ScrollLog / `PaintStackedLegacy` の読み取りを `Load*` に寄せ、`ApplyMainAppPaintDbgResetProvisionalLayoutExtras` を追加（挙動不変） |
+| 2026-04-06 | **§7.7 追記**: `ComputeLayoutMetrics` 内の `[scroll]` / `ScrollLog`／暫定 `FormatScroll` は `LoadMainAppPaintDbgRead` スナップショットを使用（`ApplyScrollLineMetricsFromHdc` の else を `ApplyMainAppPaintDbgScrollLineMetrics` に統一；vmSplit→MainApp extern の代入は file-static helper に集約。T45/T46 本体は未変更） |
 | 2026-04-06 | **§7.7 追記**: `ComputeLayoutMetrics` 内の MainApp 共有への薄い write を `ApplyMainAppPaintDbg*`（ContentAndClientGeometry / PostOverlayMeasures / T14BudgetHeights 等）に寄せる（T45/T46 本体は未変更、挙動不変） |

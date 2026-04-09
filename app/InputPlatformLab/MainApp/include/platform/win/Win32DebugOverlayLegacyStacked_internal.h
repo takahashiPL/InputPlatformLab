@@ -162,6 +162,7 @@ bool Win32_LegacyStacked_RunVmSplitScratchPass(
     const wchar_t* pT15,
     Win32_LegacyStacked_VmSplitScratchPassOut* out);
 
+// vmSplit 確定時の MainApp extern への write（代入は legacy TU 内の helper に集約）
 void Win32_LegacyStacked_ApplyVmSplitMainAppExternFromScratchPass(
     const Win32_LegacyStacked_VmSplitScratchPassOut& vsp);
 
