@@ -29,6 +29,9 @@ build/
 *.exe
 *.dll
 
+# Local HUD acceptance smoke captures (optional; not versioned)
+docs/_hud_smoke_*/
+
 # Logs / temp
 *.log
 *.tmp
