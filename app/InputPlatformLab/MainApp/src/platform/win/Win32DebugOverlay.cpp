@@ -425,7 +425,8 @@ void Win32_DebugOverlay_ClampScrollYToMaxScroll(int maxScroll, const wchar_t* wh
     s_paintScrollY = newY;
 }
 
-// T45: Windowed のみ。論理レイアウトの最終 contentH / スクロール用ビューポート高から SetScrollInfo（maxScroll_si == contentH - viewportH）
+// T45: Windowed のみ。論理レイアウトの最終 contentH / スクロール用ビューポート高から SetScrollInfo（maxScroll_si == contentH - viewportH）。T46 スナップショットは本関数内で更新。
+// ComputeLayoutMetrics の unified 経路は Win32_LegacyStacked_RunUnifiedMaxScrollClampAndT45 が入口（§7.7 D）。
 static void Win32_T45_ApplyWindowedScrollInfo(HWND hwnd, int scrollContentH, int scrollViewportH, int pos)
 {
     if (!hwnd || Win32_IsMainWindowFillMonitorPresentation(hwnd))
@@ -1142,12 +1143,34 @@ void Win32_LegacyStacked_SetDbgMaxScrollAndClampScrollY(int maxScrollLogical, co
     Win32_DebugOverlay_ClampScrollYToMaxScroll(maxScrollLogical, where);
 }
 
+// §7.7 D: unified layout numbers passed to clamp+T45 (T46 snapshot written inside Win32_T45_ApplyWindowedScrollInfo).
+struct Win32_LegacyStacked_UnifiedScrollLayoutForT45 {
+    int scrollContentHFinal{};
+    int scrollViewportHFinal{};
+    int maxScrollUnified{};
+};
+
+// Legacy stacked adapter: category B unified clamp then T45 (native SI). Order: clamp updates s_paintScrollY, then T45 uses pos.
+void Win32_LegacyStacked_RunUnifiedMaxScrollClampAndT45(
+    HWND hwnd,
+    const Win32_LegacyStacked_UnifiedScrollLayoutForT45& u)
+{
+    Win32_LegacyStacked_SetDbgMaxScrollAndClampScrollY(u.maxScrollUnified, L"ComputeLayoutMetrics.unified");
+    Win32_T45_ApplyWindowedScrollInfo(hwnd, u.scrollContentHFinal, u.scrollViewportHFinal, s_paintScrollY);
+}
+
+// T52 §7.7: after T45/T46 path, shared readers may trust layout metrics + SI snapshot.
+void Win32_LegacyStacked_MarkPaintLayoutMetricsFromPaintValid(void)
+{
+    s_paintDbgLayoutMetricsFromPaintValid = true;
+}
+
 // Legacy: Win32_DebugOverlay_PrefillHudLeftColumnForD2d（!Win32_HudPaged_IsEnabled() 時）および
 // Win32_DebugOverlay_PaintStackedLegacy からのみ呼ばれる。ページ式 HUD 既定時は呼ばれない（Win32_HudPaged_PrefillD2d）。
 // スクロール・[scroll] 帯の高さ・T17 行位置などを計測。outHud 非 null のときは D2D final HUD 用に左列全文（menu+t14）とスクロール値を書き込む。
 //
 // Side-effect map (categories; not every assignment): ① file-top scratch (ApplyScratch* / ResetVmSplit* / ClearScratchRestViewportTop helpers), ② MainApp extern s_paintDbg* / line height (vmSplit T17/T14: ApplyVmSplitMainAppExternFromScratchPass; scroll line: ApplyScrollLineMetricsFromHdc; maxScroll+clamp: SetDbgMaxScrollAndClampScrollY),
-// ③ outHud dbgHud* when non-null (via Win32_LegacyStacked_ApplyD2dHudPrefill), ④ Win32_T45_ApplyWindowedScrollInfo → T46 snapshot + T52 validity.  HUD_LEGACY_CODE_DEPENDENCY.md §7.7
+// ③ outHud dbgHud* when non-null (via Win32_LegacyStacked_ApplyD2dHudPrefill), ④ unified clamp+T45 (RunUnifiedMaxScrollClampAndT45) → T46 inside T45; MarkPaintLayoutMetricsFromPaintValid (T52).  HUD_LEGACY_CODE_DEPENDENCY.md §7.7
 void Win32_DebugOverlay_ComputeLayoutMetrics(const Win32_LegacyStacked_LayoutMetricsParams& p)
 {
     HWND hwnd = p.common.hwnd;
@@ -1453,10 +1476,9 @@ refill_budget:
     const int scrollContentHFinal = s_paintDbgContentHeight;
     const int scrollViewportHFinal = vmSplitActive ? s_paintDbgRestViewportClientH : clientH;
     const int maxScrollUnified = (std::max)(0, scrollContentHFinal - scrollViewportHFinal);
-    {
-        Win32_LegacyStacked_SetDbgMaxScrollAndClampScrollY(maxScrollUnified, L"ComputeLayoutMetrics.unified");
-        Win32_T45_ApplyWindowedScrollInfo(hwnd, scrollContentHFinal, scrollViewportHFinal, s_paintScrollY);
-    }
+    Win32_LegacyStacked_RunUnifiedMaxScrollClampAndT45(
+        hwnd,
+        {scrollContentHFinal, scrollViewportHFinal, maxScrollUnified});
 
     // T54: provisional restVpBudgetHint で短縮した本文が、確定レイアウトでは不要になったら通常 budget で再生成（最大 1 回）
     if (!t54ReExpanded && !Win32_IsMainWindowFillMonitorPresentation(hwnd) && restVpBudgetHint >= 0)
@@ -1472,7 +1494,7 @@ refill_budget:
         }
     }
 
-    s_paintDbgLayoutMetricsFromPaintValid = true;
+    Win32_LegacyStacked_MarkPaintLayoutMetricsFromPaintValid();
 
     if (logScroll)
     {
