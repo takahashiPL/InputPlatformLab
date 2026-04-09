@@ -2,7 +2,7 @@
 #include "Win32DebugOverlay.h"
 #include "WindowsRenderer.h"
 #include "Win32HudPaged.h"
-#include "Win32DebugOverlayLegacyStacked_internal.h"
+#include "Win32DebugOverlayLegacyStacked_bridge.h"
 #include "Win32MainAppPaintDbg_shared_link.h"
 
 #include <algorithm>

@@ -69,6 +69,9 @@
     <ClInclude Include="include\platform\win\Win32DebugOverlay.h">
       <Filter>include\platform\win</Filter>
     </ClInclude>
+    <ClInclude Include="include\platform\win\Win32DebugOverlayLegacyStacked_bridge.h">
+      <Filter>include\platform\win</Filter>
+    </ClInclude>
     <ClInclude Include="include\platform\win\Win32DebugOverlayLegacyStacked_internal.h">
       <Filter>include\platform\win</Filter>
     </ClInclude>

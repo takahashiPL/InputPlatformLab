@@ -105,8 +105,8 @@
 |----------|------|
 | `Win32HudPaged.h` | マクロ・ページ式 API 宣言・方針コメント。 |
 | `MainApp.cpp` | ページ式本文・`s_hudPagedIndex`・入力・T19 タイマー・T37 準備・`Win32_FillMenuSamplePaintBuffers` 実体・共有 `s_paint*`。 |
-| `Win32DebugOverlay.cpp` | `Paint` / `PrefillHudLeftColumnForD2d` / `FormatScrollDebugOverlay` / `ScrollLog` / `ScrollTarget*` 等（**legacy の `ComputeLayoutMetrics` / `PaintStackedLegacy` の実体**は `Win32DebugOverlayLegacyStacked.cpp`）。MainApp 共有 HUD の **`extern` は `Win32MainAppPaintDbg_shared_link.h` に集約**。 |
-| `Win32DebugOverlayLegacyStacked.cpp` | レガシー縦積み用スクラッチ・`Win32_LegacyStacked_*`・**CALCRECT/T60 計測ヘルパー**・**`ComputeLayoutMetrics` / `PaintStackedLegacy`**（`RunGdiPaint` / `RunComputeLayoutMetrics` の実装）。`internal.h` は型とヘルパ宣言のみ。同 **`shared_link.h`** + **`LoadMainAppPaintDbgRead` / `ApplyMainAppPaintDbg*`**。 |
+| `Win32DebugOverlay.cpp` | `Paint` / `PrefillHudLeftColumnForD2d` / `FormatScrollDebugOverlay` / `ScrollLog` / `ScrollTarget*` 等（**legacy の `ComputeLayoutMetrics` / `PaintStackedLegacy` の実体**は `Win32DebugOverlayLegacyStacked.cpp`）。legacy との橋渡しは **`Win32DebugOverlayLegacyStacked_bridge.h` のみ**（`internal.h` は include しない）。MainApp 共有 HUD の **`extern` は `Win32MainAppPaintDbg_shared_link.h` に集約**。 |
+| `Win32DebugOverlayLegacyStacked.cpp` | レガシー縦積み用スクラッチ・`Win32_LegacyStacked_*`・**CALCRECT/T60 計測ヘルパー**・**`ComputeLayoutMetrics` / `PaintStackedLegacy`**（`RunGdiPaint` / `RunComputeLayoutMetrics` の実装）。**`Win32DebugOverlayLegacyStacked_internal.h`**（bridge + legacy 実装向け宣言）。同 **`shared_link.h`** + **`LoadMainAppPaintDbgRead` / `ApplyMainAppPaintDbg*`**。 |
 | `Win32DebugOverlay.h` | 外部公開のオーバーレイ API・`Win32_FillMenuSamplePaintBuffers` 宣言。 |
 | `WindowsRenderer.cpp` | D3D/D2D、T37 DWrite 本文、ページ式時の D2D HUD 重複防止。 |
 
@@ -126,12 +126,12 @@
 
 | 単位 | 内容 | 備考 |
 |------|------|------|
-| **Legacy stacked pipeline** | `Win32_DebugOverlay_ComputeLayoutMetrics` + `Win32_DebugOverlay_PaintStackedLegacy` | `Win32_DebugOverlay_PrefillHudLeftColumnForD2d` の legacy 分岐からも `ComputeLayoutMetrics` を呼ぶため、**D2D プレフィル**とリンク上は同じ束になりやすい。**実装**: スクラッチ・`Win32_LegacyStacked_*`・CALCRECT/T60 計測・**`ComputeLayoutMetrics` / `PaintStackedLegacy`** は **`Win32DebugOverlayLegacyStacked.cpp`**（`internal.h` に `RunGdiPaint` / `RunComputeLayoutMetrics` を宣言）。**main TU** は `Win32DebugOverlay_Paint` / `PrefillHudLeftColumnForD2d` から adapter を呼ぶだけ。 |
+| **Legacy stacked pipeline** | `Win32_DebugOverlay_ComputeLayoutMetrics` + `Win32_DebugOverlay_PaintStackedLegacy` | `Win32_DebugOverlay_PrefillHudLeftColumnForD2d` の legacy 分岐からも `ComputeLayoutMetrics` を呼ぶため、**D2D プレフィル**とリンク上は同じ束になりやすい。**実装**: スクラッチ・`Win32_LegacyStacked_*`・CALCRECT/T60 計測・**`ComputeLayoutMetrics` / `PaintStackedLegacy`** は **`Win32DebugOverlayLegacyStacked.cpp`**。**main TU** は **`Win32DebugOverlayLegacyStacked_bridge.h`**（`RunGdiPaint` / `RunComputeLayoutMetrics`・I/O struct・Load/getter の最小面のみ）。**legacy TU** は **`Win32DebugOverlayLegacyStacked_internal.h`**（bridge を include した上で scratch / Apply* / vmSplit 等の宣言を追加）。 |
 | **GDI 入口の薄い分岐** | `Win32DebugOverlay_Paint` 内の `Win32_HudPaged_IsEnabled()` → `PaintStackedLegacy` | 既に短い。 |
 
 ### 7.2 同一ファイル先頭に置く必要があるもの（宣言順）
 
-**legacy 縦積み用スクラッチ**（`s_paintDbgT14VmSplit*` 等）と **T52** `s_paintDbgLayoutMetricsFromPaintValid` の **定義**は **`Win32DebugOverlayLegacyStacked.cpp`**。`Win32DebugOverlayLegacyStacked_internal.h` は **I/O struct** と **`Win32_LegacyStacked_*` の宣言**のみ（グローバル `extern` は載せない）。**`Win32DebugOverlay.cpp`** は当該スクラッチ／T52 を **`extern` で直参照しない** — **`Win32_LegacyStacked_LoadLayoutScratchRead`**（`Win32_LegacyStacked_MainLayoutScratchRead`）と **getter/setter**（`GetT14VmSplitActive` / `GetT17DocYRestScroll` / `IsPaintLayoutMetricsFromPaintValid` / `ClearPaintLayoutMetricsFromPaintValid` 等）で読み書き。**`Win32DebugOverlay.cpp` / `Win32DebugOverlayLegacyStacked.cpp`** が参照する **MainApp 共有 HUD** の **`extern` 宣言**は **`Win32MainAppPaintDbg_shared_link.h`** に一本化（個別 `extern` 列挙を両 TU から削減）。読み取りは **`Win32_LegacyStacked_LoadMainAppPaintDbgRead`**（`scrollY` / `restViewportClientH` / `contentHeight` / `t17DocY` 等のスナップショット）、行高の書き込みは **`Win32_LegacyStacked_ApplyMainAppPaintDbgScrollLineMetrics`**、vmSplit 由来の MainApp 更新は **`Win32_LegacyStacked_ApplyVmSplitMainAppExternFromScratchPass`**、仮想レイアウトキャッシュの一部リセットは **`Win32_LegacyStacked_ApplyMainAppPaintDbgResetProvisionalLayoutExtras`** に集約。**`Win32_DebugOverlay_LegacyStacked_InvokeT45`** は **main TU** の static T45 への橋渡しで **`Win32DebugOverlay.cpp` に定義**、legacy TU は **前方宣言のみ**。**C++ では名前は宣言より前に使えない**ため、この群をさらに移す場合は共有側のスクロール API を **前方宣言・getter 化・ファイル順の再配置**のいずれかで揃える必要がある。シンボル名は `s_paintDbg*` のまま。
+**legacy 縦積み用スクラッチ**（`s_paintDbgT14VmSplit*` 等）と **T52** `s_paintDbgLayoutMetricsFromPaintValid` の **定義**は **`Win32DebugOverlayLegacyStacked.cpp`**。**`Win32DebugOverlay.cpp`**（main TU）は **`Win32DebugOverlayLegacyStacked_bridge.h` のみ** include し、**`Win32DebugOverlayLegacyStacked_internal.h` は include しない**（依存境界の縮小）。**`Win32DebugOverlayLegacyStacked_internal.h`** は bridge を include したうえで、**legacy TU 実装用**の型・`Apply*`・scratch API を追加する。**グローバル `extern` は載せない**。**`Win32DebugOverlay.cpp`** は当該スクラッチ／T52 を **`extern` で直参照しない** — **`Win32_LegacyStacked_LoadLayoutScratchRead`**（`Win32_LegacyStacked_MainLayoutScratchRead`）は **legacy TU 側**の呼び出しのみ；main 側は **getter**（`GetT14VmSplitActive` / `GetT17DocYRestScroll` / `IsPaintLayoutMetricsFromPaintValid` / `ClearPaintLayoutMetricsFromPaintValid` 等）と **LoadMainAppPaintDbgRead** で読み取る。**`Win32DebugOverlay.cpp` / `Win32DebugOverlayLegacyStacked.cpp`** が参照する **MainApp 共有 HUD** の **`extern` 宣言**は **`Win32MainAppPaintDbg_shared_link.h`** に一本化（個別 `extern` 列挙を両 TU から削減）。読み取りは **`Win32_LegacyStacked_LoadMainAppPaintDbgRead`**（`scrollY` / `restViewportClientH` / `contentHeight` / `t17DocY` 等のスナップショット）、行高の書き込みは **`Win32_LegacyStacked_ApplyMainAppPaintDbgScrollLineMetrics`**、vmSplit 由来の MainApp 更新は **`Win32_LegacyStacked_ApplyVmSplitMainAppExternFromScratchPass`**、仮想レイアウトキャッシュの一部リセットは **`Win32_LegacyStacked_ApplyMainAppPaintDbgResetProvisionalLayoutExtras`** に集約。**`Win32_DebugOverlay_LegacyStacked_InvokeT45`** は **main TU** の static T45 への橋渡しで **`Win32DebugOverlay.cpp` に定義**、legacy TU は **前方宣言のみ**。**C++ では名前は宣言より前に使えない**ため、この群をさらに移す場合は共有側のスクロール API を **前方宣言・getter 化・ファイル順の再配置**のいずれかで揃える必要がある。シンボル名は `s_paintDbg*` のまま。
 
 ### 7.3 「レガシーで更新・共有で読む」ため分離が一緒に動きやすいもの
 
@@ -158,7 +158,7 @@
 
 ### 7.6 副作用の出口と adapter（実装メモ）
 
-**目的**: レガシー縦積み本体が **どこへ**副作用を出すかを、入口（§7.5）に続けて追いやすくする。adapter の実装は **`Win32DebugOverlayLegacyStacked.cpp`**（`internal.h` に宣言）。
+**目的**: レガシー縦積み本体が **どこへ**副作用を出すかを、入口（§7.5）に続けて追いやすくする。adapter の実装は **`Win32DebugOverlayLegacyStacked.cpp`**（`bridge.h` の `Run*` と **`internal.h`** の残り宣言）。
 
 | 要素 | 役割 |
 |------|------|
@@ -207,3 +207,4 @@
 | 2026-04-06 | **§5 追記**: `shared_link.h` を overlay 用 MainApp `extern` 一式に拡張。`MainAppPaintDbgRead` を拡張し、ScrollTarget / ScrollLog / `PaintStackedLegacy` の読み取りを `Load*` に寄せ、`ApplyMainAppPaintDbgResetProvisionalLayoutExtras` を追加（挙動不変） |
 | 2026-04-06 | **§7.7 追記**: `ComputeLayoutMetrics` 内の `[scroll]` / `ScrollLog`／暫定 `FormatScroll` は `LoadMainAppPaintDbgRead` スナップショットを使用（`ApplyScrollLineMetricsFromHdc` の else を `ApplyMainAppPaintDbgScrollLineMetrics` に統一；vmSplit→MainApp extern の代入は file-static helper に集約。T45/T46 本体は未変更） |
 | 2026-04-06 | **§7.7 追記**: `ComputeLayoutMetrics` 内の MainApp 共有への薄い write を `ApplyMainAppPaintDbg*`（ContentAndClientGeometry / PostOverlayMeasures / T14BudgetHeights 等）に寄せる（T45/T46 本体は未変更、挙動不変） |
+| 2026-04-06 | **§7.1 / §7.2 追記**: **`Win32DebugOverlayLegacyStacked_bridge.h`** を追加（main TU が include する最小橋渡し）。**`Win32DebugOverlayLegacyStacked_internal.h`** は bridge を include した legacy 実装向けの宣言に再編（`WindowsRenderer.h` は internal 側のみ。挙動不変） |
