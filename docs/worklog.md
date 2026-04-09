@@ -19,6 +19,13 @@
 
 ---
 
+| **日付** | 2026-04-06 |
+| **実施内容** | **レガシー縦積み HUD TU 分離フェーズを close**（`HUD_LEGACY_STACKED_PHASE_CLOSE.md`）。**次の本題テーマ**を **T35 §5（観測性・ログ整合）の第 1 歩**に絞る（legacy 分離の続き・T45/T46 移設はしない）。`MainApp.cpp` T17 コメントに `t35_display_mode_policy.md` §5 参照を 1 行追加（挙動不変）。 |
+| **確認できたこと** | [roadmap.md](roadmap.md) / 本ファイルの未解決（t35 §5）と整合。ページ式 HUD は正のまま、**表示モード・レンダリングの観測**を次の実装スパインとする判断を記録。 |
+| **未解決事項** | §5 の本体（T17 と T14 committed のログ揃え、GDI スケール等）は未着手。 |
+
+---
+
 | **日付** | 2026-03-30 |
 | **実施内容** | T34（Borderless・committed 解像度オフスクリーン → swapchain へ合成）と T35（表示モード方針整理の未着手スコープ）を文書化。`docs/t34_t35_display_and_render.md` を追加。コード側はコメント・ログ接頭辞 `[T34][RT]` の整理に留める。 |
 | **確認できたこと** | T34 は Borderless + committed 有効時に `[T34][RT] offscreen create / draw / composite` が通る前提。T17 の `targetPhys`/`client` ログはモード方針用でありオフスクリーン解像度とは別軸。 |

@@ -2042,6 +2042,7 @@ static void Win32_T16_RecreateMainWindowFromCurrentSelection(HWND oldHwnd)
 // T17: プレゼンテーション（Windowed / Borderless / Fullscreen）
 //
 // 方針（T16 再生成・高解像度モニタ含む）。モード別の正式方針（window/client・swapchain・offscreen・Present・GDI）は docs/t35_display_mode_policy.md（T35 固定）。T34 committed は T17 の targetPhys/client/outer とは別軸。
+// T17 ログと T14 committed の数値を揃える作業は t35_display_mode_policy.md §5（将来・別タスク）。ここでは方針を変えない。
 // - Windowed: T14 選択モード（なければ T15 最近傍）をクライアント物理サイズに解決し、AdjustWindowRectExForDpi で外枠。
 //   fillMonitorPhysical は使わない。
 // - Borderless: デスクトップ解像度は CDS で変えない。選択モニタの monitor_rect 全面に WS_POPUP（fillMonitorPhysical）。
