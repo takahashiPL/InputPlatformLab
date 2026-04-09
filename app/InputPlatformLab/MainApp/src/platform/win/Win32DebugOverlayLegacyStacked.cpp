@@ -328,3 +328,53 @@ void Win32_LegacyStacked_MarkPaintLayoutMetricsFromPaintValid(void)
 {
     s_paintDbgLayoutMetricsFromPaintValid = true;
 }
+
+void Win32_LegacyStacked_LoadLayoutScratchRead(Win32_LegacyStacked_MainLayoutScratchRead* out)
+{
+    if (!out)
+    {
+        return;
+    }
+    out->finalRow1HeightPx = s_paintDbgFinalRow1HeightPx;
+    out->row2TopPx = s_paintDbgRow2TopPx;
+    out->t14VmSplitActive = s_paintDbgT14VmSplitActive;
+    out->finalBodyTopPx = s_paintDbgFinalBodyTopPx;
+    out->bodyT14DocTopPx = s_paintDbgBodyT14DocTopPx;
+    out->restViewportTopPx = s_paintDbgRestViewportTopPx;
+    out->t53ScrollBandDrawEnabled = s_paintDbgT53ScrollBandDrawEnabled;
+    out->t14VmSplitPrefixH = s_paintDbgT14VmSplitPrefixH;
+    out->t14VmSplitVmBandH = s_paintDbgT14VmSplitVmBandH;
+    out->t14VmSplitPrefix = s_paintDbgT14VmSplitPrefix;
+    out->t14VmSplitVmBand = s_paintDbgT14VmSplitVmBand;
+    out->t14VmSplitRest = s_paintDbgT14VmSplitRest;
+}
+
+bool Win32_LegacyStacked_GetT14VmSplitActive(void)
+{
+    return s_paintDbgT14VmSplitActive;
+}
+
+int Win32_LegacyStacked_GetT17DocYRestScroll(void)
+{
+    return s_paintDbgT17DocYRestScroll;
+}
+
+void Win32_LegacyStacked_SetT14VmSplitActive(bool active)
+{
+    s_paintDbgT14VmSplitActive = active;
+}
+
+void Win32_LegacyStacked_SetRestViewportTopPx(int px)
+{
+    s_paintDbgRestViewportTopPx = px;
+}
+
+bool Win32_LegacyStacked_IsPaintLayoutMetricsFromPaintValid(void)
+{
+    return s_paintDbgLayoutMetricsFromPaintValid;
+}
+
+void Win32_LegacyStacked_ClearPaintLayoutMetricsFromPaintValid(void)
+{
+    s_paintDbgLayoutMetricsFromPaintValid = false;
+}

@@ -1,7 +1,7 @@
 #pragma once
 
 // Cross-TU bridge: legacy stacked I/O types + Win32_LegacyStacked_* entry points (HUD_LEGACY_CODE_DEPENDENCY.md §7).
-// Scratch / MainApp extern は各 .cpp で宣言（ヘッダの公開面を抑える）。
+// MainApp の共有 s_paintDbg* は各 .cpp で extern。legacy 専用スクラッチの読取は LoadLayoutScratchRead / getter（定義は legacy .cpp）。
 
 #include "WindowsRenderer.h"
 
@@ -48,6 +48,32 @@ struct Win32_LegacyStacked_UnifiedScrollLayoutForT45 {
     int scrollViewportHFinal{};
     int maxScrollUnified{};
 };
+
+// Main TU reads legacy scratch via Load / getters — storage stays in Win32DebugOverlayLegacyStacked.cpp (§7.2).
+struct Win32_LegacyStacked_MainLayoutScratchRead {
+    int finalRow1HeightPx{};
+    int row2TopPx{};
+    bool t14VmSplitActive{};
+    int finalBodyTopPx{};
+    int bodyT14DocTopPx{};
+    int restViewportTopPx{};
+    bool t53ScrollBandDrawEnabled{};
+    int t14VmSplitPrefixH{};
+    int t14VmSplitVmBandH{};
+    const wchar_t* t14VmSplitPrefix{};
+    const wchar_t* t14VmSplitVmBand{};
+    const wchar_t* t14VmSplitRest{};
+};
+
+void Win32_LegacyStacked_LoadLayoutScratchRead(Win32_LegacyStacked_MainLayoutScratchRead* out);
+
+bool Win32_LegacyStacked_GetT14VmSplitActive(void);
+int Win32_LegacyStacked_GetT17DocYRestScroll(void);
+void Win32_LegacyStacked_SetT14VmSplitActive(bool active);
+void Win32_LegacyStacked_SetRestViewportTopPx(int px);
+
+bool Win32_LegacyStacked_IsPaintLayoutMetricsFromPaintValid(void);
+void Win32_LegacyStacked_ClearPaintLayoutMetricsFromPaintValid(void);
 
 void Win32_LegacyStacked_ApplyD2dHudPrefill(
     WindowsRendererState* outHud,
