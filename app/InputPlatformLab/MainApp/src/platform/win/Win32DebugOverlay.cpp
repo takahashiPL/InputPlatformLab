@@ -850,6 +850,9 @@ namespace {
 // Legacy: Win32_DebugOverlay_PrefillHudLeftColumnForD2d（!Win32_HudPaged_IsEnabled() 時）および
 // Win32_DebugOverlay_PaintStackedLegacy からのみ呼ばれる。ページ式 HUD 既定時は呼ばれない（Win32_HudPaged_PrefillD2d）。
 // スクロール・[scroll] 帯の高さ・T17 行位置などを計測。outHud 非 null のときは D2D final HUD 用に左列全文（menu+t14）とスクロール値を書き込む。
+//
+// Side-effect map (categories; not every assignment): ① file-top scratch (this TU), ② MainApp extern s_paintDbg* / line height,
+// ③ outHud dbgHud* when non-null, ④ Win32_T45_ApplyWindowedScrollInfo → T46 snapshot + T52 validity.  HUD_LEGACY_CODE_DEPENDENCY.md §7.7
 void Win32_DebugOverlay_ComputeLayoutMetrics(const Win32_LegacyStacked_LayoutMetricsParams& p)
 {
     HWND hwnd = p.common.hwnd;
@@ -1647,6 +1650,7 @@ void Win32_DebugOverlay_LegacyStacked_RunComputeLayoutMetrics(const Win32_Legacy
 
 // Legacy stacked HUD — WIN32_HUD_USE_PAGED_HUD=0 の GDI 本文（メニュー + T14〜T18 縦積み + 下端 [scroll]）。
 // Win32DebugOverlay_Paint はページ式を先に分岐し、本関数は互換経路のみ。
+// Side-effect map: persistent writes go through RunComputeLayoutMetrics → ComputeLayoutMetrics; this function adds GDI raster ops only (§7.7 category E).
 void Win32_DebugOverlay_PaintStackedLegacy(const Win32_LegacyStacked_GdiPaintParams& p)
 {
     HWND hwnd = p.common.hwnd;

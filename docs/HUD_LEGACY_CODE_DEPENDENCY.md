@@ -153,7 +153,7 @@
 | **MainApp 共有状態（extern `s_paint*`）** | `ComputeLayoutMetrics` / `PaintStackedLegacy` が **読み書き**（§2.3）。別 `.cpp` 化時は **extern 宣言の共有ヘッダ**または **MainApp のみ**に残す判断が必要。 |
 | **ファイル先頭スクラッチ（無名名前空間）** | `s_paintDbg*`（§7.2）。`ComputeLayoutMetrics` が主に書き、共有の `ScrollTargetT17*` 等が読む。 |
 | **T46 / T52（§7.3）** | レガシー計測経路で更新、`ScrollLog` / `FormatScrollDebugOverlay` が参照 — **完全な legacy-only 分離は別タスク**。 |
-| **出力（副作用）** | `WindowsRendererState` の D2D プレフィル欄（`outHud` 非 null 時）、GDI `DrawText`、条件付き `Win32_T45_ApplyWindowedScrollInfo`、先頭スクラッチ・`s_paintDbg*` 更新。詳細な出口の整理は **§7.6**。 |
+| **出力（副作用）** | `WindowsRendererState` の D2D プレフィル欄（`outHud` 非 null 時）、GDI `DrawText`、条件付き `Win32_T45_ApplyWindowedScrollInfo`、先頭スクラッチ・`s_paintDbg*` 更新。adapter 境界は **§7.6**、**書き込み先の区分**は **§7.7**。 |
 
 ### 7.6 副作用の出口と adapter（実装メモ）
 
@@ -163,7 +163,19 @@
 |------|------|
 | `Win32_DebugOverlay_LegacyStacked_RunGdiPaint` | **WM_PAINT** の legacy 分岐から **唯一**呼ばれる薄い境界（→ `Win32_DebugOverlay_PaintStackedLegacy`）。将来、GDI 入口と縦積み本文の間の接続をここに固定しやすい。 |
 | `Win32_DebugOverlay_LegacyStacked_RunComputeLayoutMetrics` | **D2D Prefill（legacy）** と **GDI 本文の初回計測**の双方が通る境界（→ `Win32_DebugOverlay_ComputeLayoutMetrics`）。計測の副作用出口はまだ本体側に集約。 |
-| **本体** `ComputeLayoutMetrics` / `PaintStackedLegacy` | 実際の **extern `s_paintDbg*`**、**先頭スクラッチ**、`outHud` 書き込み、**T45→T46**、**GDI `DrawText`** はここに残る（§7.3 の共有読み取り出口は別タスク）。 |
+| **本体** `ComputeLayoutMetrics` / `PaintStackedLegacy` | 実際の **extern `s_paintDbg*`**、**先頭スクラッチ**、`outHud` 書き込み、**T45→T46**、**GDI `DrawText`** はここに残る（§7.3 の共有読み取り出口は別タスク）。**書き込み先の棚卸し**は **§7.7**。 |
+
+### 7.7 legacy 本体が更新する状態（shared / scratch / scroll 系の見える化）
+
+**目的**: `ComputeLayoutMetrics` / `PaintStackedLegacy` が **どのカテゴリの状態**を触るかを表に固定する（実装の完全な行一覧ではなく、追いかけの地図）。挙動変更はしない。
+
+| 区分 | 主な更新対象 | 主に触る関数 | 備考 |
+|------|----------------|--------------|------|
+| **A — ファイル先頭スクラッチ**（無名名前空間） | `s_paintDbgFinalBodyTopPx`、`s_paintDbgBodyT14DocTopPx`、`s_paintDbgFinalRow1HeightPx`、`s_paintDbgRow2TopPx`、`s_paintDbgT14VmSplitActive`、`s_paintDbgT17DocYRestScroll`、`s_paintDbgRestViewportTopPx`、`s_paintDbgT53ScrollBandDrawEnabled`、`s_paintDbgT14VmSplitPrefix` / `VmBand` / `Rest` と各 `*H` | `ComputeLayoutMetrics` が **書き**、`PaintStackedLegacy` が **読み**（GDI クリップ・分割描画） | §7.2 の宣言順の理由。将来 `.cpp` 分割時は **スクラッチごと移す**か **getter** が必要。 |
+| **B — MainApp extern（`s_paintDbg*` 等）** | 例: `s_paintDbgContentHeight`、`s_paintDbgContentHeightBase`、`s_paintDbgExtraBottomPadding`、`s_paintDbgClientW`/`H`、`s_paintDbgT17DocY`、`s_paintDbgMaxScroll`、`s_paintDbgScrollBandReservePx`、`s_paintDbgLayoutRestVpBudgetHint`、`s_paintDbgT14*` 系、`s_paintScrollLinePx` 等 | ほぼ **`ComputeLayoutMetrics`** に代入が集中 | `MainApp.cpp` 定義。入力・T37・滾動 UI と共有（§2.3）。 |
+| **C — D2D プレフィル（`outHud`）** | `WindowsRendererState::dbgHud*` 各フィールド（左列テキスト、スクロールバンド、vmSplit バンド等） | `outHud != nullptr` の **`ComputeLayoutMetrics`** 分岐 | Prefill（legacy）経路。 |
+| **D — T45 / T46 / T52** | `Win32_T45_ApplyWindowedScrollInfo` 経由で **`s_t46LastSi*`**；**`s_paintDbgLayoutMetricsFromPaintValid`** | **`ComputeLayoutMetrics`** 後半（スクロール範囲確定後） | `ScrollLog` / `FormatScrollDebugOverlay` が **読む**（§7.3）。adapter へ寄せるなら **T45 呼び出しのラッパ**が別論点。 |
+| **E — GDI ラスタ（永続グローバルではない）** | `DrawTextW`、`SetTextColor`、`OffsetViewportOrgEx`（`s_paintScrollY` を参照） | **`PaintStackedLegacy`** | フレームバッファ上の可視出力。状態テーブルでは **B に含めない**。 |
 
 ---
 
@@ -178,3 +190,4 @@
 | 2026-04-06 | **§7.1 追記**: `ComputeLayoutMetrics` / `PaintStackedLegacy` 本体も同一匿名名前空間に配置（前方宣言はファイル先頭ブロックへ集約） |
 | 2026-04-06 | **§7.5 追加**: legacy パイプライン入出力境界（`Win32_LegacyStacked_*` 束・shared / extern / 副作用） |
 | 2026-04-06 | **§7.6 追加**: 副作用の出口と `RunGdiPaint` / `RunComputeLayoutMetrics` adapter |
+| 2026-04-06 | **§7.7 追加**: legacy 本体が更新する shared / scratch / T45・T46 / GDI の区分表 |
