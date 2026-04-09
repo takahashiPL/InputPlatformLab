@@ -964,6 +964,154 @@ void Win32_LegacyStacked_ApplyScratchT53ScrollBandDrawEnabled(HWND hwnd, int res
           budgetT53 < WIN32_OVERLAY_T53_OMIT_SCROLL_BAND_BUDGET_PX);
 }
 
+// vmSplit: scratch buffers + DrawText heights + s_paintDbgT17DocYRestScroll. MainApp extern assignments return via `out` (caller applies).
+struct Win32_LegacyStacked_VmSplitScratchPassOut {
+    int splitHPrefix{};
+    int splitHVmBand{};
+    int splitHRest{};
+    int splitRestTopPx{};
+    int splitRestVp{};
+    int extraBottomPadding{};
+    int contentHeight{};
+    int maxScroll{};
+    int t17DocY{};
+    int t14VisibleModesDocStartY{};
+    bool t14LayoutValid{};
+    bool t14LayoutOutValid{};
+};
+
+bool Win32_LegacyStacked_RunVmSplitScratchPass(
+    HDC hdc,
+    int clientW,
+    int clientH,
+    int row2TopPx,
+    int t14BaseY,
+    const wchar_t* t14Buf,
+    const wchar_t* pVis,
+    const wchar_t* pT15,
+    Win32_LegacyStacked_VmSplitScratchPassOut* out)
+{
+    if (!out)
+    {
+        return false;
+    }
+    const wchar_t* firstVmLine = pVis + wcslen(L"visible modes:\r\n");
+    const size_t prefixChars = static_cast<size_t>(pVis - t14Buf);
+    const size_t vmBandChars = static_cast<size_t>(pT15 - pVis);
+    const size_t restChars = wcslen(pT15);
+
+    if (prefixChars >= _countof(s_paintDbgT14VmSplitPrefix) ||
+        vmBandChars >= _countof(s_paintDbgT14VmSplitVmBand) ||
+        restChars >= _countof(s_paintDbgT14VmSplitRest))
+    {
+        s_paintDbgT14VmSplitActive = false;
+        return false;
+    }
+
+    wmemcpy_s(s_paintDbgT14VmSplitPrefix, _countof(s_paintDbgT14VmSplitPrefix), t14Buf, prefixChars);
+    s_paintDbgT14VmSplitPrefix[prefixChars] = L'\0';
+    wmemcpy_s(s_paintDbgT14VmSplitVmBand, _countof(s_paintDbgT14VmSplitVmBand), pVis, vmBandChars);
+    s_paintDbgT14VmSplitVmBand[vmBandChars] = L'\0';
+    wcscpy_s(s_paintDbgT14VmSplitRest, _countof(s_paintDbgT14VmSplitRest), pT15);
+
+    RECT rcPref{};
+    rcPref.left = 0;
+    rcPref.top = t14BaseY;
+    rcPref.right = clientW;
+    rcPref.bottom = t14BaseY + 1000000;
+    DrawTextW(
+        hdc,
+        s_paintDbgT14VmSplitPrefix,
+        static_cast<int>(prefixChars),
+        &rcPref,
+        DT_LEFT | DT_TOP | DT_NOPREFIX | DT_WORDBREAK | DT_CALCRECT);
+    out->splitHPrefix = static_cast<int>(rcPref.bottom) - t14BaseY;
+
+    RECT rcVm{};
+    rcVm.left = 0;
+    rcVm.top = t14BaseY + out->splitHPrefix;
+    rcVm.right = clientW;
+    rcVm.bottom = rcVm.top + 1000000;
+    DrawTextW(
+        hdc,
+        s_paintDbgT14VmSplitVmBand,
+        static_cast<int>(vmBandChars),
+        &rcVm,
+        DT_LEFT | DT_TOP | DT_NOPREFIX | DT_WORDBREAK | DT_CALCRECT);
+    out->splitHVmBand = static_cast<int>(rcVm.bottom) - (t14BaseY + out->splitHPrefix);
+
+    RECT rcRest{};
+    rcRest.left = 0;
+    rcRest.top = t14BaseY + out->splitHPrefix + out->splitHVmBand;
+    rcRest.right = clientW;
+    rcRest.bottom = rcRest.top + 1000000;
+    DrawTextW(
+        hdc,
+        s_paintDbgT14VmSplitRest,
+        -1,
+        &rcRest,
+        DT_LEFT | DT_TOP | DT_NOPREFIX | DT_WORDBREAK | DT_CALCRECT);
+    out->splitHRest = static_cast<int>(rcRest.bottom) - (t14BaseY + out->splitHPrefix + out->splitHVmBand);
+
+    wchar_t prefixPlusHeading[8192] = {};
+    const size_t headSeg = static_cast<size_t>(firstVmLine - pVis);
+    out->t14LayoutOutValid = false;
+    if (prefixChars + headSeg < _countof(prefixPlusHeading))
+    {
+        wmemcpy_s(prefixPlusHeading, _countof(prefixPlusHeading), t14Buf, prefixChars + headSeg);
+        prefixPlusHeading[prefixChars + headSeg] = L'\0';
+        RECT rcPh{};
+        rcPh.left = 0;
+        rcPh.top = t14BaseY;
+        rcPh.right = clientW;
+        rcPh.bottom = t14BaseY + 1000000;
+        DrawTextW(
+            hdc,
+            prefixPlusHeading,
+            -1,
+            &rcPh,
+            DT_LEFT | DT_TOP | DT_NOPREFIX | DT_WORDBREAK | DT_CALCRECT);
+        out->t14VisibleModesDocStartY = static_cast<int>(rcPh.bottom);
+        out->t14LayoutValid = true;
+        out->t14LayoutOutValid = true;
+    }
+
+    const wchar_t* t17InRest = wcsstr(s_paintDbgT14VmSplitRest, L"--- T17 presentation ---");
+    if (t17InRest != nullptr)
+    {
+        const size_t prefixToT17 = static_cast<size_t>(t17InRest - s_paintDbgT14VmSplitRest);
+        wchar_t preT17[8192] = {};
+        if (prefixToT17 < _countof(preT17))
+        {
+            wmemcpy_s(preT17, _countof(preT17), s_paintDbgT14VmSplitRest, prefixToT17);
+            preT17[prefixToT17] = L'\0';
+            RECT rcT17{};
+            rcT17.left = 0;
+            rcT17.top = 0;
+            rcT17.right = clientW;
+            rcT17.bottom = 1000000;
+            DrawTextW(
+                hdc,
+                preT17,
+                -1,
+                &rcT17,
+                DT_LEFT | DT_TOP | DT_NOPREFIX | DT_WORDBREAK | DT_CALCRECT);
+            s_paintDbgT17DocYRestScroll = static_cast<int>(rcT17.bottom);
+        }
+    }
+
+    out->splitRestTopPx = row2TopPx + t14BaseY + out->splitHPrefix + out->splitHVmBand;
+    out->splitRestVp = (std::max)(1, clientH - out->splitRestTopPx);
+    const int maxScrollBeforePaddingRest = (std::max)(0, out->splitHRest - out->splitRestVp);
+    // T56: fill-monitor でも extraBottomPadding は T17 到達に必要な分のみ（rawClientH 一律付与はしない）
+    out->extraBottomPadding =
+        (std::max)(0, s_paintDbgT17DocYRestScroll - maxScrollBeforePaddingRest);
+    out->contentHeight = out->splitHRest + out->extraBottomPadding;
+    out->maxScroll = (std::max)(0, out->contentHeight - out->splitRestVp);
+    out->t17DocY = s_paintDbgT17DocYRestScroll;
+    return true;
+}
+
 // Legacy: Win32_DebugOverlay_PrefillHudLeftColumnForD2d（!Win32_HudPaged_IsEnabled() 時）および
 // Win32_DebugOverlay_PaintStackedLegacy からのみ呼ばれる。ページ式 HUD 既定時は呼ばれない（Win32_HudPaged_PrefillD2d）。
 // スクロール・[scroll] 帯の高さ・T17 行位置などを計測。outHud 非 null のときは D2D final HUD 用に左列全文（menu+t14）とスクロール値を書き込む。
@@ -1085,115 +1233,33 @@ refill_budget:
         vmSplitActive = true;
         s_paintDbgT14VmSplitActive = true;
 
-        const wchar_t* firstVmLine = pVis + wcslen(L"visible modes:\r\n");
-        const size_t prefixChars = static_cast<size_t>(pVis - t14Buf);
-        const size_t vmBandChars = static_cast<size_t>(pT15 - pVis);
-        const size_t restChars = wcslen(pT15);
-
-        if (prefixChars < _countof(s_paintDbgT14VmSplitPrefix) &&
-            vmBandChars < _countof(s_paintDbgT14VmSplitVmBand) &&
-            restChars < _countof(s_paintDbgT14VmSplitRest))
+        Win32_LegacyStacked_VmSplitScratchPassOut vsp{};
+        if (Win32_LegacyStacked_RunVmSplitScratchPass(
+                hdc,
+                clientW,
+                clientH,
+                row2TopPx,
+                t14BaseY,
+                t14Buf,
+                pVis,
+                pT15,
+                &vsp))
         {
-            wmemcpy_s(s_paintDbgT14VmSplitPrefix, _countof(s_paintDbgT14VmSplitPrefix), t14Buf, prefixChars);
-            s_paintDbgT14VmSplitPrefix[prefixChars] = L'\0';
-            wmemcpy_s(s_paintDbgT14VmSplitVmBand, _countof(s_paintDbgT14VmSplitVmBand), pVis, vmBandChars);
-            s_paintDbgT14VmSplitVmBand[vmBandChars] = L'\0';
-            wcscpy_s(s_paintDbgT14VmSplitRest, _countof(s_paintDbgT14VmSplitRest), pT15);
-
-            RECT rcPref{};
-            rcPref.left = 0;
-            rcPref.top = t14BaseY;
-            rcPref.right = clientW;
-            rcPref.bottom = t14BaseY + 1000000;
-            DrawTextW(
-                hdc,
-                s_paintDbgT14VmSplitPrefix,
-                static_cast<int>(prefixChars),
-                &rcPref,
-                DT_LEFT | DT_TOP | DT_NOPREFIX | DT_WORDBREAK | DT_CALCRECT);
-            splitHPrefix = static_cast<int>(rcPref.bottom) - t14BaseY;
-
-            RECT rcVm{};
-            rcVm.left = 0;
-            rcVm.top = t14BaseY + splitHPrefix;
-            rcVm.right = clientW;
-            rcVm.bottom = rcVm.top + 1000000;
-            DrawTextW(
-                hdc,
-                s_paintDbgT14VmSplitVmBand,
-                static_cast<int>(vmBandChars),
-                &rcVm,
-                DT_LEFT | DT_TOP | DT_NOPREFIX | DT_WORDBREAK | DT_CALCRECT);
-            splitHVmBand = static_cast<int>(rcVm.bottom) - (t14BaseY + splitHPrefix);
-
-            RECT rcRest{};
-            rcRest.left = 0;
-            rcRest.top = t14BaseY + splitHPrefix + splitHVmBand;
-            rcRest.right = clientW;
-            rcRest.bottom = rcRest.top + 1000000;
-            DrawTextW(
-                hdc,
-                s_paintDbgT14VmSplitRest,
-                -1,
-                &rcRest,
-                DT_LEFT | DT_TOP | DT_NOPREFIX | DT_WORDBREAK | DT_CALCRECT);
-            splitHRest = static_cast<int>(rcRest.bottom) - (t14BaseY + splitHPrefix + splitHVmBand);
-
-            wchar_t prefixPlusHeading[8192] = {};
-            const size_t headSeg = static_cast<size_t>(firstVmLine - pVis);
-            if (prefixChars + headSeg < _countof(prefixPlusHeading))
-            {
-                wmemcpy_s(prefixPlusHeading, _countof(prefixPlusHeading), t14Buf, prefixChars + headSeg);
-                prefixPlusHeading[prefixChars + headSeg] = L'\0';
-                RECT rcPh{};
-                rcPh.left = 0;
-                rcPh.top = t14BaseY;
-                rcPh.right = clientW;
-                rcPh.bottom = t14BaseY + 1000000;
-                DrawTextW(
-                    hdc,
-                    prefixPlusHeading,
-                    -1,
-                    &rcPh,
-                    DT_LEFT | DT_TOP | DT_NOPREFIX | DT_WORDBREAK | DT_CALCRECT);
-                s_paintDbgT14VisibleModesDocStartY = static_cast<int>(rcPh.bottom);
-                s_paintDbgT14LayoutValid = true;
-            }
-
-            const wchar_t* t17InRest = wcsstr(s_paintDbgT14VmSplitRest, L"--- T17 presentation ---");
-            if (t17InRest != nullptr)
-            {
-                const size_t prefixToT17 = static_cast<size_t>(t17InRest - s_paintDbgT14VmSplitRest);
-                wchar_t preT17[8192] = {};
-                if (prefixToT17 < _countof(preT17))
-                {
-                    wmemcpy_s(preT17, _countof(preT17), s_paintDbgT14VmSplitRest, prefixToT17);
-                    preT17[prefixToT17] = L'\0';
-                    RECT rcT17{};
-                    rcT17.left = 0;
-                    rcT17.top = 0;
-                    rcT17.right = clientW;
-                    rcT17.bottom = 1000000;
-                    DrawTextW(
-                        hdc,
-                        preT17,
-                        -1,
-                        &rcT17,
-                        DT_LEFT | DT_TOP | DT_NOPREFIX | DT_WORDBREAK | DT_CALCRECT);
-                    s_paintDbgT17DocYRestScroll = static_cast<int>(rcT17.bottom);
-                }
-            }
-
-            splitRestTopPx = row2TopPx + t14BaseY + splitHPrefix + splitHVmBand;
-            splitRestVp = (std::max)(1, clientH - splitRestTopPx);
-            const int maxScrollBeforePaddingRest = (std::max)(0, splitHRest - splitRestVp);
-            // T56: fill-monitor でも extraBottomPadding は T17 到達に必要な分のみ（rawClientH 一律付与はしない）
-            extraBottomPadding =
-                (std::max)(0, s_paintDbgT17DocYRestScroll - maxScrollBeforePaddingRest);
-            contentHeight = splitHRest + extraBottomPadding;
-            maxScroll = (std::max)(0, contentHeight - splitRestVp);
-            t17DocY = s_paintDbgT17DocYRestScroll;
+            splitHPrefix = vsp.splitHPrefix;
+            splitHVmBand = vsp.splitHVmBand;
+            splitHRest = vsp.splitHRest;
+            splitRestTopPx = vsp.splitRestTopPx;
+            splitRestVp = vsp.splitRestVp;
+            extraBottomPadding = vsp.extraBottomPadding;
+            contentHeight = vsp.contentHeight;
+            maxScroll = vsp.maxScroll;
+            t17DocY = vsp.t17DocY;
             s_paintDbgT17DocY = t17DocY;
+            if (vsp.t14LayoutOutValid)
+            {
+                s_paintDbgT14VisibleModesDocStartY = vsp.t14VisibleModesDocStartY;
+                s_paintDbgT14LayoutValid = vsp.t14LayoutValid;
+            }
         }
         else
         {
