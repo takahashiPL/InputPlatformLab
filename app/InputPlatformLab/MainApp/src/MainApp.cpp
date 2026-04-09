@@ -169,6 +169,7 @@ static constexpr size_t kT14SelectedMonitorIndex = 0;
 static size_t s_t14SelectedModeIndex = 0;
 static size_t s_t14FirstVisibleModeIndex = 0;
 // ページ式 HUD: 0=T14,1=T15,2=T16,3=T18,4=T19,5=T17,6=T20。既定は T14（表示モード一覧）。
+// 受け入れ確認パック: docs/HUD_PAGED_ACCEPTANCE.md
 static int s_hudPagedIndex = 0;
 static constexpr int kHudPagedCount = 7;
 static constexpr int kHudPagedPageIndexT14 = 0;
@@ -5596,15 +5597,8 @@ static void Win32_HudPaged_FillT18PageBody(wchar_t* buf, size_t bufCount)
         (whyHud[0] != L'\0') ? whyHud : L"(none)");
 }
 
-// T19 Input state（ページ式 HUD）— 論理表示は LogicalInput_FillCurrentDownFromSources / LogicalInputState と一致。
-// 本文: logical(8) + pad L+R(圧縮) + analog(3)。行数を増やさず標準サイズに収める。
-// 受け入れ（手動・標準ウィンドウで目視）:
-//   - keyboard: common logical（South…DPad）がキー入力と一致
-//   - PS4: common logical + pad L+R（L1…Tri）が入力と一致
-//   - XInput: common logical + pad L+R が入力と一致
-//   - L2/R2 の r は表示用安定化バイト（タイマー差分は analog と同じ量子化）
-//   - analog: LS/RS/LT/RT の値・バーが一致し、本文下端で切れない
-// WM_TIMER: 論理+pad 即時 InvalidateRect、analog のみ間引き — Win32_WndProc_OnXInputPollTimer 内。
+// T19 Input state — 受け入れ・全ページ一覧は docs/HUD_PAGED_ACCEPTANCE.md。論理は LogicalInput_FillCurrentDownFromSources / LogicalInputState。
+// 本文: logical(8) + pad L+R(圧縮) + analog(3)。WM_TIMER: 論理+pad 即時 InvalidateRect、analog のみ間引き（OnXInputPollTimer）。
 static float Win32_HudPaged_T19NormalizeStickAxis(INT16 x)
 {
     float v = static_cast<float>(x) / 32768.0f;
@@ -8797,7 +8791,7 @@ static void Win32_WndProc_OnXInputPollTimer(HWND hWnd)
 {
     Win32_XInputPollDigitalEdgesOnTimer(hWnd);
     Win32_LogicalInputTick_AfterPadAndKeyboardCurrent();
-    // T19: 論理+pad 即時 InvalidateRect。analog のみの変化は kT19AnalogThrottleMs で間引き（T19 Input state コメント参照）
+    // T19: 論理+pad 即時 InvalidateRect。analog のみ間引き — docs/HUD_PAGED_ACCEPTANCE.md / OnXInputPollTimer
     if (Win32_HudPaged_IsEnabled() && s_hudPagedIndex == kHudPagedPageIndexT19)
     {
         wchar_t analogNow[16384] = {};
