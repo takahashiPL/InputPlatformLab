@@ -16,21 +16,21 @@
 | **2026-04-09** | **T17 追加**（T17 ページで **F6** 候補循環・**Enter** 適用、画面キャプチャ／コード照合） | **Windowed→Borderless** 適用後に `cand=act=Borderless` と本文を目視確認。他遷移は下記 **T17 実確認サマリ** 参照 |
 | **2026-04-09** | **T15 / T16**（T15 で **↑↓** プリセット、`→` で T16、キャプチャ目視） | T15 の `[n/8]`・desired/nearest/delta/exact が **↑↓** で変化。T16 は **T14 選択由来**の target を表示（T15 プリセットと同一数字にならないのは**実装どおり**） |
 | **2026-04-09** | **T18 / T20**（ページ送りで T18・T20、キャプチャ目視） | T18: DS4 接続時に family/parser/support/product/why が読める。T20: HUD のマクロ行が **Debug\|x64** と一致（`BUILDINFO` と同一関数由来） |
+| **2026-04-10** | **残余受け入れ**（Debug\|x64・**Release\|x64** ビルド、キー操作） | **T14** `↑↓` 選択追従。**T17** Fullscreen 適用後 `cand=act=Fullscreen`。**T20** `config=Release`。**T18** 抜き差し・**T17** マルチモニタは**未実施** |
 
 **限界**: **マルチモニタ・プライマリ切替・非接続コントローラ**などは、引き続きローカルで必要に応じて実施する。
 
 ### ローカル目視の推奨順（次回）
 
-優先順の **T17（主要）**・**T15/T16**・**T18（DS4 接続時）/ T20（Debug）** は **2026-04-09** まで実施済み。残りは下記。
+**T14 ↑↓**・**T17 Fullscreen（HUD）**・**T20 Release\|x64** は **2026-04-10** まで実施済み。残りは下記。
 
 | 順 | ページ / 内容 |
 |----|----------------|
-| 1 | T14: **↑↓** でのモード一覧スクロール・選択追従の手動確認 |
-| 2 | T17: **Fullscreen 系**の静止画で cand/act を最終確認（独占表示時は前面ウィンドウ／矩形に注意）。**monitor 差し替え** |
-| 3 | T15 / T16: **全 DPI・全モニタ**、T16 の **T15 nearest フォールバック**経路 |
-| 4 | T18: **非接続・再接続**、**XInput 主体**、**ブリッジ経路変更**、複数デバイス |
-| 5 | T20: **Release\|x64** で `config=Release` 等を目視 |
-| 6 | 全ページ共通: **GDI/D2D 二重描画**の再確認（必要時） |
+| 1 | T17: **マルチモニタ**・**プライマリ切替**・**Fullscreen→Windowed 復帰**の cand/act を**手動で**静止画確認（自動キャプチャは遷移途中を含み得る） |
+| 2 | T15 / T16: **全 DPI・全モニタ**、T16 の **T15 nearest フォールバック**経路 |
+| 3 | T18: **非接続・再接続**（USB 抜き差し）、**XInput 主体**、**ブリッジ経路変更**、複数デバイス |
+| 4 | T20: **ARM64** 等レア構成 |
+| 5 | 全ページ共通: **GDI/D2D 二重描画**の再確認（必要時） |
 
 （T19 は受け入れ候補版のため、必要に応じて入力網羅を追加。）
 
@@ -60,19 +60,20 @@
 **最低限の確認項目**
 
 - [x] タイトル帯に `T14 — Display mode list` が出る
-- [ ] モード行が読め、↑↓でスクロール・選択が追従する（T14 専用ロジック）
+- [x] モード行が読め、↑↓でスクロール・選択が追従する（T14 専用ロジック）
 - [x] ページ切替（エッジ）で他ページへ移れる
 
 **確認済み**  
 - (code) `kHudPagedPageTitles[0]` と `Win32_HudPaged_FillT14PageBody` により本文が生成。既定ページとして T14 が選択可能。  
 - **2026-04-06**: Debug\|x64 ビルド・`MainApp.exe` 起動スモーク成功。  
-- **2026-04-09**: 目視でタイトル・`modes:` 行（複数解像度・選択 `>`）・`←→ page / ↑↓ select` を確認。`menuOpen` なし状態で **←→ によるページ送り**を実施。
+- **2026-04-09**: 目視でタイトル・`modes:` 行（複数解像度・選択 `>`）・`←→ page / ↑↓ select` を確認。`menuOpen` なし状態で **←→ によるページ送り**を実施。  
+- **2026-04-10**: **↑↓** により選択 `>` が `[0]`→（↓×4）`[4]`→（↑×1）`[3]` に移ることを目視（`menuOpen` なし）。
 
 **条件付き確認済み**  
 - （空）
 
 **未確認**  
-- **↑↓** によるスクロール・選択追従の手動確認。マルチモニタ・プライマリ変更後の一覧、空リスト・異常系の目視。
+- マルチモニタ・プライマリ変更後の一覧、**一覧が空**・列挙失敗などの**異常系**の目視。
 
 ---
 
@@ -137,7 +138,7 @@ windowed / borderless / fullscreen 等のプレゼンテーション状態と ca
 **最低限の確認項目**
 
 - [x] T17 本文が表示され、**主要**プレゼンテーション遷移でモード切替と整合（**Windowed→Borderless** を目視）
-- [ ] **Fullscreen** の適用・復帰を **静止画で** cand/act まで最終確認（自動キャプチャでは前面ウィンドウがずれることがある）
+- [x] **Fullscreen** 適用後、HUD 上で **cand=act=Fullscreen** を目視（**2026-04-10**、Debug\|x64・F6 循環＋Enter）
 - [x] Clamp（8 行・76 文字）で要約が収まる（**Windowed / Borderless** で目視）
 
 **確認済み**  
@@ -153,12 +154,12 @@ windowed / borderless / fullscreen 等のプレゼンテーション状態と ca
 | **Windowed→Windowed**（同一モードで Enter） | 変更なしで一致のまま | **(code)** `ShouldSkipNoopApply` true なら skip。skip 経路では `InvalidateRect` が呼ばれないため、**HUD の数値が即座に更新されない**ことがある（次の再描画まで古い `apply seq`）。**noop の検証は** デバッグ出力 `[T17] APPLY SKIP no-op` または **次のキー操作後の再描画**が確実。 | **skip**（重い再生成なし） |
 | **Windowed→Borderless** | 適用後 **cand=act=Borderless** | 目視で一致、`last key... Enter (apply)` | **apply**（再作成） |
 | **Borderless→Windowed** | F6 を 2 回で候補 Windowed、Enter で **cand=act=Windowed** | **操作は実施**。キャプチャタイミングによっては **Enter 前** に `cand=Windowed` / `act=Borderless` の瞬間が写る。適用完了の静止画は**手元で再確認推奨**。 | **apply**（CDS 状況に応じて desktop reset 含む） |
-| **Windowed→Fullscreen** | Enter 後 **Fullscreen** | **自動スクリーンキャプチャ**では独占表示やフォーカス移動で **別ウィンドウの矩形**が撮れることがある。HUD での cand/act まで**未の静止画として残す**。 | **apply**（CDS + recreate、失敗時は Borderless フォールバック） |
-| **Fullscreen→Windowed** | Enter 後 **Windowed** | 上記と同様、**フルスクリーン復帰時の目視は手動で最終確認推奨**。 | **apply**（CDS_RESET 等の経路あり） |
+| **Windowed→Fullscreen** | Enter 後 **Fullscreen** | **2026-04-10** 目視: 適用直後 **cand=Fullscreen act=Fullscreen**。 | **apply**（CDS + recreate、失敗時は Borderless フォールバック） |
+| **Fullscreen→Windowed** | Enter 後 **Windowed** | F6 で候補 Windowed → Enter は**実施**。自動キャプチャでは **cand=Windowed / act=Fullscreen** の**途中**を捉えることがある。**cand=act=Windowed** の静止画は**手動推奨**。 | **apply**（CDS_RESET 等の経路あり） |
 | **同一モードで再 Enter**（例: Borderless 済みで再 Enter） | **(code)** Borderless かつ `GetWindowRect` がモニタ矩形と一致なら **skip** | 上記 no-op と同様の HUD 更新の注意 | **skip** |
 
 **条件付き確認済み**  
-- **Fullscreen** 適用・復帰の **HUD 上の cand/act** は、**手動で前面に `InputPlatformLab` を置いて**確認するのが確実（自動化のキャプチャ限界）。  
+- **Fullscreen→Windowed** の**完了直後**（`cand=act=Windowed`）の静止画は、**手動**で確実（自動キャプチャは遷移途中を含み得る）。  
 - **monitor 差し替え・プライマリ変更**は未実施。
 
 **未確認**  
@@ -183,7 +184,7 @@ windowed / borderless / fullscreen 等のプレゼンテーション状態と ca
 - **2026-04-09（再確認）**: HUD で **family** / **parser** / **support**（行末は右端で切れる場合あり）/ **product** / **why**（`DS4 verified table` / `known HID report map`）が **読める**ことを目視確認。文書の **DS4 既定表示**（verified + known HID map）と一致。
 
 **条件付き確認済み**  
-- （空）
+- **非接続・再接続**は **USB 抜き差し等の物理操作**が必要。**2026-04-10** のセッションでは **DS4 接続を維持**したままのため、**未実施**（`No HID` 行の目視は次回）。
 
 **未確認**  
 - **非接続**（`hid_found=0` 時の `No HID; no XInput slot.` 等）・**再接続**・**複数デバイス**の**網羅**目視。  
@@ -230,17 +231,18 @@ windowed / borderless / fullscreen 等のプレゼンテーション状態と ca
 
 - [x] タイトル `T20 — Build / Debug flags`
 - [x] 本文が `[BUILDINFO]` と同内容のマクロ一覧（**Debug\|x64** で起動中 HUD 本文として目視）
-- [ ] Release/Debug 切替で表示が変わる（**Release は未確認のまま**）
+- [x] Release/Debug 切替で表示が変わる（**Release\|x64** で `config=Release` を目視）
 
 **確認済み**  
 - (code) `Win32_FormatBuildDebugManifest` が **T20 本文**と **`Win32_EmitBuildInfoLogOnce`（`[BUILDINFO]`）** の**両方**で呼ばれ、**同一のマニフェスト文字列**が生成される（`MainApp.cpp`）。  
-- **2026-04-09**: **Debug\|x64** で HUD 上に `config=Debug`、`platform=x64`、`pagedHUD=on`（表記は行幅で切れる場合あり）、`WIN32_HUD_USE_PAGED_HUD=1`、列挙 PS4/論理/T18 系マクロが **0**、`__DATE__` / `__TIME__` 行を目視。**BUILDINFO 対応**は **(code) 同一関数** + **本HUD の行が起動時ログと一致する前提**で受け入れ（同一バイナリでは本文の差は出ない）。
+- **2026-04-09**: **Debug\|x64** で HUD 上に `config=Debug`、`platform=x64`、`pagedHUD=on`（表記は行幅で切れる場合あり）、`WIN32_HUD_USE_PAGED_HUD=1`、列挙 PS4/論理/T18 系マクロが **0**、`__DATE__` / `__TIME__` 行を目視。**BUILDINFO 対応**は **(code) 同一関数** + **本HUD の行が起動時ログと一致する前提**で受け入れ（同一バイナリでは本文の差は出ない）。  
+- **2026-04-10**: **Release\|x64** をビルドし、T20 で **`config=Release`**・`platform=x64`・同一マクロ列を目視（`__DATE__` / `__TIME__` はそのビルドの値）。
 
 **条件付き確認済み**  
-- **Release** ビルドでの T20 本文（`config=Release` 等）は**未目視**・**未ビルド**のまま。必要時に **Release\|x64** を 1 回ビルドして T20 を開き、`[ ]` を更新する。
+- （空）
 
 **未確認**  
-- **Release\|x64**（および **ARM64** 等）での表示。新マクロ追加時の一覧更新漏れ。
+- **ARM64** 等レア構成での表示。新マクロ追加時の一覧更新漏れ。
 
 ---
 
@@ -272,4 +274,5 @@ windowed / borderless / fullscreen 等のプレゼンテーション状態と ca
 | **2026-04-09** | **ローカル目視**: T14–T20（優先順）のタイトル・本文・ページ送りを実施。HUD 受け入れチェックを更新。一時キャプチャは `docs/_hud_smoke_*/`（gitignore） |
 | **2026-04-09** | **T17 深掘り**: F6/Enter で主要遷移を実施し **W→Borderless** を目視確認。**noop skip**・Fullscreen 系はコード照合と受け入れ注意を `T17 実確認サマリ` に反映 |
 | **2026-04-09** | **T15/T16**: T15 の **↑↓** 追従と T16 本文を実確認。T15 プリセットと T16 target の**軸の違い**を文書化 |
-| **2026-04-09** | **T18/T20**: T18 の DS4 行を再目視。T20 と **`[BUILDINFO]`** の **同一関数**由来を明記。**Release** は未確認のまま整理 |
+| **2026-04-09** | **T18/T20**: T18 の DS4 行を再目視。T20 と **`[BUILDINFO]`** の **同一関数**由来を明記（**Release\|x64** は **2026-04-10** に追記） |
+| **2026-04-10** | **残余**: T14 **↑↓**、T17 **Fullscreen** HUD、T20 **Release\|x64**。T18 抜き差し・T17 マルチモニタは未実施 |
