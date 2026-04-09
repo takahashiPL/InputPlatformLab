@@ -142,6 +142,19 @@
 
 `Win32_MenuSampleMeasure*`、`Win32_T60_*`、`Win32_MainView_MeasureScrollOverlayTextHeight` 等は **CALCRECT / 計測**として `ComputeLayoutMetrics` と **ページ式以外の経路**からも参照され得る。将来分離する場合は **共有ヘッダ＋共通 `.cpp`**、または **現ファイルに残す**前提が現実的。
 
+### 7.5 legacy パイプラインの入出力境界（依存面の整理）
+
+**目的**: レガシー縦積み本体と **shared 側**のあいだで、何が **引数で渡り**、何が **副作用**になるかを固定しやすくする（実装は `Win32DebugOverlay.cpp` 先頭の無名名前空間内 `Win32_LegacyStacked_*` 束）。
+
+| 区分 | 内容 |
+|------|------|
+| **明示入力（値）** | `Win32_LegacyStacked_CommonParams`（`hwnd` / `hdc` / T17 ラベル）、GDI 用の `Win32_LegacyStacked_GdiPaintParams`（抑制フラグ）、レイアウト用の `Win32_LegacyStacked_LayoutMetricsParams`（`outHud` / `logScroll`）。`Win32DebugOverlay_Paint` と `Win32_DebugOverlay_PrefillHudLeftColumnForD2d`（legacy 分岐）が構築。 |
+| **shared ヘルパー呼び出し（読み取り中心）** | `Win32_MenuSampleMeasure*`、`Win32_T60_*`、`Win32_MainView_MeasureScrollOverlayTextHeight`、`Win32_IsMainWindowFillMonitorPresentation` 等（§7.4）。レガシー専用ファイルへ切り出すときは **宣言を共有ヘッダ**へ寄せる想定。 |
+| **MainApp 共有状態（extern `s_paint*`）** | `ComputeLayoutMetrics` / `PaintStackedLegacy` が **読み書き**（§2.3）。別 `.cpp` 化時は **extern 宣言の共有ヘッダ**または **MainApp のみ**に残す判断が必要。 |
+| **ファイル先頭スクラッチ（無名名前空間）** | `s_paintDbg*`（§7.2）。`ComputeLayoutMetrics` が主に書き、共有の `ScrollTargetT17*` 等が読む。 |
+| **T46 / T52（§7.3）** | レガシー計測経路で更新、`ScrollLog` / `FormatScrollDebugOverlay` が参照 — **完全な legacy-only 分離は別タスク**。 |
+| **出力（副作用）** | `WindowsRendererState` の D2D プレフィル欄（`outHud` 非 null 時）、GDI `DrawText`、条件付き `Win32_T45_ApplyWindowedScrollInfo`、先頭スクラッチ・`s_paintDbg*` 更新。 |
+
 ---
 
 ## 8. 更新履歴
@@ -153,3 +166,4 @@
 | 2026-04-06 | **§7 追加**: レガシー縦積みの将来分離メモ（パイプライン単位・宣言順・T46/共有読み取り・CALCRECT 共有） |
 | 2026-04-06 | **§7.2 追記**: legacy スクラッチを `Win32DebugOverlay.cpp` 先頭で **匿名名前空間**に束ねる実装（挙動・シンボル名は維持） |
 | 2026-04-06 | **§7.1 追記**: `ComputeLayoutMetrics` / `PaintStackedLegacy` 本体も同一匿名名前空間に配置（前方宣言はファイル先頭ブロックへ集約） |
+| 2026-04-06 | **§7.5 追加**: legacy パイプライン入出力境界（`Win32_LegacyStacked_*` 束・shared / extern / 副作用） |

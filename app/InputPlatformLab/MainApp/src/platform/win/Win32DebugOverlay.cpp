@@ -40,6 +40,28 @@
 // Grouped in an anonymous namespace below (internal linkage; same s_paintDbg* names — not T46 / T52 flags; see §7.3).
 // -----------------------------------------------------------------------------
 namespace {
+// Legacy stacked pipeline — explicit I/O bundles (shared callers pass these; see docs §7.5). Keeps entry-point arity stable for future .cpp split.
+struct Win32_LegacyStacked_CommonParams {
+    HWND hwnd{};
+    HDC hdc{};
+    const wchar_t* t17ModeLabelForOverlay{};
+    const wchar_t* t17CandLabel{};
+    const wchar_t* t17ActLabel{};
+};
+
+struct Win32_LegacyStacked_LayoutMetricsParams {
+    Win32_LegacyStacked_CommonParams common{};
+    WindowsRendererState* outHud{};
+    bool logScroll{};
+};
+
+struct Win32_LegacyStacked_GdiPaintParams {
+    Win32_LegacyStacked_CommonParams common{};
+    bool suppressT14BodyGdi{};
+    bool skipMenuColumnGdi{};
+    bool skipScrollBandGdi{};
+};
+
 // GDI Paint と D2D final HUD で body クリップ先頭を共有（ComputeLayoutMetrics で更新）
 int s_paintDbgFinalBodyTopPx = 0;
 int s_paintDbgBodyT14DocTopPx = 0;
@@ -63,23 +85,8 @@ int s_paintDbgT14VmSplitVmBandH = 0;
 
 // Legacy stacked pipeline — forward declarations (definitions in legacy #region below; same unnamed namespace).
 // Win32DebugOverlay_Paint / Win32_DebugOverlay_PrefillHudLeftColumnForD2d call into this linkage unit.
-void Win32_DebugOverlay_ComputeLayoutMetrics(
-    HWND hwnd,
-    HDC hdc,
-    const wchar_t* t17ModeLabelForOverlay,
-    const wchar_t* t17CandLabel,
-    const wchar_t* t17ActLabel,
-    WindowsRendererState* outHud,
-    bool logScroll);
-void Win32_DebugOverlay_PaintStackedLegacy(
-    HWND hwnd,
-    HDC hdc,
-    const wchar_t* t17ModeLabelForOverlay,
-    const wchar_t* t17CandLabel,
-    const wchar_t* t17ActLabel,
-    bool suppressT14BodyGdi,
-    bool skipMenuColumnGdi,
-    bool skipScrollBandGdi);
+void Win32_DebugOverlay_ComputeLayoutMetrics(const Win32_LegacyStacked_LayoutMetricsParams& p);
+void Win32_DebugOverlay_PaintStackedLegacy(const Win32_LegacyStacked_GdiPaintParams& p);
 } // namespace
 
 // ---------------------------------------------------------------------------
@@ -135,15 +142,16 @@ void Win32DebugOverlay_Paint(
         (void)skipScrollBandGdi;
         return;
     }
-    Win32_DebugOverlay_PaintStackedLegacy(
-        hwnd,
-        hdc,
-        t17ModeLabelForOverlay,
-        t17CandLabel,
-        t17ActLabel,
-        suppressT14BodyGdi,
-        skipMenuColumnGdi,
-        skipScrollBandGdi);
+    Win32_LegacyStacked_GdiPaintParams paint{};
+    paint.common.hwnd = hwnd;
+    paint.common.hdc = hdc;
+    paint.common.t17ModeLabelForOverlay = t17ModeLabelForOverlay;
+    paint.common.t17CandLabel = t17CandLabel;
+    paint.common.t17ActLabel = t17ActLabel;
+    paint.suppressT14BodyGdi = suppressT14BodyGdi;
+    paint.skipMenuColumnGdi = skipMenuColumnGdi;
+    paint.skipScrollBandGdi = skipScrollBandGdi;
+    Win32_DebugOverlay_PaintStackedLegacy(paint);
 }
 
 #pragma endregion
@@ -842,15 +850,15 @@ namespace {
 // Legacy: Win32_DebugOverlay_PrefillHudLeftColumnForD2d（!Win32_HudPaged_IsEnabled() 時）および
 // Win32_DebugOverlay_PaintStackedLegacy からのみ呼ばれる。ページ式 HUD 既定時は呼ばれない（Win32_HudPaged_PrefillD2d）。
 // スクロール・[scroll] 帯の高さ・T17 行位置などを計測。outHud 非 null のときは D2D final HUD 用に左列全文（menu+t14）とスクロール値を書き込む。
-void Win32_DebugOverlay_ComputeLayoutMetrics(
-    HWND hwnd,
-    HDC hdc,
-    const wchar_t* t17ModeLabelForOverlay,
-    const wchar_t* t17CandLabel,
-    const wchar_t* t17ActLabel,
-    WindowsRendererState* outHud,
-    bool logScroll)
+void Win32_DebugOverlay_ComputeLayoutMetrics(const Win32_LegacyStacked_LayoutMetricsParams& p)
 {
+    HWND hwnd = p.common.hwnd;
+    HDC hdc = p.common.hdc;
+    const wchar_t* t17ModeLabelForOverlay = p.common.t17ModeLabelForOverlay;
+    const wchar_t* t17CandLabel = p.common.t17CandLabel;
+    const wchar_t* t17ActLabel = p.common.t17ActLabel;
+    WindowsRendererState* outHud = p.outHud;
+    bool logScroll = p.logScroll;
     RECT rcClient{};
     GetClientRect(hwnd, &rcClient);
     const int clientW = static_cast<int>(rcClient.right - rcClient.left);
@@ -1633,16 +1641,16 @@ refill_budget:
 
 // Legacy stacked HUD — WIN32_HUD_USE_PAGED_HUD=0 の GDI 本文（メニュー + T14〜T18 縦積み + 下端 [scroll]）。
 // Win32DebugOverlay_Paint はページ式を先に分岐し、本関数は互換経路のみ。
-void Win32_DebugOverlay_PaintStackedLegacy(
-    HWND hwnd,
-    HDC hdc,
-    const wchar_t* t17ModeLabelForOverlay,
-    const wchar_t* t17CandLabel,
-    const wchar_t* t17ActLabel,
-    bool suppressT14BodyGdi,
-    bool skipMenuColumnGdi,
-    bool skipScrollBandGdi)
+void Win32_DebugOverlay_PaintStackedLegacy(const Win32_LegacyStacked_GdiPaintParams& p)
 {
+    HWND hwnd = p.common.hwnd;
+    HDC hdc = p.common.hdc;
+    const wchar_t* t17ModeLabelForOverlay = p.common.t17ModeLabelForOverlay;
+    const wchar_t* t17CandLabel = p.common.t17CandLabel;
+    const wchar_t* t17ActLabel = p.common.t17ActLabel;
+    bool suppressT14BodyGdi = p.suppressT14BodyGdi;
+    bool skipMenuColumnGdi = p.skipMenuColumnGdi;
+    bool skipScrollBandGdi = p.skipScrollBandGdi;
     RECT rcClient{};
     GetClientRect(hwnd, &rcClient);
     const int clientW = static_cast<int>(rcClient.right - rcClient.left);
@@ -1650,8 +1658,11 @@ void Win32_DebugOverlay_PaintStackedLegacy(
 
     wchar_t menuBuf[3072] = {};
     wchar_t t14Buf[8192] = {};
-    Win32_DebugOverlay_ComputeLayoutMetrics(
-        hwnd, hdc, t17ModeLabelForOverlay, t17CandLabel, t17ActLabel, nullptr, true);
+    Win32_LegacyStacked_LayoutMetricsParams lmForPaint{};
+    lmForPaint.common = p.common;
+    lmForPaint.outHud = nullptr;
+    lmForPaint.logScroll = true;
+    Win32_DebugOverlay_ComputeLayoutMetrics(lmForPaint);
 
     Win32_FillMenuSamplePaintBuffers(
         hwnd,
@@ -1915,14 +1926,15 @@ void Win32_DebugOverlay_PrefillHudLeftColumnForD2d(
         return;
     }
 
-    Win32_DebugOverlay_ComputeLayoutMetrics(
-        hwnd,
-        hdc,
-        t17ModeLabelForOverlay != nullptr ? t17ModeLabelForOverlay : L"?",
-        t17CandLabel != nullptr ? t17CandLabel : L"?",
-        t17ActLabel != nullptr ? t17ActLabel : L"?",
-        st,
-        false);
+    Win32_LegacyStacked_LayoutMetricsParams lmPrefill{};
+    lmPrefill.common.hwnd = hwnd;
+    lmPrefill.common.hdc = hdc;
+    lmPrefill.common.t17ModeLabelForOverlay = t17ModeLabelForOverlay != nullptr ? t17ModeLabelForOverlay : L"?";
+    lmPrefill.common.t17CandLabel = t17CandLabel != nullptr ? t17CandLabel : L"?";
+    lmPrefill.common.t17ActLabel = t17ActLabel != nullptr ? t17ActLabel : L"?";
+    lmPrefill.outHud = st;
+    lmPrefill.logScroll = false;
+    Win32_DebugOverlay_ComputeLayoutMetrics(lmPrefill);
 }
 
 #pragma endregion
