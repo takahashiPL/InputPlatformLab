@@ -47,21 +47,7 @@ void Win32_DebugOverlay_LegacyStacked_RunComputeLayoutMetrics(const Win32_Legacy
 // ---------------------------------------------------------------------------
 
 // MainApp.cpp で定義 — 共有オーバーレイ状態（レガシー ComputeLayoutMetrics / T37 / T14 追従 / ページ式での scroll リセット）。legacy 専用ではない。
-// docs/HUD_LEGACY_CODE_DEPENDENCY.md §2.3 — scroll / 一部 s_paintDbg* は Win32MainAppPaintDbg_shared_link.h
-extern int s_paintDbgContentHeight;
-extern int s_paintDbgContentHeightBase;
-extern int s_paintDbgExtraBottomPadding;
-extern int s_paintDbgClientHeight;
-extern int s_paintDbgActualOverlayHeight;
-extern int s_paintDbgScrollBandReservePx;
-extern int s_paintDbgLayoutRestVpBudgetHint;
-extern int s_paintDbgClientW;
-extern int s_paintDbgClientH;
-extern int s_paintDbgT14ColumnBaseY;
-extern int s_paintDbgT14BeforeVisibleDocH;
-extern int s_paintDbgT14VisibleBlockDocH;
-extern int s_paintDbgT14AfterVisibleDocH;
-extern int s_paintDbgRestViewportClientH;
+// docs/HUD_LEGACY_CODE_DEPENDENCY.md §2.3 — 全 MainApp 共有 HUD 参照は Win32MainAppPaintDbg_shared_link.h
 
 #pragma region Public HUD overlay entry (GDI WM_PAINT)
 
@@ -151,7 +137,9 @@ int Win32DebugOverlay_ScrollTargetT17WithTopMargin(void)
     {
         return (std::max)(0, Win32_LegacyStacked_GetT17DocYRestScroll() - WIN32_MAIN_T17_JUMP_TOP_MARGIN);
     }
-    return (std::max)(0, s_paintDbgT17DocY - WIN32_MAIN_T17_JUMP_TOP_MARGIN);
+    Win32_LegacyStacked_MainAppPaintDbgRead ma{};
+    Win32_LegacyStacked_LoadMainAppPaintDbgRead(&ma);
+    return (std::max)(0, ma.t17DocY - WIN32_MAIN_T17_JUMP_TOP_MARGIN);
 }
 
 // F8 ジャンプ先: T17 ブロックがクライアント高さの中央付近に来る scrollY。
@@ -163,15 +151,19 @@ int Win32DebugOverlay_ScrollTargetT17Centered(HWND hwnd)
     }
     if (Win32_LegacyStacked_GetT14VmSplitActive())
     {
-        const int maxScr = (std::max)(0, s_paintDbgMaxScroll);
-        const int y = Win32_LegacyStacked_GetT17DocYRestScroll() - s_paintDbgRestViewportClientH / 2;
+        Win32_LegacyStacked_MainAppPaintDbgRead ma{};
+        Win32_LegacyStacked_LoadMainAppPaintDbgRead(&ma);
+        const int maxScr = (std::max)(0, ma.maxScroll);
+        const int y = Win32_LegacyStacked_GetT17DocYRestScroll() - ma.restViewportClientH / 2;
         return (std::clamp)(y, 0, maxScr);
     }
     RECT rc{};
     GetClientRect(hwnd, &rc);
     const int ch = static_cast<int>(rc.bottom - rc.top);
-    const int maxScr = (std::max)(0, s_paintDbgContentHeight - ch);
-    const int y = s_paintDbgT17DocY - ch / 2;
+    Win32_LegacyStacked_MainAppPaintDbgRead ma{};
+    Win32_LegacyStacked_LoadMainAppPaintDbgRead(&ma);
+    const int maxScr = (std::max)(0, ma.contentHeight - ch);
+    const int y = ma.t17DocY - ch / 2;
     return (std::clamp)(y, 0, maxScr);
 }
 
@@ -183,10 +175,7 @@ bool Win32DebugOverlay_IsT14VmSplitActive(void)
 void Win32_DebugOverlay_ResetProvisionalLayoutCache(void)
 {
     Win32_LegacyStacked_ClearPaintLayoutMetricsFromPaintValid();
-    s_paintDbgLayoutRestVpBudgetHint = -1;
-    s_paintDbgScrollBandReservePx = 0;
-    s_paintDbgT14LayoutValid = false;
-    s_paintDbgActualOverlayHeight = 0;
+    Win32_LegacyStacked_ApplyMainAppPaintDbgResetProvisionalLayoutExtras();
     s_t46LastSiValid = false;
 }
 
@@ -238,13 +227,16 @@ void Win32DebugOverlay_ScrollLog(
         return;
     }
 
-    int scrollVpH = s_paintDbgRestViewportClientH;
+    Win32_LegacyStacked_MainAppPaintDbgRead ma{};
+    Win32_LegacyStacked_LoadMainAppPaintDbgRead(&ma);
+
+    int scrollVpH = ma.restViewportClientH;
     if (scrollVpH < 1)
     {
         scrollVpH = (std::max)(1, rawClientH);
     }
-    const int contentH = (contentHOverride >= 0) ? contentHOverride : s_paintDbgContentHeight;
-    const int t17Y = (t17Override >= 0) ? t17Override : s_paintDbgT17DocY;
+    const int contentH = (contentHOverride >= 0) ? contentHOverride : ma.contentHeight;
+    const int t17Y = (t17Override >= 0) ? t17Override : ma.t17DocY;
     const int maxScroll = (std::max)(0, contentH - scrollVpH);
 
     wchar_t line[512] = {};
@@ -1514,22 +1506,24 @@ void Win32_DebugOverlay_PaintStackedLegacy(const Win32_LegacyStacked_GdiPaintPar
     wchar_t overlay[2048] = {};
     const int jumpF7 = Win32DebugOverlay_ScrollTargetT17WithTopMargin();
     const int jumpF8 = Win32DebugOverlay_ScrollTargetT17Centered(hwnd);
+    Win32_LegacyStacked_MainAppPaintDbgRead mainAppRead{};
+    Win32_LegacyStacked_LoadMainAppPaintDbgRead(&mainAppRead);
     const bool compactScrollBandPaint =
         (clientH < WIN32_OVERLAY_T49_SCROLL_COMPACT_CLIENT_H) ||
-        (legLayoutScratch.t14VmSplitActive && s_paintDbgRestViewportClientH > 0 &&
-         s_paintDbgRestViewportClientH < WIN32_OVERLAY_T51_COMPACT_SCROLL_RESTVP_PX) ||
+        (legLayoutScratch.t14VmSplitActive && mainAppRead.restViewportClientH > 0 &&
+         mainAppRead.restViewportClientH < WIN32_OVERLAY_T51_COMPACT_SCROLL_RESTVP_PX) ||
         Win32_IsMainWindowFillMonitorPresentation(hwnd);
     Win32_DebugOverlay_FormatScrollDebugOverlay(
         overlay,
         _countof(overlay),
         t17ModeLabelForOverlay,
-        s_paintDbgContentHeightBase,
-        s_paintDbgExtraBottomPadding,
-        s_paintDbgContentHeight,
-        s_paintDbgT17DocY,
-        s_paintScrollY,
-        s_paintDbgClientHeight,
-        s_paintDbgRestViewportClientH,
+        mainAppRead.contentHeightBase,
+        mainAppRead.extraBottomPadding,
+        mainAppRead.contentHeight,
+        mainAppRead.t17DocY,
+        mainAppRead.scrollY,
+        mainAppRead.clientHeight,
+        mainAppRead.restViewportClientH,
         jumpF7,
         jumpF8,
         false,
@@ -1542,7 +1536,7 @@ void Win32_DebugOverlay_PaintStackedLegacy(const Win32_LegacyStacked_GdiPaintPar
 
     RECT rcClipMain = rcClient;
     {
-        const int scrollBandReserve = s_paintDbgScrollBandReservePx;
+        const int scrollBandReserve = mainAppRead.scrollBandReservePx;
         rcClipMain.bottom =
             (std::max)(rcClipMain.top, rcClipMain.bottom - scrollBandReserve);
     }
@@ -1638,7 +1632,7 @@ void Win32_DebugOverlay_PaintStackedLegacy(const Win32_LegacyStacked_GdiPaintPar
                     restTopPx,
                     rcClipMain.right,
                     rcClipMain.bottom);
-                OffsetViewportOrgEx(hdc, 0, -s_paintScrollY, nullptr);
+                OffsetViewportOrgEx(hdc, 0, -mainAppRead.scrollY, nullptr);
                 RECT rcRestDraw = rcT14Draw;
                 rcRestDraw.top = restTopPx;
                 rcRestDraw.bottom = rcRestDraw.top + 1000000;
@@ -1652,7 +1646,7 @@ void Win32_DebugOverlay_PaintStackedLegacy(const Win32_LegacyStacked_GdiPaintPar
             }
             else
             {
-                OffsetViewportOrgEx(hdc, 0, -s_paintScrollY, nullptr);
+                OffsetViewportOrgEx(hdc, 0, -mainAppRead.scrollY, nullptr);
                 DrawTextW(
                     hdc,
                     t14Buf,
@@ -1680,7 +1674,7 @@ void Win32_DebugOverlay_PaintStackedLegacy(const Win32_LegacyStacked_GdiPaintPar
     if (!skipScrollBandGdi && legLayoutScratch.t53ScrollBandDrawEnabled)
     {
         RECT rcOv = rcClient;
-        const int scrollBandReserve = s_paintDbgScrollBandReservePx;
+        const int scrollBandReserve = mainAppRead.scrollBandReservePx;
         rcOv.top = (std::max)(rcClient.top, rcClient.bottom - scrollBandReserve);
         const int savedOv = SaveDC(hdc);
         IntersectClipRect(hdc, rcOv.left, rcOv.top, rcOv.right, rcOv.bottom);

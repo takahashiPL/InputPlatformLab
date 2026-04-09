@@ -300,6 +300,23 @@ void Win32_LegacyStacked_LoadMainAppPaintDbgRead(Win32_LegacyStacked_MainAppPain
         return;
     }
     out->scrollY = s_paintScrollY;
+    out->restViewportClientH = s_paintDbgRestViewportClientH;
+    out->contentHeight = s_paintDbgContentHeight;
+    out->t17DocY = s_paintDbgT17DocY;
+    out->clientHeight = s_paintDbgClientHeight;
+    out->maxScroll = s_paintDbgMaxScroll;
+    out->layoutRestVpBudgetHint = s_paintDbgLayoutRestVpBudgetHint;
+    out->scrollBandReservePx = s_paintDbgScrollBandReservePx;
+    out->contentHeightBase = s_paintDbgContentHeightBase;
+    out->extraBottomPadding = s_paintDbgExtraBottomPadding;
+}
+
+void Win32_LegacyStacked_ApplyMainAppPaintDbgResetProvisionalLayoutExtras(void)
+{
+    s_paintDbgLayoutRestVpBudgetHint = -1;
+    s_paintDbgScrollBandReservePx = 0;
+    s_paintDbgT14LayoutValid = false;
+    s_paintDbgActualOverlayHeight = 0;
 }
 
 void Win32_LegacyStacked_ApplyMainAppPaintDbgScrollLineMetrics(int scrollLinePx)

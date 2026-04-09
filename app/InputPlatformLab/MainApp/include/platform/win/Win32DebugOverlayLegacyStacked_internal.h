@@ -75,13 +75,24 @@ void Win32_LegacyStacked_SetRestViewportTopPx(int px);
 bool Win32_LegacyStacked_IsPaintLayoutMetricsFromPaintValid(void);
 void Win32_LegacyStacked_ClearPaintLayoutMetricsFromPaintValid(void);
 
-// MainApp.cpp 共有 s_paintDbg* / scroll（§2.3）— legacy TU は shared_link.h の extern と下記 API に集約。
+// MainApp.cpp 共有 s_paintDbg* / scroll（§2.3）— shared_link.h の extern + Load/Apply API に集約。
 struct Win32_LegacyStacked_MainAppPaintDbgRead {
     int scrollY{};
+    int restViewportClientH{};
+    int contentHeight{};
+    int t17DocY{};
+    int clientHeight{};
+    int maxScroll{};
+    int layoutRestVpBudgetHint{};
+    int scrollBandReservePx{};
+    int contentHeightBase{};
+    int extraBottomPadding{};
 };
 void Win32_LegacyStacked_LoadMainAppPaintDbgRead(Win32_LegacyStacked_MainAppPaintDbgRead* out);
 
 void Win32_LegacyStacked_ApplyMainAppPaintDbgScrollLineMetrics(int scrollLinePx);
+
+void Win32_LegacyStacked_ApplyMainAppPaintDbgResetProvisionalLayoutExtras(void);
 
 void Win32_LegacyStacked_ApplyD2dHudPrefill(
     WindowsRendererState* outHud,
