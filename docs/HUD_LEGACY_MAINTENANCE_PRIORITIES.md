@@ -82,7 +82,7 @@
 
 | 文書 | 役割 |
 |------|------|
-| `docs/HUD_LEGACY_CODE_DEPENDENCY.md` | 実コードの区分（paged-only / legacy-only / shared / legacy+T37）。**§8.3** は **仕分け**。**§8.4** は §8.3 B の **移設前提の契約**（T45/T46・unified 順序・Reset）。 |
+| `docs/HUD_LEGACY_CODE_DEPENDENCY.md` | 実コードの区分（paged-only / legacy-only / shared / legacy+T37）。**§8.3** は **仕分け**。**§8.4** は **契約**。**§8.5** は §8.3 B の **Go/No-Go**（当面 main 残し vs 実装進行）。 |
 | `docs/HUD_PAGED_ACCEPTANCE.md` | ページ式 HUD の受け入れ。 |
 | `app/.../Win32HudPaged.h` | マクロと方針コメント。 |
 
@@ -96,3 +96,4 @@
 | 2026-04-06 | `HUD_LEGACY_CODE_DEPENDENCY.md` と整合: `Win32DebugOverlay.cpp` / `MainApp.cpp` に legacy 境界のコメントブロック（挙動不変） |
 | 2026-04-06 | **関連ドキュメント**表: `HUD_LEGACY_CODE_DEPENDENCY.md` §8.3（main TU 残留の仕分け）へ参照を追加（挙動不変） |
 | 2026-04-06 | **関連ドキュメント**表: §8.4（§8.3 B のデータ／呼び出し契約）へ参照を追加（挙動不変） |
+| 2026-04-06 | **関連ドキュメント**表: §8.5（Go/No-Go）へ参照を追加（挙動不変） |
