@@ -62,16 +62,15 @@ void Win32DebugOverlay_Paint(
         (void)skipScrollBandGdi;
         return;
     }
-    Win32_LegacyStacked_GdiPaintParams paint{};
-    paint.common.hwnd = hwnd;
-    paint.common.hdc = hdc;
-    paint.common.t17ModeLabelForOverlay = t17ModeLabelForOverlay;
-    paint.common.t17CandLabel = t17CandLabel;
-    paint.common.t17ActLabel = t17ActLabel;
-    paint.suppressT14BodyGdi = suppressT14BodyGdi;
-    paint.skipMenuColumnGdi = skipMenuColumnGdi;
-    paint.skipScrollBandGdi = skipScrollBandGdi;
-    Win32_DebugOverlay_LegacyStacked_RunGdiPaint(paint);
+    Win32_DebugOverlay_LegacyStacked_RunGdiPaintFromPaintEntry(
+        hwnd,
+        hdc,
+        t17ModeLabelForOverlay,
+        t17CandLabel,
+        t17ActLabel,
+        suppressT14BodyGdi,
+        skipMenuColumnGdi,
+        skipScrollBandGdi);
 }
 
 #pragma endregion
@@ -682,15 +681,8 @@ void Win32_DebugOverlay_PrefillHudLeftColumnForD2d(
         return;
     }
 
-    Win32_LegacyStacked_LayoutMetricsParams lmPrefill{};
-    lmPrefill.common.hwnd = hwnd;
-    lmPrefill.common.hdc = hdc;
-    lmPrefill.common.t17ModeLabelForOverlay = t17ModeLabelForOverlay != nullptr ? t17ModeLabelForOverlay : L"?";
-    lmPrefill.common.t17CandLabel = t17CandLabel != nullptr ? t17CandLabel : L"?";
-    lmPrefill.common.t17ActLabel = t17ActLabel != nullptr ? t17ActLabel : L"?";
-    lmPrefill.outHud = st;
-    lmPrefill.logScroll = false;
-    Win32_DebugOverlay_LegacyStacked_RunComputeLayoutMetrics(lmPrefill);
+    Win32_DebugOverlay_LegacyStacked_RunComputeLayoutMetricsForD2dPrefill(
+        hwnd, hdc, st, t17ModeLabelForOverlay, t17CandLabel, t17ActLabel);
 }
 
 #pragma endregion

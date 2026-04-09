@@ -52,3 +52,22 @@ bool Win32_LegacyStacked_IsPaintLayoutMetricsFromPaintValid(void);
 
 void Win32_DebugOverlay_LegacyStacked_RunGdiPaint(const Win32_LegacyStacked_GdiPaintParams& p);
 void Win32_DebugOverlay_LegacyStacked_RunComputeLayoutMetrics(const Win32_LegacyStacked_LayoutMetricsParams& p);
+
+// Win32DebugOverlay.cpp 専用: public entry から Run* へ渡す struct 組み立てを legacy TU に寄せる（挙動は Run* と同一）。
+void Win32_DebugOverlay_LegacyStacked_RunGdiPaintFromPaintEntry(
+    HWND hwnd,
+    HDC hdc,
+    const wchar_t* t17ModeLabelForOverlay,
+    const wchar_t* t17CandLabel,
+    const wchar_t* t17ActLabel,
+    bool suppressT14BodyGdi,
+    bool skipMenuColumnGdi,
+    bool skipScrollBandGdi);
+
+void Win32_DebugOverlay_LegacyStacked_RunComputeLayoutMetricsForD2dPrefill(
+    HWND hwnd,
+    HDC hdc,
+    WindowsRendererState* outHud,
+    const wchar_t* t17ModeLabelForOverlay,
+    const wchar_t* t17CandLabel,
+    const wchar_t* t17ActLabel);
