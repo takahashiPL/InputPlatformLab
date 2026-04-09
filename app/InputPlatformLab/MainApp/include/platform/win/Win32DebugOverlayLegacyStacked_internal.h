@@ -1,8 +1,14 @@
 #pragma once
 
-// Legacy TU（Win32DebugOverlayLegacyStacked.cpp）が実装する全 API。
-// Main TU は Win32DebugOverlayLegacyStacked_bridge.h のみ include し、本ヘッダは include しない（依存境界の縮小）。
-// bridge.h に含まれる型・宣言は重複させない。
+// =============================================================================
+// Win32DebugOverlayLegacyStacked_internal.h — legacy TU 実装のための宣言面
+// =============================================================================
+// Win32DebugOverlayLegacyStacked.cpp のみが include（main TU の Win32DebugOverlay.cpp は include しない）。
+// 先に bridge.h を include し、ここでは bridge に無い型・Apply*・scratch・vmSplit・T45 束（RunUnified…）までを宣言する。
+// bridge.h に既にある宣言・型は重複しない。
+// ApplyD2dHudPrefill 等で WindowsRendererState のメンバに触れるため、本ヘッダのみ WindowsRenderer.h を include（bridge は前方宣言のみ）。
+// 詳細: HUD_LEGACY_CODE_DEPENDENCY.md §5 / §7.2 / §7.6。
+// =============================================================================
 
 #include "Win32DebugOverlayLegacyStacked_bridge.h"
 

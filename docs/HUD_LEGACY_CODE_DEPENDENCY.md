@@ -209,3 +209,4 @@
 | 2026-04-06 | **§7.7 追記**: `ComputeLayoutMetrics` 内の MainApp 共有への薄い write を `ApplyMainAppPaintDbg*`（ContentAndClientGeometry / PostOverlayMeasures / T14BudgetHeights 等）に寄せる（T45/T46 本体は未変更、挙動不変） |
 | 2026-04-06 | **§7.1 / §7.2 追記**: **`Win32DebugOverlayLegacyStacked_bridge.h`** を追加（main TU が include する最小橋渡し）。**`Win32DebugOverlayLegacyStacked_internal.h`** は bridge を include した legacy 実装向けの宣言に再編（`WindowsRenderer.h` は internal 側のみ。挙動不変） |
 | 2026-04-06 | **bridge 追記**: **`RunGdiPaintFromPaintEntry`** / **`RunComputeLayoutMetricsForD2dPrefill`** — main TU の `Win32DebugOverlay_Paint` / `PrefillHudLeftColumnForD2d` から `RunGdiPaint` / `RunComputeLayoutMetrics` への struct 組み立てを legacy TU に寄せる（挙動不変） |
+| 2026-04-06 | **§5 / コメント整備**: `Win32DebugOverlay.cpp` / `bridge.h` / `internal.h` のファイル頭・`#pragma region` を、main / bridge / internal / legacy TU の現状境界に合わせて更新（挙動不変） |

@@ -7,11 +7,11 @@
 #include <algorithm>
 #include <cstdint>
 
-// Win32DebugOverlay.cpp — T45 wrapper (static T45 stays in that TU).
+// main TU 側の Win32_T45_* 実体へ橋渡し（InvokeT45 の定義は Win32DebugOverlay.cpp）。
 void Win32_DebugOverlay_LegacyStacked_InvokeT45(HWND hwnd, int scrollContentH, int scrollViewportH, int pos);
 
 // -----------------------------------------------------------------------------
-// Legacy stacked HUD scratch + T52 validity (HUD_LEGACY_CODE_DEPENDENCY.md §7.2 / §7.7).
+// Legacy stacked HUD — scratch ストレージ + T52（§7.2 / §7.7）。宣言は internal.h。
 // -----------------------------------------------------------------------------
 
 int s_paintDbgFinalBodyTopPx = 0;

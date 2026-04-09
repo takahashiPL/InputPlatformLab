@@ -32,17 +32,21 @@
 #define WIN32_OVERLAY_MIN_BODY_VIEWPORT_PX 64
 #endif
 
-// ---------------------------------------------------------------------------
-// GDI: D3D で塗ったクライアント上にデバッグ文字を載せる。
-// 通常運用（ページ式 HUD 既定）では Win32_HudPaged_PaintGdi が本文を描く。縦スクロール・[scroll]・T14/T17 行位置の計測は主にレガシー縦積み経路（PaintStackedLegacy）で使用。
-// ---------------------------------------------------------------------------
+// -----------------------------------------------------------------------------
+// Win32DebugOverlay.cpp — main TU（本ファイル）
+// -----------------------------------------------------------------------------
+// 役割の目安:
+//   • ページ式 HUD が通常運用の正 — Win32_HudPaged_* が先に分岐する入口をここに置く。
+//   • Public entry: 下記 #pragma region「Public HUD entry」— GDI WM_PAINT と D2D 左列プレフィル。
+//   • Shared: 「Shared overlay」region — 表示モード・[scroll] 文字列・T44/T45/T46 スナップショット・ScrollLog 等（ページ式・レガシー双方から参照され得る）。
+//   • Legacy 縦積みの実装本体は Win32DebugOverlayLegacyStacked.cpp。main からは Win32DebugOverlayLegacyStacked_bridge.h のみ（internal.h は include しない）。
+//   • Legacy への入口は薄いラッパ（例: RunGdiPaintFromPaintEntry / RunComputeLayoutMetricsForD2dPrefill）→ Run*。詳細は HUD_LEGACY_CODE_DEPENDENCY.md §5 / §7。
+// MainApp 共有 HUD 状態（extern）の宣言: Win32MainAppPaintDbg_shared_link.h（§2.3）。
+// -----------------------------------------------------------------------------
 
-// MainApp.cpp で定義 — 共有オーバーレイ状態（レガシー ComputeLayoutMetrics / T37 / T14 追従 / ページ式での scroll リセット）。legacy 専用ではない。
-// docs/HUD_LEGACY_CODE_DEPENDENCY.md §2.3 — 全 MainApp 共有 HUD 参照は Win32MainAppPaintDbg_shared_link.h
+#pragma region Public HUD entry (WM_PAINT: paged first, else legacy stacked via bridge)
 
-#pragma region Public HUD overlay entry (GDI WM_PAINT)
-
-// HUD overlay — public entry (WM_PAINT): paged branch first, then legacy stacked.
+// WM_PAINT 用 HUD GDI。ページ式が無効なときのみ legacy（RunGdiPaintFromPaintEntry → legacy TU）。
 void Win32DebugOverlay_Paint(
     HWND hwnd,
     HDC hdc,
@@ -75,9 +79,10 @@ void Win32DebugOverlay_Paint(
 
 #pragma endregion
 
-// Shared overlay helpers: presentation, scroll band strings, and [scroll] formatting (legacy layout metrics compute lives in Win32DebugOverlayLegacyStacked.cpp).
-// See docs/HUD_LEGACY_CODE_DEPENDENCY.md §7.4.
-#pragma region Shared overlay helpers (presentation, scroll, [scroll] text)
+// Shared overlay — ページ式・レガシー双方が参照し得る表示・スクロールバー・[scroll] テキスト・T44/T45/T46。
+// レガシー専用のレイアウト計測・scratch の実体は legacy TU。bridge.h の getter / LoadMainAppPaintDbgRead はここから呼ばれる。
+// docs/HUD_LEGACY_CODE_DEPENDENCY.md §7.4。
+#pragma region Shared overlay (presentation, scrollbars, [scroll] text)
 
 // Presentation / window chrome (scrollbars, fill-monitor; shared with paged and legacy paths).
 static bool Win32_IsMainWindowFillMonitorPresentation(HWND hwnd)
@@ -108,15 +113,15 @@ void Win32_UpdateNativeScrollbarsWindowedOnly(HWND hwnd, int nBar, SCROLLINFO* s
     SetScrollInfo(hwnd, nBar, si, redraw);
 }
 
-// T46/T47: updated on legacy ComputeLayoutMetrics → T45 path; read by shared Win32DebugOverlay_ScrollLog /
-// Win32_DebugOverlay_FormatScrollDebugOverlay ([scroll] / [SCROLL]). Not pure "legacy-only" state — keep near scroll helpers until those are refactored. docs/HUD_LEGACY_CODE_DEPENDENCY.md §7.3
+// T46/T47: legacy 経路の ComputeLayoutMetrics → T45 後に更新。Win32DebugOverlay_ScrollLog / FormatScrollDebugOverlay が参照（§7.3）。
+// ページ式でも参照され得るため「legacy 専用」ではない — shared region に置く。
 static int s_t46LastSiNMax = 0;
 static UINT s_t46LastSiNPage = 0;
 static int s_t46LastSiNPos = 0;
 static int s_t46LastSiMaxScrollSi = 0;
 static bool s_t46LastSiValid = false;
 
-// T52: legacy ComputeLayoutMetrics が T45 まで完了し、contentH / scrollVpH / SI スナップショットが整合している（定義は Win32DebugOverlayLegacyStacked.cpp）
+// T52: レイアウト指標の paint 整合フラグ（定義は legacy TU）。IsPaintLayoutMetricsFromPaintValid は bridge.h。
 
 // F7 ジャンプ先: 「--- T17 presentation ---」行を上余白付きで見える scrollY。
 int Win32DebugOverlay_ScrollTargetT17WithTopMargin(void)
@@ -387,6 +392,7 @@ static void Win32_T45_ApplyWindowedScrollInfo(HWND hwnd, int scrollContentH, int
     OutputDebugStringW(line);
 }
 
+// legacy TU からの単一ホップ — T45 本体（Win32_T45_ApplyWindowedScrollInfo）は main TU に残す（§7.3）。
 void Win32_DebugOverlay_LegacyStacked_InvokeT45(HWND hwnd, int scrollContentH, int scrollViewportH, int pos)
 {
     Win32_T45_ApplyWindowedScrollInfo(hwnd, scrollContentH, scrollViewportH, pos);
@@ -624,11 +630,10 @@ void Win32_DebugOverlay_FormatScrollDebugOverlay(
 #pragma endregion
 
 
-#pragma region Public HUD overlay entry (D2D prefill)
+#pragma region Public HUD entry (D2D prefill: paged first, else legacy via bridge)
 
-// Win32DebugOverlay_Paint (HUD GDI 入口) はファイル先頭の「Public HUD overlay entry (GDI WM_PAINT)」に定義。
-
-// D2D フレーム用の左列プレフィル。ページ式 HUD 既定時は Win32_HudPaged_PrefillD2d のみ。レガシー縦積み時のみ ComputeLayoutMetrics 経路。
+// D2D フレーム前の左列プレフィル。ページ式なら Win32_HudPaged_PrefillD2d のみ。
+// レガシー縦積み時は RunComputeLayoutMetricsForD2dPrefill → legacy TU（ComputeLayoutMetrics）。
 void Win32_DebugOverlay_PrefillHudLeftColumnForD2d(
     HWND hwnd,
     HDC hdc,
