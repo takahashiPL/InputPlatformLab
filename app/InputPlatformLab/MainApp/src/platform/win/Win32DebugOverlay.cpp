@@ -84,9 +84,9 @@ int s_paintDbgT14VmSplitPrefixH = 0;
 int s_paintDbgT14VmSplitVmBandH = 0;
 
 // Legacy stacked pipeline — forward declarations (definitions in legacy #region below; same unnamed namespace).
-// Win32DebugOverlay_Paint / Win32_DebugOverlay_PrefillHudLeftColumnForD2d call into this linkage unit.
-void Win32_DebugOverlay_ComputeLayoutMetrics(const Win32_LegacyStacked_LayoutMetricsParams& p);
-void Win32_DebugOverlay_PaintStackedLegacy(const Win32_LegacyStacked_GdiPaintParams& p);
+// Public entry points call **adapters** first (side-effect boundary; docs §7.6); adapters delegate to ComputeLayoutMetrics / PaintStackedLegacy.
+void Win32_DebugOverlay_LegacyStacked_RunGdiPaint(const Win32_LegacyStacked_GdiPaintParams& p);
+void Win32_DebugOverlay_LegacyStacked_RunComputeLayoutMetrics(const Win32_LegacyStacked_LayoutMetricsParams& p);
 } // namespace
 
 // ---------------------------------------------------------------------------
@@ -151,7 +151,7 @@ void Win32DebugOverlay_Paint(
     paint.suppressT14BodyGdi = suppressT14BodyGdi;
     paint.skipMenuColumnGdi = skipMenuColumnGdi;
     paint.skipScrollBandGdi = skipScrollBandGdi;
-    Win32_DebugOverlay_PaintStackedLegacy(paint);
+    Win32_DebugOverlay_LegacyStacked_RunGdiPaint(paint);
 }
 
 #pragma endregion
@@ -838,8 +838,8 @@ static void Win32_T60_FindT14AppendixMarkers(
 #pragma endregion
 
 // -----------------------------------------------------------------------------
-// Legacy stacked HUD — cohesive pipeline for macro WIN32_HUD_USE_PAGED_HUD=0 (see docs §2.2, §7.1).
-// Implementations in this #region: Win32_DebugOverlay_ComputeLayoutMetrics, Win32_DebugOverlay_PaintStackedLegacy.
+// Legacy stacked HUD — cohesive pipeline for macro WIN32_HUD_USE_PAGED_HUD=0 (see docs §2.2, §7.1, §7.6).
+// Implementations: Win32_DebugOverlay_ComputeLayoutMetrics, Win32_DebugOverlay_PaintStackedLegacy; public-side adapters: RunComputeLayoutMetrics, RunGdiPaint.
 // Depends on: shared CALCRECT/T60 helpers above; MainApp.cpp extern s_paint*; file-top static scratch; Win32_FillMenuSamplePaintBuffers via ComputeLayoutMetrics.
 // PrefillHudLeftColumnForD2d (D2D region below) calls ComputeLayoutMetrics when legacy — same extraction bundle in practice.
 // Implementations below are in the same anonymous namespace as scratch + forward decls (file top).
@@ -1639,6 +1639,12 @@ refill_budget:
     s_paintDbgLayoutRestVpBudgetHint = restVpBudgetHint;
 }
 
+// Side-effect exit adapter: every call site that needs layout metrics (Prefill + first pass inside GDI paint) funnels here (docs §7.6).
+void Win32_DebugOverlay_LegacyStacked_RunComputeLayoutMetrics(const Win32_LegacyStacked_LayoutMetricsParams& p)
+{
+    Win32_DebugOverlay_ComputeLayoutMetrics(p);
+}
+
 // Legacy stacked HUD — WIN32_HUD_USE_PAGED_HUD=0 の GDI 本文（メニュー + T14〜T18 縦積み + 下端 [scroll]）。
 // Win32DebugOverlay_Paint はページ式を先に分岐し、本関数は互換経路のみ。
 void Win32_DebugOverlay_PaintStackedLegacy(const Win32_LegacyStacked_GdiPaintParams& p)
@@ -1662,7 +1668,7 @@ void Win32_DebugOverlay_PaintStackedLegacy(const Win32_LegacyStacked_GdiPaintPar
     lmForPaint.common = p.common;
     lmForPaint.outHud = nullptr;
     lmForPaint.logScroll = true;
-    Win32_DebugOverlay_ComputeLayoutMetrics(lmForPaint);
+    Win32_DebugOverlay_LegacyStacked_RunComputeLayoutMetrics(lmForPaint);
 
     Win32_FillMenuSamplePaintBuffers(
         hwnd,
@@ -1865,6 +1871,12 @@ void Win32_DebugOverlay_PaintStackedLegacy(const Win32_LegacyStacked_GdiPaintPar
     SetTextColor(hdc, prevTextColor);
 }
 
+// GDI public-entry adapter: WM_PAINT legacy branch only (single hop to PaintStackedLegacy; docs §7.6).
+void Win32_DebugOverlay_LegacyStacked_RunGdiPaint(const Win32_LegacyStacked_GdiPaintParams& p)
+{
+    Win32_DebugOverlay_PaintStackedLegacy(p);
+}
+
 } // namespace (legacy stacked pipeline; merges with file-top unnamed namespace)
 
 #pragma endregion
@@ -1934,7 +1946,7 @@ void Win32_DebugOverlay_PrefillHudLeftColumnForD2d(
     lmPrefill.common.t17ActLabel = t17ActLabel != nullptr ? t17ActLabel : L"?";
     lmPrefill.outHud = st;
     lmPrefill.logScroll = false;
-    Win32_DebugOverlay_ComputeLayoutMetrics(lmPrefill);
+    Win32_DebugOverlay_LegacyStacked_RunComputeLayoutMetrics(lmPrefill);
 }
 
 #pragma endregion

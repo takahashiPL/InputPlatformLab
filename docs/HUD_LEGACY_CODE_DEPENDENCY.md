@@ -153,7 +153,17 @@
 | **MainApp 共有状態（extern `s_paint*`）** | `ComputeLayoutMetrics` / `PaintStackedLegacy` が **読み書き**（§2.3）。別 `.cpp` 化時は **extern 宣言の共有ヘッダ**または **MainApp のみ**に残す判断が必要。 |
 | **ファイル先頭スクラッチ（無名名前空間）** | `s_paintDbg*`（§7.2）。`ComputeLayoutMetrics` が主に書き、共有の `ScrollTargetT17*` 等が読む。 |
 | **T46 / T52（§7.3）** | レガシー計測経路で更新、`ScrollLog` / `FormatScrollDebugOverlay` が参照 — **完全な legacy-only 分離は別タスク**。 |
-| **出力（副作用）** | `WindowsRendererState` の D2D プレフィル欄（`outHud` 非 null 時）、GDI `DrawText`、条件付き `Win32_T45_ApplyWindowedScrollInfo`、先頭スクラッチ・`s_paintDbg*` 更新。 |
+| **出力（副作用）** | `WindowsRendererState` の D2D プレフィル欄（`outHud` 非 null 時）、GDI `DrawText`、条件付き `Win32_T45_ApplyWindowedScrollInfo`、先頭スクラッチ・`s_paintDbg*` 更新。詳細な出口の整理は **§7.6**。 |
+
+### 7.6 副作用の出口と adapter（実装メモ）
+
+**目的**: レガシー縦積み本体が **どこへ**副作用を出すかを、入口（§7.5）に続けて追いやすくする。実装は `Win32DebugOverlay.cpp` の無名名前空間。
+
+| 要素 | 役割 |
+|------|------|
+| `Win32_DebugOverlay_LegacyStacked_RunGdiPaint` | **WM_PAINT** の legacy 分岐から **唯一**呼ばれる薄い境界（→ `Win32_DebugOverlay_PaintStackedLegacy`）。将来、GDI 入口と縦積み本文の間の接続をここに固定しやすい。 |
+| `Win32_DebugOverlay_LegacyStacked_RunComputeLayoutMetrics` | **D2D Prefill（legacy）** と **GDI 本文の初回計測**の双方が通る境界（→ `Win32_DebugOverlay_ComputeLayoutMetrics`）。計測の副作用出口はまだ本体側に集約。 |
+| **本体** `ComputeLayoutMetrics` / `PaintStackedLegacy` | 実際の **extern `s_paintDbg*`**、**先頭スクラッチ**、`outHud` 書き込み、**T45→T46**、**GDI `DrawText`** はここに残る（§7.3 の共有読み取り出口は別タスク）。 |
 
 ---
 
@@ -167,3 +177,4 @@
 | 2026-04-06 | **§7.2 追記**: legacy スクラッチを `Win32DebugOverlay.cpp` 先頭で **匿名名前空間**に束ねる実装（挙動・シンボル名は維持） |
 | 2026-04-06 | **§7.1 追記**: `ComputeLayoutMetrics` / `PaintStackedLegacy` 本体も同一匿名名前空間に配置（前方宣言はファイル先頭ブロックへ集約） |
 | 2026-04-06 | **§7.5 追加**: legacy パイプライン入出力境界（`Win32_LegacyStacked_*` 束・shared / extern / 副作用） |
+| 2026-04-06 | **§7.6 追加**: 副作用の出口と `RunGdiPaint` / `RunComputeLayoutMetrics` adapter |
