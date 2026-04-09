@@ -117,9 +117,37 @@
 
 ---
 
-## 7. 更新履歴
+## 7. 将来のレガシー縦積み分離（`Win32DebugOverlay.cpp`）メモ
+
+**目的**: マクロ 0 互換経路を **別翻訳単位**へ移す検討時の、**切り出し単位**と **同一ファイルに残す理由**のメモ（実装タスクの確定ではない）。
+
+### 7.1 まとまりとして切り出しやすい単位（パイプライン）
+
+| 単位 | 内容 | 備考 |
+|------|------|------|
+| **Legacy stacked pipeline** | `Win32_DebugOverlay_ComputeLayoutMetrics` + `Win32_DebugOverlay_PaintStackedLegacy` | `Win32_DebugOverlay_PrefillHudLeftColumnForD2d` の legacy 分岐からも `ComputeLayoutMetrics` を呼ぶため、**D2D プレフィル**とリンク上は同じ束になりやすい。 |
+| **GDI 入口の薄い分岐** | `Win32DebugOverlay_Paint` 内の `Win32_HudPaged_IsEnabled()` → `PaintStackedLegacy` | 既に短い。 |
+
+### 7.2 同一ファイル先頭に置く必要があるもの（宣言順）
+
+`Win32DebugOverlay.cpp` 先頭の **file-local `static`**（`s_paintDbgT14VmSplit*` 等）は、`Win32_DebugOverlay_ComputeLayoutMetrics` が **書き込み**、`Win32DebugOverlay_ScrollTargetT17*` / `Win32DebugOverlay_IsT14VmSplitActive` が **よりソース上で前**から読む。**C++ では名前は宣言より前に使えない**ため、この static 群をレガシー専用 `.cpp` へそのまま移すと、共有側のスクロール API を **前方宣言・getter 化・ファイル順の再配置**のいずれかで揃える必要がある。
+
+### 7.3 「レガシーで更新・共有で読む」ため分離が一緒に動きやすいもの
+
+| 種別 | 例 | メモ |
+|------|-----|------|
+| T46 / T52 まわり | `s_t46LastSi*`、`s_paintDbgLayoutMetricsFromPaintValid` | `Win32_T45_ApplyWindowedScrollInfo`（レガシー計測経路）で更新、`Win32DebugOverlay_ScrollLog` / `Win32_DebugOverlay_FormatScrollDebugOverlay`（共有）が参照。**完全な legacy-only ファイル分離**は、`[scroll]` 文字列生成側の整理とセットになりやすい。 |
+
+### 7.4 共有ヘルパー（legacy 専用ファイルへ「丸ごと」は移しにくい）
+
+`Win32_MenuSampleMeasure*`、`Win32_T60_*`、`Win32_MainView_MeasureScrollOverlayTextHeight` 等は **CALCRECT / 計測**として `ComputeLayoutMetrics` と **ページ式以外の経路**からも参照され得る。将来分離する場合は **共有ヘッダ＋共通 `.cpp`**、または **現ファイルに残す**前提が現実的。
+
+---
+
+## 8. 更新履歴
 
 | 日付 | 内容 |
 |------|------|
 | 2026-04-06 | 初版（実コード依存の棚卸し。ページ式正・レガシー互換・T37 共有を区分） |
 | 2026-04-06 | **コード上の境界**: `Win32DebugOverlay.cpp` の file-local static を legacy レイアウト用と明示、`ComputeLayoutMetrics` / `PaintStackedLegacy` / `Win32DebugOverlay_Paint` のコメントを整理。`MainApp.cpp` の共有 `s_paint*` にブロックヘッダ（挙動不変） |
+| 2026-04-06 | **§7 追加**: レガシー縦積みの将来分離メモ（パイプライン単位・宣言順・T46/共有読み取り・CALCRECT 共有） |

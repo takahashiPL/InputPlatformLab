@@ -31,9 +31,12 @@
 #endif
 
 // -----------------------------------------------------------------------------
-// File-local: legacy stacked layout scratch (Win32_DebugOverlay_ComputeLayoutMetrics +
+// File-local: legacy stacked HUD scratch (writers: Win32_DebugOverlay_ComputeLayoutMetrics /
 // Win32_DebugOverlay_PaintStackedLegacy). Not written when only Win32_HudPaged_PaintGdi runs.
-// docs/HUD_LEGACY_CODE_DEPENDENCY.md §2.2 / §2.3
+// docs/HUD_LEGACY_CODE_DEPENDENCY.md §2.2 / §2.3, §7 (future split notes)
+//
+// Extraction: these must stay **declared above** Win32DebugOverlay_ScrollTargetT17* / IsT14VmSplitActive
+// (they read vmSplit state before the legacy #region in this .cpp). Splitting to another .cpp needs getters or TU reorder.
 // -----------------------------------------------------------------------------
 // GDI Paint と D2D final HUD で body クリップ先頭を共有（ComputeLayoutMetrics で更新）
 static int s_paintDbgFinalBodyTopPx = 0;
@@ -139,6 +142,8 @@ void Win32DebugOverlay_Paint(
 
 #pragma endregion
 
+// Shared overlay helpers: presentation, scroll band strings, and CALCRECT/T60 measurement used by legacy ComputeLayoutMetrics
+// (and potentially other paths). Not legacy-only — see docs/HUD_LEGACY_CODE_DEPENDENCY.md §7.4.
 #pragma region Shared overlay helpers (presentation, scroll, [scroll] text; CALCRECT cluster before legacy)
 
 // Presentation / window chrome (scrollbars, fill-monitor; shared with paged and legacy paths).
@@ -170,7 +175,8 @@ void Win32_UpdateNativeScrollbarsWindowedOnly(HWND hwnd, int nBar, SCROLLINFO* s
     SetScrollInfo(hwnd, nBar, si, redraw);
 }
 
-// T46/T47: legacy レイアウト経路 — 直近の Windowed SetScrollInfo（fill-monitor では無効）。[scroll] 帯と [SCROLL] ログで共有。
+// T46/T47: updated on legacy ComputeLayoutMetrics → T45 path; read by shared Win32DebugOverlay_ScrollLog /
+// Win32_DebugOverlay_FormatScrollDebugOverlay ([scroll] / [SCROLL]). Not pure "legacy-only" state — keep near scroll helpers until those are refactored. docs/HUD_LEGACY_CODE_DEPENDENCY.md §7.3
 static int s_t46LastSiNMax = 0;
 static UINT s_t46LastSiNPage = 0;
 static int s_t46LastSiNPos = 0;
@@ -817,6 +823,12 @@ static void Win32_T60_FindT14AppendixMarkers(
 
 #pragma endregion
 
+// -----------------------------------------------------------------------------
+// Legacy stacked HUD — cohesive pipeline for macro WIN32_HUD_USE_PAGED_HUD=0 (see docs §2.2, §7.1).
+// Implementations in this #region: Win32_DebugOverlay_ComputeLayoutMetrics, Win32_DebugOverlay_PaintStackedLegacy.
+// Depends on: shared CALCRECT/T60 helpers above; MainApp.cpp extern s_paint*; file-top static scratch; Win32_FillMenuSamplePaintBuffers via ComputeLayoutMetrics.
+// PrefillHudLeftColumnForD2d (D2D region below) calls ComputeLayoutMetrics when legacy — same extraction bundle in practice.
+// -----------------------------------------------------------------------------
 #pragma region Legacy stacked HUD (ComputeLayoutMetrics + PaintStackedLegacy)
 
 // Legacy: Win32_DebugOverlay_PrefillHudLeftColumnForD2d（!Win32_HudPaged_IsEnabled() 時）および
