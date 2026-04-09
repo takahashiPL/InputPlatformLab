@@ -935,11 +935,40 @@ void Win32_LegacyStacked_ApplyD2dHudPrefill(
     }
 }
 
+// Scratch-only (file-top anonymous namespace; §7.7 category A). MainApp extern stays in ComputeLayoutMetrics.
+void Win32_LegacyStacked_ClearScratchRestViewportTop()
+{
+    s_paintDbgRestViewportTopPx = 0;
+}
+
+void Win32_LegacyStacked_ApplyScratchFinalHudGeometry(int bodyTopPx, int t14DocTopAbsPx, int row1H, int row2TopPx)
+{
+    s_paintDbgFinalBodyTopPx = bodyTopPx;
+    s_paintDbgBodyT14DocTopPx = t14DocTopAbsPx;
+    s_paintDbgFinalRow1HeightPx = row1H;
+    s_paintDbgRow2TopPx = row2TopPx;
+}
+
+void Win32_LegacyStacked_ResetVmSplitScratchFlags()
+{
+    s_paintDbgT14VmSplitActive = false;
+    s_paintDbgT17DocYRestScroll = 0;
+}
+
+void Win32_LegacyStacked_ApplyScratchT53ScrollBandDrawEnabled(HWND hwnd, int restVpBudgetHint, int clientH)
+{
+    const int budgetT53 = (restVpBudgetHint >= 0) ? restVpBudgetHint : clientH;
+    const bool windowedHud = !Win32_IsMainWindowFillMonitorPresentation(hwnd);
+    s_paintDbgT53ScrollBandDrawEnabled =
+        !(windowedHud && budgetT53 >= 0 &&
+          budgetT53 < WIN32_OVERLAY_T53_OMIT_SCROLL_BAND_BUDGET_PX);
+}
+
 // Legacy: Win32_DebugOverlay_PrefillHudLeftColumnForD2d（!Win32_HudPaged_IsEnabled() 時）および
 // Win32_DebugOverlay_PaintStackedLegacy からのみ呼ばれる。ページ式 HUD 既定時は呼ばれない（Win32_HudPaged_PrefillD2d）。
 // スクロール・[scroll] 帯の高さ・T17 行位置などを計測。outHud 非 null のときは D2D final HUD 用に左列全文（menu+t14）とスクロール値を書き込む。
 //
-// Side-effect map (categories; not every assignment): ① file-top scratch (this TU), ② MainApp extern s_paintDbg* / line height,
+// Side-effect map (categories; not every assignment): ① file-top scratch (ApplyScratch* / ResetVmSplit* / ClearScratchRestViewportTop helpers), ② MainApp extern s_paintDbg* / line height,
 // ③ outHud dbgHud* when non-null (via Win32_LegacyStacked_ApplyD2dHudPrefill), ④ Win32_T45_ApplyWindowedScrollInfo → T46 snapshot + T52 validity.  HUD_LEGACY_CODE_DEPENDENCY.md §7.7
 void Win32_DebugOverlay_ComputeLayoutMetrics(const Win32_LegacyStacked_LayoutMetricsParams& p)
 {
@@ -965,7 +994,7 @@ void Win32_DebugOverlay_ComputeLayoutMetrics(const Win32_LegacyStacked_LayoutMet
 
 refill_budget:
     s_paintDbgScrollBandReservePx = 0;
-    s_paintDbgRestViewportTopPx = 0;
+    Win32_LegacyStacked_ClearScratchRestViewportTop();
 
     Win32_FillMenuSamplePaintBuffers(
         hwnd,
@@ -1024,15 +1053,11 @@ refill_budget:
     const int row2TopPx = row1H + row1GapPx + t37TopGap;
     const int t14DocTopAbsPx = static_cast<int>(rcT14Doc.top) + t37TopGap;
     const int bodyTopPx = row2TopPx + static_cast<int>(rcT14Doc.top) + row2ToBodyExtraGapPx;
-    s_paintDbgFinalBodyTopPx = bodyTopPx;
-    s_paintDbgBodyT14DocTopPx = t14DocTopAbsPx;
-    s_paintDbgFinalRow1HeightPx = row1H;
-    s_paintDbgRow2TopPx = row2TopPx;
+    Win32_LegacyStacked_ApplyScratchFinalHudGeometry(bodyTopPx, t14DocTopAbsPx, row1H, row2TopPx);
 
     const int baseContentH = static_cast<int>(rcT14Doc.bottom) + t37TopGap;
 
-    s_paintDbgT14VmSplitActive = false;
-    s_paintDbgT17DocYRestScroll = 0;
+    Win32_LegacyStacked_ResetVmSplitScratchFlags();
     s_paintDbgRestViewportClientH = clientH;
 
     const wchar_t* pVis = wcsstr(t14Buf, L"visible modes:\r\n");
@@ -1404,16 +1429,10 @@ refill_budget:
     if (!vmSplitActive)
     {
         s_paintDbgScrollBandReservePx = (std::min)(actualOverlayHeight, clientH);
-        s_paintDbgRestViewportTopPx = 0;
+        Win32_LegacyStacked_ClearScratchRestViewportTop();
     }
 
-    {
-        const int budgetT53 = (restVpBudgetHint >= 0) ? restVpBudgetHint : clientH;
-        const bool windowedHud = !Win32_IsMainWindowFillMonitorPresentation(hwnd);
-        s_paintDbgT53ScrollBandDrawEnabled =
-            !(windowedHud && budgetT53 >= 0 &&
-              budgetT53 < WIN32_OVERLAY_T53_OMIT_SCROLL_BAND_BUDGET_PX);
-    }
+    Win32_LegacyStacked_ApplyScratchT53ScrollBandDrawEnabled(hwnd, restVpBudgetHint, clientH);
 
     if (outHud)
     {
