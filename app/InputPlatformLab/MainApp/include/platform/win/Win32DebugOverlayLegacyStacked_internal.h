@@ -173,3 +173,7 @@ void Win32_LegacyStacked_RunUnifiedMaxScrollClampAndT45(
     const Win32_LegacyStacked_UnifiedScrollLayoutForT45& u);
 
 void Win32_LegacyStacked_MarkPaintLayoutMetricsFromPaintValid(void);
+
+// Main TU (Win32DebugOverlay.cpp) entry points — implementations in Win32DebugOverlayLegacyStacked.cpp.
+void Win32_DebugOverlay_LegacyStacked_RunGdiPaint(const Win32_LegacyStacked_GdiPaintParams& p);
+void Win32_DebugOverlay_LegacyStacked_RunComputeLayoutMetrics(const Win32_LegacyStacked_LayoutMetricsParams& p);

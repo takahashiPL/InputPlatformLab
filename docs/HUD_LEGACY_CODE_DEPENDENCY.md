@@ -105,8 +105,8 @@
 |----------|------|
 | `Win32HudPaged.h` | マクロ・ページ式 API 宣言・方針コメント。 |
 | `MainApp.cpp` | ページ式本文・`s_hudPagedIndex`・入力・T19 タイマー・T37 準備・`Win32_FillMenuSamplePaintBuffers` 実体・共有 `s_paint*`。 |
-| `Win32DebugOverlay.cpp` | `Paint` / `PaintStackedLegacy` / `ComputeLayoutMetrics` / 滾動ログ・計測（legacy スクラッチの **定義**は `Win32DebugOverlayLegacyStacked.cpp`）。MainApp 共有 HUD の **`extern` は `Win32MainAppPaintDbg_shared_link.h` に集約**。 |
-| `Win32DebugOverlayLegacyStacked.cpp` | レガシー縦積み用スクラッチ・`Win32_LegacyStacked_*`。`internal.h` は型とヘルパ宣言のみ。同 **`shared_link.h`** + **`LoadMainAppPaintDbgRead` / `ApplyMainAppPaintDbg*`**。 |
+| `Win32DebugOverlay.cpp` | `Paint` / `PrefillHudLeftColumnForD2d` / `FormatScrollDebugOverlay` / `ScrollLog` / `ScrollTarget*` 等（**legacy の `ComputeLayoutMetrics` / `PaintStackedLegacy` の実体**は `Win32DebugOverlayLegacyStacked.cpp`）。MainApp 共有 HUD の **`extern` は `Win32MainAppPaintDbg_shared_link.h` に集約**。 |
+| `Win32DebugOverlayLegacyStacked.cpp` | レガシー縦積み用スクラッチ・`Win32_LegacyStacked_*`・**CALCRECT/T60 計測ヘルパー**・**`ComputeLayoutMetrics` / `PaintStackedLegacy`**（`RunGdiPaint` / `RunComputeLayoutMetrics` の実装）。`internal.h` は型とヘルパ宣言のみ。同 **`shared_link.h`** + **`LoadMainAppPaintDbgRead` / `ApplyMainAppPaintDbg*`**。 |
 | `Win32DebugOverlay.h` | 外部公開のオーバーレイ API・`Win32_FillMenuSamplePaintBuffers` 宣言。 |
 | `WindowsRenderer.cpp` | D3D/D2D、T37 DWrite 本文、ページ式時の D2D HUD 重複防止。 |
 
@@ -126,7 +126,7 @@
 
 | 単位 | 内容 | 備考 |
 |------|------|------|
-| **Legacy stacked pipeline** | `Win32_DebugOverlay_ComputeLayoutMetrics` + `Win32_DebugOverlay_PaintStackedLegacy` | `Win32_DebugOverlay_PrefillHudLeftColumnForD2d` の legacy 分岐からも `ComputeLayoutMetrics` を呼ぶため、**D2D プレフィル**とリンク上は同じ束になりやすい。**実装**: スクラッチ・`Win32_LegacyStacked_*` ヘルパーは **`Win32DebugOverlayLegacyStacked.cpp`**（`Win32DebugOverlayLegacyStacked_internal.h`）へ **第一歩分離**（シンボル名は従来どおり）。本体パイプラインは **`Win32DebugOverlay.cpp`** の匿名名前空間に残し、共有側は `internal.h` 経由で scratch を **読む**。 |
+| **Legacy stacked pipeline** | `Win32_DebugOverlay_ComputeLayoutMetrics` + `Win32_DebugOverlay_PaintStackedLegacy` | `Win32_DebugOverlay_PrefillHudLeftColumnForD2d` の legacy 分岐からも `ComputeLayoutMetrics` を呼ぶため、**D2D プレフィル**とリンク上は同じ束になりやすい。**実装**: スクラッチ・`Win32_LegacyStacked_*`・CALCRECT/T60 計測・**`ComputeLayoutMetrics` / `PaintStackedLegacy`** は **`Win32DebugOverlayLegacyStacked.cpp`**（`internal.h` に `RunGdiPaint` / `RunComputeLayoutMetrics` を宣言）。**main TU** は `Win32DebugOverlay_Paint` / `PrefillHudLeftColumnForD2d` から adapter を呼ぶだけ。 |
 | **GDI 入口の薄い分岐** | `Win32DebugOverlay_Paint` 内の `Win32_HudPaged_IsEnabled()` → `PaintStackedLegacy` | 既に短い。 |
 
 ### 7.2 同一ファイル先頭に置く必要があるもの（宣言順）
@@ -141,16 +141,16 @@
 
 ### 7.4 共有ヘルパー（legacy 専用ファイルへ「丸ごと」は移しにくい）
 
-`Win32_MenuSampleMeasure*`、`Win32_T60_*`、`Win32_MainView_MeasureScrollOverlayTextHeight` 等は **CALCRECT / 計測**として `ComputeLayoutMetrics` と **ページ式以外の経路**からも参照され得る。将来分離する場合は **共有ヘッダ＋共通 `.cpp`**、または **現ファイルに残す**前提が現実的。
+`Win32_MenuSampleMeasure*`、`Win32_T60_*`、`Win32_MainView_MeasureScrollOverlayTextHeight` は **`Win32DebugOverlayLegacyStacked.cpp`**（`ComputeLayoutMetrics` / `PaintStackedLegacy` と同 TU）に置く。ページ式以外の経路からも参照され得る場合は **共有ヘッダ＋共通 `.cpp`**、または **現 TU に残す**前提が現実的。
 
 ### 7.5 legacy パイプラインの入出力境界（依存面の整理）
 
-**目的**: レガシー縦積み本体と **shared 側**のあいだで、何が **引数で渡り**、何が **副作用**になるかを固定しやすくする（実装は `Win32DebugOverlay.cpp` 先頭の無名名前空間内 `Win32_LegacyStacked_*` 束）。
+**目的**: レガシー縦積み本体と **shared 側**のあいだで、何が **引数で渡り**、何が **副作用**になるかを固定しやすくする（`Win32_LegacyStacked_*` 束・legacy パイプライン本体は **`Win32DebugOverlayLegacyStacked.cpp`**）。
 
 | 区分 | 内容 |
 |------|------|
 | **明示入力（値）** | `Win32_LegacyStacked_CommonParams`（`hwnd` / `hdc` / T17 ラベル）、GDI 用の `Win32_LegacyStacked_GdiPaintParams`（抑制フラグ）、レイアウト用の `Win32_LegacyStacked_LayoutMetricsParams`（`outHud` / `logScroll`）。`Win32DebugOverlay_Paint` と `Win32_DebugOverlay_PrefillHudLeftColumnForD2d`（legacy 分岐）が構築。 |
-| **shared ヘルパー呼び出し（読み取り中心）** | `Win32_MenuSampleMeasure*`、`Win32_T60_*`、`Win32_MainView_MeasureScrollOverlayTextHeight`、`Win32_IsMainWindowFillMonitorPresentation` 等（§7.4）。レガシー専用ファイルへ切り出すときは **宣言を共有ヘッダ**へ寄せる想定。 |
+| **shared ヘルパー呼び出し（読み取り中心）** | `Win32_MenuSampleMeasure*`、`Win32_T60_*`、`Win32_MainView_MeasureScrollOverlayTextHeight`、`Win32_MainWindow_IsFillMonitorPresentationMode`（legacy TU 内）等（§7.4）。 |
 | **MainApp 共有状態（extern `s_paint*`）** | `ComputeLayoutMetrics` / `PaintStackedLegacy` が **読み書き**（§2.3）。別 `.cpp` 化時は **extern 宣言の共有ヘッダ**または **MainApp のみ**に残す判断が必要。 |
 | **ファイル先頭スクラッチ（無名名前空間）** | `s_paintDbg*`（§7.2）。`ComputeLayoutMetrics` が主に書き、共有の `ScrollTargetT17*` 等が読む。 |
 | **T46 / T52（§7.3）** | レガシー計測経路で更新、`ScrollLog` / `FormatScrollDebugOverlay` が参照 — **完全な legacy-only 分離は別タスク**。 |
@@ -158,13 +158,13 @@
 
 ### 7.6 副作用の出口と adapter（実装メモ）
 
-**目的**: レガシー縦積み本体が **どこへ**副作用を出すかを、入口（§7.5）に続けて追いやすくする。実装は `Win32DebugOverlay.cpp` の無名名前空間。
+**目的**: レガシー縦積み本体が **どこへ**副作用を出すかを、入口（§7.5）に続けて追いやすくする。adapter の実装は **`Win32DebugOverlayLegacyStacked.cpp`**（`internal.h` に宣言）。
 
 | 要素 | 役割 |
 |------|------|
 | `Win32_DebugOverlay_LegacyStacked_RunGdiPaint` | **WM_PAINT** の legacy 分岐から **唯一**呼ばれる薄い境界（→ `Win32_DebugOverlay_PaintStackedLegacy`）。将来、GDI 入口と縦積み本文の間の接続をここに固定しやすい。 |
 | `Win32_DebugOverlay_LegacyStacked_RunComputeLayoutMetrics` | **D2D Prefill（legacy）** と **GDI 本文の初回計測**の双方が通る境界（→ `Win32_DebugOverlay_ComputeLayoutMetrics`）。計測の副作用出口はまだ本体側に集約。 |
-| **本体** `ComputeLayoutMetrics` / `PaintStackedLegacy` | 実際の **extern `s_paintDbg*`**、**先頭スクラッチ**、`outHud` 書き込み、**T45→T46**、**GDI `DrawText`** はここに残る（§7.3 の共有読み取り出口は別タスク）。**書き込み先の棚卸し**は **§7.7**。 |
+| **本体** `ComputeLayoutMetrics` / `PaintStackedLegacy` | 実際の **extern `s_paintDbg*`**、**スクラッチ**、`outHud` 書き込み、**T45→T46**、**GDI `DrawText`** は **`Win32DebugOverlayLegacyStacked.cpp`**（§7.3 の共有読み取り出口は別タスク）。**書き込み先の棚卸し**は **§7.7**。 |
 
 ### 7.7 legacy 本体が更新する状態（shared / scratch / scroll 系の見える化）
 
@@ -199,6 +199,7 @@
 | 2026-04-06 | **§7.7 追記**: scroll 系の薄い出口として `ApplyScrollLineMetricsFromHdc` / `SetDbgMaxScrollAndClampScrollY`（T45/T46 は未変更） |
 | 2026-04-06 | **§7.7 追記**: T45/T46/T52 境界として `RunUnifiedMaxScrollClampAndT45` / `UnifiedScrollLayoutForT45` / `MarkPaintLayoutMetricsFromPaintValid`（T45 本体ロジックは未変更） |
 | 2026-04-06 | **§7.1 / §7.2 追記**: legacy スクラッチ・`Win32_LegacyStacked_*` を **`Win32DebugOverlayLegacyStacked.cpp`** へ物理分離（第一歩、`internal.h` で共有読み取り） |
+| 2026-04-06 | **`ComputeLayoutMetrics` / `PaintStackedLegacy` / CALCRECT/T60 計測**を **`Win32DebugOverlayLegacyStacked.cpp`** へ移動（`internal.h` に `RunGdiPaint` / `RunComputeLayoutMetrics` を追加）。fill-monitor 判定は **`Win32_MainWindow_IsFillMonitorPresentationMode`** |
 | 2026-04-06 | **§5 追記**: `Win32DebugOverlayLegacyStacked.cpp` / `internal.h` の役割を表に追加 |
 | 2026-04-06 | **§7.2 追記**: `internal.h` の公開面を縮小（struct + `Win32_LegacyStacked_*` のみ；`extern` は各 .cpp） |
 | 2026-04-06 | **§7.2 追記**: main TU の legacy スクラッチ／T52 参照を `LoadLayoutScratchRead` + getter/setter に寄せ、`Win32DebugOverlay.cpp` の `extern` ブロックを撤去（挙動不変） |
