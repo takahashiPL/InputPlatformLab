@@ -85,6 +85,8 @@ extern int s_paintDbgT14VisibleBlockDocH;
 extern int s_paintDbgT14AfterVisibleDocH;
 extern int s_paintDbgRestViewportClientH;
 
+#pragma region Public HUD overlay entry (GDI WM_PAINT)
+
 // Legacy static pipeline (definitions in this file, below shared helpers) — forward declarations so the public GDI entry can live first.
 static void Win32_DebugOverlay_ComputeLayoutMetrics(
     HWND hwnd,
@@ -135,49 +137,11 @@ void Win32DebugOverlay_Paint(
         skipScrollBandGdi);
 }
 
-// Shared overlay helpers (scroll, CALCRECT, T60 slice measure, …) — used by legacy ComputeLayoutMetrics and by other paths.
-// メニュー列のみ CALCRECT（左列 D2D 用。幅は committed / client のレイアウト幅に合わせる）
-static void Win32_MenuSampleMeasureMenuColumnOnly(
-    HDC hdc,
-    int layoutW,
-    const wchar_t* menuBuf,
-    RECT& outMenuDoc)
-{
-    outMenuDoc.left = 0;
-    outMenuDoc.top = 0;
-    outMenuDoc.right = layoutW;
-    outMenuDoc.bottom = 0;
-    DrawTextW(hdc, menuBuf, -1, &outMenuDoc, DT_LEFT | DT_TOP | DT_NOPREFIX | DT_CALCRECT);
-}
+#pragma endregion
 
-// メニューと T14 本文のドキュメント高さを CALCRECT で求める（スクロール範囲・T17 行 Y の計測用）。
-static void Win32_MenuSampleMeasurePaintLayout(
-    HDC hdc,
-    int clientW,
-    const wchar_t* menuBuf,
-    const wchar_t* t14Buf,
-    RECT& outMenuDoc,
-    RECT& outT14Doc,
-    int menuToT14GapPx)
-{
-    outMenuDoc.left = 0;
-    outMenuDoc.top = 0;
-    outMenuDoc.right = clientW;
-    outMenuDoc.bottom = 0;
-    DrawTextW(hdc, menuBuf, -1, &outMenuDoc, DT_LEFT | DT_TOP | DT_NOPREFIX | DT_CALCRECT);
+#pragma region Shared overlay helpers (presentation, scroll, [scroll] text; CALCRECT cluster before legacy)
 
-    outT14Doc.left = 0;
-    outT14Doc.top = outMenuDoc.bottom + menuToT14GapPx;
-    outT14Doc.right = clientW;
-    outT14Doc.bottom = outT14Doc.top + 1000000;
-    DrawTextW(
-        hdc,
-        t14Buf,
-        -1,
-        &outT14Doc,
-        DT_LEFT | DT_TOP | DT_NOPREFIX | DT_WORDBREAK | DT_CALCRECT);
-}
-
+// Presentation / window chrome (scrollbars, fill-monitor; shared with paged and legacy paths).
 static bool Win32_IsMainWindowFillMonitorPresentation(HWND hwnd)
 {
     if (!hwnd || !IsWindow(hwnd))
@@ -707,6 +671,49 @@ void Win32_DebugOverlay_FormatScrollDebugOverlay(
     }
 }
 
+// CALCRECT / text measurement (static helpers; used by legacy ComputeLayoutMetrics and PaintStackedLegacy).
+// メニュー列のみ CALCRECT（左列 D2D 用。幅は committed / client のレイアウト幅に合わせる）
+static void Win32_MenuSampleMeasureMenuColumnOnly(
+    HDC hdc,
+    int layoutW,
+    const wchar_t* menuBuf,
+    RECT& outMenuDoc)
+{
+    outMenuDoc.left = 0;
+    outMenuDoc.top = 0;
+    outMenuDoc.right = layoutW;
+    outMenuDoc.bottom = 0;
+    DrawTextW(hdc, menuBuf, -1, &outMenuDoc, DT_LEFT | DT_TOP | DT_NOPREFIX | DT_CALCRECT);
+}
+
+// メニューと T14 本文のドキュメント高さを CALCRECT で求める（スクロール範囲・T17 行 Y の計測用）。
+static void Win32_MenuSampleMeasurePaintLayout(
+    HDC hdc,
+    int clientW,
+    const wchar_t* menuBuf,
+    const wchar_t* t14Buf,
+    RECT& outMenuDoc,
+    RECT& outT14Doc,
+    int menuToT14GapPx)
+{
+    outMenuDoc.left = 0;
+    outMenuDoc.top = 0;
+    outMenuDoc.right = clientW;
+    outMenuDoc.bottom = 0;
+    DrawTextW(hdc, menuBuf, -1, &outMenuDoc, DT_LEFT | DT_TOP | DT_NOPREFIX | DT_CALCRECT);
+
+    outT14Doc.left = 0;
+    outT14Doc.top = outMenuDoc.bottom + menuToT14GapPx;
+    outT14Doc.right = clientW;
+    outT14Doc.bottom = outT14Doc.top + 1000000;
+    DrawTextW(
+        hdc,
+        t14Buf,
+        -1,
+        &outT14Doc,
+        DT_LEFT | DT_TOP | DT_NOPREFIX | DT_WORDBREAK | DT_CALCRECT);
+}
+
 static int Win32_MainView_MeasureScrollOverlayTextHeight(HDC hdc, int clientW, const wchar_t* text)
 {
     RECT rc = {};
@@ -807,6 +814,10 @@ static void Win32_T60_FindT14AppendixMarkers(
         }
     }
 }
+
+#pragma endregion
+
+#pragma region Legacy stacked HUD (ComputeLayoutMetrics + PaintStackedLegacy)
 
 // Legacy: Win32_DebugOverlay_PrefillHudLeftColumnForD2d（!Win32_HudPaged_IsEnabled() 時）および
 // Win32_DebugOverlay_PaintStackedLegacy からのみ呼ばれる。ページ式 HUD 既定時は呼ばれない（Win32_HudPaged_PrefillD2d）。
@@ -1823,7 +1834,11 @@ static void Win32_DebugOverlay_PaintStackedLegacy(
     SetTextColor(hdc, prevTextColor);
 }
 
-// Win32DebugOverlay_Paint (HUD GDI 入口) はファイル先頭の「HUD overlay — public entry」に定義。
+#pragma endregion
+
+#pragma region Public HUD overlay entry (D2D prefill)
+
+// Win32DebugOverlay_Paint (HUD GDI 入口) はファイル先頭の「Public HUD overlay entry (GDI WM_PAINT)」に定義。
 
 // D2D フレーム用の左列プレフィル。ページ式 HUD 既定時は Win32_HudPaged_PrefillD2d のみ。レガシー縦積み時のみ ComputeLayoutMetrics 経路。
 void Win32_DebugOverlay_PrefillHudLeftColumnForD2d(
@@ -1887,3 +1902,5 @@ void Win32_DebugOverlay_PrefillHudLeftColumnForD2d(
         st,
         false);
 }
+
+#pragma endregion
