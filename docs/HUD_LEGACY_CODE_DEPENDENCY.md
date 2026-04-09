@@ -106,7 +106,7 @@
 | `Win32HudPaged.h` | マクロ・ページ式 API 宣言・方針コメント。 |
 | `MainApp.cpp` | ページ式本文・`s_hudPagedIndex`・入力・T19 タイマー・T37 準備・`Win32_FillMenuSamplePaintBuffers` 実体・共有 `s_paint*`。 |
 | `Win32DebugOverlay.cpp` | `Paint` / `PaintStackedLegacy` / `ComputeLayoutMetrics` / 滾動ログ・計測（legacy スクラッチの **定義**は `Win32DebugOverlayLegacyStacked.cpp`）。 |
-| `Win32DebugOverlayLegacyStacked.cpp` | レガシー縦積み用スクラッチ・`Win32_LegacyStacked_*`（内部ヘッダ `Win32DebugOverlayLegacyStacked_internal.h`）。 |
+| `Win32DebugOverlayLegacyStacked.cpp` | レガシー縦積み用スクラッチ・`Win32_LegacyStacked_*`。`internal.h` は型とヘルパ宣言のみ（`extern` は各 .cpp）。 |
 | `Win32DebugOverlay.h` | 外部公開のオーバーレイ API・`Win32_FillMenuSamplePaintBuffers` 宣言。 |
 | `WindowsRenderer.cpp` | D3D/D2D、T37 DWrite 本文、ページ式時の D2D HUD 重複防止。 |
 
@@ -131,7 +131,7 @@
 
 ### 7.2 同一ファイル先頭に置く必要があるもの（宣言順）
 
-**legacy 縦積み用スクラッチ**（`s_paintDbgT14VmSplit*` 等）と **T52** `s_paintDbgLayoutMetricsFromPaintValid` の **定義**は **`Win32DebugOverlayLegacyStacked.cpp`**（`Win32DebugOverlayLegacyStacked_internal.h` で `extern`）。`Win32_DebugOverlay_ComputeLayoutMetrics` が **書き込み**、`Win32DebugOverlay_ScrollTargetT17*` / `Win32DebugOverlay_IsT14VmSplitActive` は **`Win32DebugOverlay.cpp`** 先頭で `internal.h` を **include** して読む。**C++ では名前は宣言より前に使えない**ため、この群をさらに移す場合は共有側のスクロール API を **前方宣言・getter 化・ファイル順の再配置**のいずれかで揃える必要がある。シンボル名は `s_paintDbg*` のまま。
+**legacy 縦積み用スクラッチ**（`s_paintDbgT14VmSplit*` 等）と **T52** `s_paintDbgLayoutMetricsFromPaintValid` の **定義**は **`Win32DebugOverlayLegacyStacked.cpp`**。`Win32DebugOverlayLegacyStacked_internal.h` は **I/O struct** と **`Win32_LegacyStacked_*` の宣言**のみ（グローバル `extern` は載せない）。**`Win32DebugOverlay.cpp`** は当該スクラッチ／T52 を **`extern` ブロック**で参照（ScrollTarget・Reset・GDI paint）。**`Win32DebugOverlayLegacyStacked.cpp`** は **MainApp.cpp** 由来の **`extern`** を **同 .cpp 先頭**に限定（ApplyVmSplit 等が触る `s_paintDbgT17DocY` 等）。**`Win32_DebugOverlay_LegacyStacked_InvokeT45`** は **main TU** の static T45 への橋渡しで **`Win32DebugOverlay.cpp` に定義**、legacy TU は **前方宣言のみ**。**C++ では名前は宣言より前に使えない**ため、この群をさらに移す場合は共有側のスクロール API を **前方宣言・getter 化・ファイル順の再配置**のいずれかで揃える必要がある。シンボル名は `s_paintDbg*` のまま。
 
 ### 7.3 「レガシーで更新・共有で読む」ため分離が一緒に動きやすいもの
 
@@ -200,3 +200,4 @@
 | 2026-04-06 | **§7.7 追記**: T45/T46/T52 境界として `RunUnifiedMaxScrollClampAndT45` / `UnifiedScrollLayoutForT45` / `MarkPaintLayoutMetricsFromPaintValid`（T45 本体ロジックは未変更） |
 | 2026-04-06 | **§7.1 / §7.2 追記**: legacy スクラッチ・`Win32_LegacyStacked_*` を **`Win32DebugOverlayLegacyStacked.cpp`** へ物理分離（第一歩、`internal.h` で共有読み取り） |
 | 2026-04-06 | **§5 追記**: `Win32DebugOverlayLegacyStacked.cpp` / `internal.h` の役割を表に追加 |
+| 2026-04-06 | **§7.2 追記**: `internal.h` の公開面を縮小（struct + `Win32_LegacyStacked_*` のみ；`extern` は各 .cpp） |

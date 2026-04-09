@@ -1,7 +1,7 @@
 #pragma once
 
-// Internal: legacy stacked HUD (WIN32_HUD_USE_PAGED_HUD=0) helpers + scratch.
-// First physical split from Win32DebugOverlay.cpp — not a public API (HUD_LEGACY_CODE_DEPENDENCY.md §7).
+// Cross-TU bridge: legacy stacked I/O types + Win32_LegacyStacked_* entry points (HUD_LEGACY_CODE_DEPENDENCY.md §7).
+// Scratch / MainApp extern は各 .cpp で宣言（ヘッダの公開面を抑える）。
 
 #include "WindowsRenderer.h"
 
@@ -48,35 +48,6 @@ struct Win32_LegacyStacked_UnifiedScrollLayoutForT45 {
     int scrollViewportHFinal{};
     int maxScrollUnified{};
 };
-
-// Scratch + T52 (definitions: Win32DebugOverlayLegacyStacked.cpp). Same names as §7.2.
-extern int s_paintDbgFinalBodyTopPx;
-extern int s_paintDbgBodyT14DocTopPx;
-extern int s_paintDbgFinalRow1HeightPx;
-extern int s_paintDbgRow2TopPx;
-extern bool s_paintDbgT14VmSplitActive;
-extern int s_paintDbgT17DocYRestScroll;
-extern int s_paintDbgRestViewportTopPx;
-extern bool s_paintDbgT53ScrollBandDrawEnabled;
-extern wchar_t s_paintDbgT14VmSplitPrefix[8192];
-extern wchar_t s_paintDbgT14VmSplitVmBand[8192];
-extern wchar_t s_paintDbgT14VmSplitRest[16384];
-extern int s_paintDbgT14VmSplitPrefixH;
-extern int s_paintDbgT14VmSplitVmBandH;
-
-extern bool s_paintDbgLayoutMetricsFromPaintValid;
-
-extern int s_paintScrollY;
-extern int s_paintScrollLinePx;
-extern int s_paintDbgT17DocY;
-extern bool s_paintDbgT14LayoutValid;
-extern int s_paintDbgT14VisibleModesDocStartY;
-extern int s_paintDbgLineHeight;
-extern int s_paintDbgMaxScroll;
-
-void Win32_DebugOverlay_ClampScrollYToMaxScroll(int maxScroll, const wchar_t* where);
-
-void Win32_DebugOverlay_LegacyStacked_InvokeT45(HWND hwnd, int scrollContentH, int scrollViewportH, int pos);
 
 void Win32_LegacyStacked_ApplyD2dHudPrefill(
     WindowsRendererState* outHud,

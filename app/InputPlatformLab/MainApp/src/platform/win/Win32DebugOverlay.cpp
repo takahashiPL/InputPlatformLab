@@ -32,8 +32,8 @@
 #endif
 
 // -----------------------------------------------------------------------------
-// Legacy stacked HUD: I/O structs + scratch in Win32DebugOverlayLegacyStacked_internal.h / .cpp (§7.2).
-// Win32DebugOverlay_ScrollTargetT17* / IsT14VmSplitActive include the internal header for scratch externs.
+// Legacy stacked HUD: I/O structs + Win32_LegacyStacked_* decls in Win32DebugOverlayLegacyStacked_internal.h;
+// scratch + T52 definitions in Win32DebugOverlayLegacyStacked.cpp (extern block below).
 // -----------------------------------------------------------------------------
 namespace {
 void Win32_DebugOverlay_LegacyStacked_RunGdiPaint(const Win32_LegacyStacked_GdiPaintParams& p);
@@ -68,6 +68,22 @@ extern int s_paintDbgT14BeforeVisibleDocH;
 extern int s_paintDbgT14VisibleBlockDocH;
 extern int s_paintDbgT14AfterVisibleDocH;
 extern int s_paintDbgRestViewportClientH;
+
+// Win32DebugOverlayLegacyStacked.cpp で定義（§7.2）。ScrollTarget / GDI paint / Reset が読み書き。
+extern bool s_paintDbgT14VmSplitActive;
+extern int s_paintDbgT17DocYRestScroll;
+extern int s_paintDbgFinalBodyTopPx;
+extern int s_paintDbgBodyT14DocTopPx;
+extern int s_paintDbgFinalRow1HeightPx;
+extern int s_paintDbgRow2TopPx;
+extern int s_paintDbgRestViewportTopPx;
+extern bool s_paintDbgT53ScrollBandDrawEnabled;
+extern wchar_t s_paintDbgT14VmSplitPrefix[8192];
+extern wchar_t s_paintDbgT14VmSplitVmBand[8192];
+extern wchar_t s_paintDbgT14VmSplitRest[16384];
+extern int s_paintDbgT14VmSplitPrefixH;
+extern int s_paintDbgT14VmSplitVmBandH;
+extern bool s_paintDbgLayoutMetricsFromPaintValid;
 
 #pragma region Public HUD overlay entry (GDI WM_PAINT)
 

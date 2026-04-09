@@ -6,6 +6,18 @@
 #include <algorithm>
 #include <cstdint>
 
+// MainApp.cpp — only symbols this TU reads/writes (not in internal.h; see HUD_LEGACY_CODE_DEPENDENCY.md §7).
+extern int s_paintScrollY;
+extern int s_paintScrollLinePx;
+extern int s_paintDbgT17DocY;
+extern bool s_paintDbgT14LayoutValid;
+extern int s_paintDbgT14VisibleModesDocStartY;
+extern int s_paintDbgLineHeight;
+extern int s_paintDbgMaxScroll;
+
+// Win32DebugOverlay.cpp — T45 wrapper (static T45 stays in that TU).
+void Win32_DebugOverlay_LegacyStacked_InvokeT45(HWND hwnd, int scrollContentH, int scrollViewportH, int pos);
+
 // -----------------------------------------------------------------------------
 // Legacy stacked HUD scratch + T52 validity (HUD_LEGACY_CODE_DEPENDENCY.md §7.2 / §7.7).
 // -----------------------------------------------------------------------------
