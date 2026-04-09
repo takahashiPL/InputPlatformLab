@@ -85,6 +85,57 @@ extern int s_paintDbgT14VisibleBlockDocH;
 extern int s_paintDbgT14AfterVisibleDocH;
 extern int s_paintDbgRestViewportClientH;
 
+// Legacy static pipeline (definitions in this file, below shared helpers) — forward declarations so the public GDI entry can live first.
+static void Win32_DebugOverlay_ComputeLayoutMetrics(
+    HWND hwnd,
+    HDC hdc,
+    const wchar_t* t17ModeLabelForOverlay,
+    const wchar_t* t17CandLabel,
+    const wchar_t* t17ActLabel,
+    WindowsRendererState* outHud,
+    bool logScroll);
+static void Win32_DebugOverlay_PaintStackedLegacy(
+    HWND hwnd,
+    HDC hdc,
+    const wchar_t* t17ModeLabelForOverlay,
+    const wchar_t* t17CandLabel,
+    const wchar_t* t17ActLabel,
+    bool suppressT14BodyGdi,
+    bool skipMenuColumnGdi,
+    bool skipScrollBandGdi);
+
+// HUD overlay — public entry (WM_PAINT): paged branch first, then legacy stacked.
+void Win32DebugOverlay_Paint(
+    HWND hwnd,
+    HDC hdc,
+    const wchar_t* t17ModeLabelForOverlay,
+    const wchar_t* t17CandLabel,
+    const wchar_t* t17ActLabel,
+    bool suppressT14BodyGdi,
+    bool skipMenuColumnGdi,
+    bool skipScrollBandGdi)
+{
+    if (Win32_HudPaged_IsEnabled())
+    {
+        Win32_HudPaged_PaintGdi(hwnd, hdc, t17CandLabel, t17ActLabel);
+        (void)t17ModeLabelForOverlay;
+        (void)suppressT14BodyGdi;
+        (void)skipMenuColumnGdi;
+        (void)skipScrollBandGdi;
+        return;
+    }
+    Win32_DebugOverlay_PaintStackedLegacy(
+        hwnd,
+        hdc,
+        t17ModeLabelForOverlay,
+        t17CandLabel,
+        t17ActLabel,
+        suppressT14BodyGdi,
+        skipMenuColumnGdi,
+        skipScrollBandGdi);
+}
+
+// Shared overlay helpers (scroll, CALCRECT, T60 slice measure, …) — used by legacy ComputeLayoutMetrics and by other paths.
 // メニュー列のみ CALCRECT（左列 D2D 用。幅は committed / client のレイアウト幅に合わせる）
 static void Win32_MenuSampleMeasureMenuColumnOnly(
     HDC hdc,
@@ -1772,36 +1823,7 @@ static void Win32_DebugOverlay_PaintStackedLegacy(
     SetTextColor(hdc, prevTextColor);
 }
 
-// HUD GDI 入口（WM_PAINT から）: ページ式を優先し、無効時のみレガシー縦積みへ。
-void Win32DebugOverlay_Paint(
-    HWND hwnd,
-    HDC hdc,
-    const wchar_t* t17ModeLabelForOverlay,
-    const wchar_t* t17CandLabel,
-    const wchar_t* t17ActLabel,
-    bool suppressT14BodyGdi,
-    bool skipMenuColumnGdi,
-    bool skipScrollBandGdi)
-{
-    if (Win32_HudPaged_IsEnabled())
-    {
-        Win32_HudPaged_PaintGdi(hwnd, hdc, t17CandLabel, t17ActLabel);
-        (void)t17ModeLabelForOverlay;
-        (void)suppressT14BodyGdi;
-        (void)skipMenuColumnGdi;
-        (void)skipScrollBandGdi;
-        return;
-    }
-    Win32_DebugOverlay_PaintStackedLegacy(
-        hwnd,
-        hdc,
-        t17ModeLabelForOverlay,
-        t17CandLabel,
-        t17ActLabel,
-        suppressT14BodyGdi,
-        skipMenuColumnGdi,
-        skipScrollBandGdi);
-}
+// Win32DebugOverlay_Paint (HUD GDI 入口) はファイル先頭の「HUD overlay — public entry」に定義。
 
 // D2D フレーム用の左列プレフィル。ページ式 HUD 既定時は Win32_HudPaged_PrefillD2d のみ。レガシー縦積み時のみ ComputeLayoutMetrics 経路。
 void Win32_DebugOverlay_PrefillHudLeftColumnForD2d(
