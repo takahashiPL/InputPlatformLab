@@ -5,7 +5,7 @@
 #include <Windows.h>
 #include <cstdio>
 
-// T77 step15: default off — slot1 real menu consume requires ManualOverride Live + this flag.
+// T77 step15/16: default off — slot1 real menu consume requires ManualOverride Live + flag + BoundLocked keyboard route.
 static bool g_slot1LiveConsumeTrialArmed = false;
 
 namespace
@@ -89,6 +89,35 @@ bool Slot1LiveManualLiveReady(const PlayerSlotState* s)
 {
     return s && s->consumePolicySource == PlayerSlotConsumePolicySource::ManualOverride &&
            s->actualConsumePolicy == PlayerSlotActualConsumePolicy::Live;
+}
+
+// Step16: BoundLocked keyboard + route/candidate LockedKeyboard (staged merged = global kb only).
+bool Slot1KeyboardBoundLiveTrialEligible(const PlayerSlotState* s)
+{
+    if (!s)
+    {
+        return false;
+    }
+    if (s->bindingAssignment != PlayerSlotBindingAssignment::BoundLocked)
+    {
+        return false;
+    }
+    if (s->boundSourceKind != InputGuideSourceKind::Keyboard ||
+        s->boundDeviceIdentity.kind != PlayerBoundDeviceIdentityKind::Keyboard)
+    {
+        return false;
+    }
+    if (s->routeCandidate.readiness != PlayerSlotRouteReadiness::Ready ||
+        s->routeCandidate.mode != PlayerSlotRouteCandidateMode::LockedKeyboard)
+    {
+        return false;
+    }
+    if (s->activeRouteMode != PlayerSlotActiveRouteMode::LockedKeyboard ||
+        s->activeRoutedSourceKind != InputGuideSourceKind::Keyboard)
+    {
+        return false;
+    }
+    return true;
 }
 
 void ResolveOnePlayerSlot(PlayerSlotState& s, const PlayerInputInventoryBindingView& inv, UINT32 tick)
@@ -1114,17 +1143,20 @@ bool InputGuideArbiter_CanSlotDispatchLiveConsume(PlayerInputSlotIndex slot)
     }
     if (slot == 0u)
     {
-        // Step15: while slot1 live trial owns the menu stream, pause slot0 live dispatch.
-        if (g_slot1LiveConsumeTrialArmed && Slot1LiveManualLiveReady(TryMutableSlot(1u)))
+        // Step15/16: pause slot0 live only while slot1 keyboard-bound trial actually takes the menu stream.
+        const PlayerSlotState* s1 = TryMutableSlot(1u);
+        if (g_slot1LiveConsumeTrialArmed && Slot1LiveManualLiveReady(s1) &&
+            Slot1KeyboardBoundLiveTrialEligible(s1))
         {
             return false;
         }
         return true;
     }
-    // Step15: only slot1 may join live path, and only with explicit override + trial gate (not default seed).
+    // Step15/16: slot1 live Apply only with override + trial + keyboard-bound route (pad/HID stay scratch).
     if (slot == 1u)
     {
-        return Slot1LiveManualLiveReady(s) && g_slot1LiveConsumeTrialArmed;
+        return Slot1LiveManualLiveReady(s) && g_slot1LiveConsumeTrialArmed &&
+               Slot1KeyboardBoundLiveTrialEligible(s);
     }
     return false;
 }
@@ -1145,10 +1177,18 @@ bool InputGuideArbiter_ShouldSlotDispatchDryRunConsume(PlayerInputSlotIndex slot
     {
         return true;
     }
-    // Live manual policy on slot1 without trial gate: keep scratch path (no real menu mutation).
-    if (slot == 1u && Slot1LiveManualLiveReady(s) && !g_slot1LiveConsumeTrialArmed)
+    if (slot == 1u && Slot1LiveManualLiveReady(s))
     {
-        return true;
+        // Live manual: scratch until trial armed; armed non-keyboard stays scratch (step16).
+        if (!g_slot1LiveConsumeTrialArmed)
+        {
+            return true;
+        }
+        if (!Slot1KeyboardBoundLiveTrialEligible(s))
+        {
+            return true;
+        }
+        return false;
     }
     return false;
 }
@@ -1857,9 +1897,20 @@ void InputGuideArbiter_FormatSlotConsumeResultForT18(PlayerInputSlotIndex slot, 
         wcscpy_s(buf, bufCount, L"live");
         break;
     case PlayerSlotConsumeDispatchResultKind::DryRunApplied:
-        if (slot == 1u && Slot1LiveManualLiveReady(p) && !g_slot1LiveConsumeTrialArmed)
+        if (slot == 1u && Slot1LiveManualLiveReady(p))
         {
-            wcscpy_s(buf, bufCount, L"live-ready");
+            if (!g_slot1LiveConsumeTrialArmed)
+            {
+                wcscpy_s(buf, bufCount, L"live-ready");
+            }
+            else if (!Slot1KeyboardBoundLiveTrialEligible(p))
+            {
+                wcscpy_s(buf, bufCount, L"rdy·nkb");
+            }
+            else
+            {
+                wcscpy_s(buf, bufCount, L"dry-run");
+            }
         }
         else
         {
@@ -1867,14 +1918,17 @@ void InputGuideArbiter_FormatSlotConsumeResultForT18(PlayerInputSlotIndex slot, 
         }
         break;
     default:
-        if (slot == 0u && g_slot1LiveConsumeTrialArmed && Slot1LiveManualLiveReady(TryMutableSlot(1u)))
+        if (slot == 0u)
         {
-            wcscpy_s(buf, bufCount, L"hold(L1)");
+            const PlayerSlotState* s1 = TryMutableSlot(1u);
+            if (g_slot1LiveConsumeTrialArmed && Slot1LiveManualLiveReady(s1) &&
+                Slot1KeyboardBoundLiveTrialEligible(s1))
+            {
+                wcscpy_s(buf, bufCount, L"hold(L1)");
+                break;
+            }
         }
-        else
-        {
-            wcscpy_s(buf, bufCount, L"disabled");
-        }
+        wcscpy_s(buf, bufCount, L"disabled");
         break;
     }
 }
@@ -1892,12 +1946,20 @@ void InputGuideArbiter_FormatSlot1LiveTrialSuffixForT18(wchar_t* buf, size_t buf
     {
         return;
     }
-    if (g_slot1LiveConsumeTrialArmed)
-    {
-        wcscpy_s(buf, bufCount, L"·t1=arm");
-    }
-    else
+    if (!g_slot1LiveConsumeTrialArmed)
     {
         wcscpy_s(buf, bufCount, L"·t1=rdy");
+        return;
     }
+    if (!Slot1KeyboardBoundLiveTrialEligible(s))
+    {
+        wcscpy_s(buf, bufCount, L"·t1=nkb");
+        return;
+    }
+    if (s->consumeDispatchLast.kind == PlayerSlotConsumeDispatchResultKind::LiveApplied)
+    {
+        wcscpy_s(buf, bufCount, L"·t1=kOn");
+        return;
+    }
+    wcscpy_s(buf, bufCount, L"·t1=kArm");
 }

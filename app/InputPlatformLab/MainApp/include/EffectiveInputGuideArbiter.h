@@ -41,9 +41,10 @@ void InputGuideArbiter_SyncSlot0StagedLogicalMirrorFromLivePrimary();
 // TryGet merged: only after step8 in the same tick. Slot0 logical: fallback InputCore if unstaged. Slot1+ logical: nullptr if unstaged.
 bool InputGuideArbiter_CanSlotDispatchLiveConsume(PlayerInputSlotIndex slot);
 bool InputGuideArbiter_ShouldSlotDispatchDryRunConsume(PlayerInputSlotIndex slot);
-// Step15: default off. With Live+ManualOverride on slot1, arms real VirtualInputMenuSample_Apply (slot0 live paused while active).
+// Step15/16: default off. Slot1 real menu Apply only when ManualOverride Live + armed + keyboard-bound route (step16).
 void InputGuideArbiter_SetSlot1LiveConsumeTrialArmed(bool armed);
 bool InputGuideArbiter_IsSlot1LiveConsumeTrialArmed();
+// Armed + Live override + keyboard-bound eligible (slot0 pauses live only in this case).
 bool InputGuideArbiter_IsSlot1LiveConsumeTrialActive();
 // Resolved policy (default seed or manual override).
 PlayerSlotActualConsumePolicy InputGuideArbiter_GetSlotActualConsumePolicy(PlayerInputSlotIndex slot);

@@ -7209,7 +7209,7 @@ static void Win32_UnifiedInputMenuTick_WhenMenuClosed(HWND hwndForPaint)
     }
 }
 
-// T77 step11/12/15: per-slot consume — default slot0 live; slot1+ dry-run/disabled unless step15 Live override + trial armed (then slot1 live, slot0 hold).
+// T77 step11/12/15/16: default slot0 live; slot1+ dry/disabled; slot1 actual live only Live override + trial + BoundLocked keyboard route (else scratch; slot0 hold only for kb trial).
 static void Win32_DispatchVirtualMenuSampleLiveConsumeSlots(HWND hwndForPaint)
 {
     const UINT32 t = static_cast<UINT32>(GetTickCount());
