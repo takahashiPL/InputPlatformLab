@@ -31,6 +31,13 @@ void EnsurePrimaryPlayerSlotSeededForT76()
     PlayerSlotState& s = g_playerSlots[kT76PrimaryPlayerSlotIndex];
     s.slotAssigned = true;
     s.slotActive = true;
+    // T77 step2: 1P seat is active; device instance stays unbound until explicit bind / routing.
+    s.bindingAssignment = PlayerSlotBindingAssignment::ActiveOpen;
+    s.boundSourceKind = InputGuideSourceKind::Unknown;
+    s.boundDeviceIdentity = PlayerBoundDeviceIdentity{};
+    s.boundDeviceIdentity.kind = PlayerBoundDeviceIdentityKind::Unbound;
+    s.preferredGuideFamily = GameControllerKind::Unknown;
+    s.lastSeenSourceMeta = PlayerSlotLastSeenSourceMeta{};
 }
 
 PlayerSlotState& PrimarySlot()
@@ -239,6 +246,89 @@ void MaybeLogInventoryVersusLatchedGuide(GameControllerKind prevInvFamily)
         FamilyShortLabel(s.latchedGamepadGuideFamily));
     OutputDebugStringW(line);
 }
+
+void FillPrimarySlotBoundSourceLineForT18(wchar_t* buf, size_t bufCount)
+{
+    if (!buf || bufCount == 0)
+    {
+        return;
+    }
+    buf[0] = L'\0';
+    const PlayerSlotState& s = PrimarySlot();
+    switch (s.bindingAssignment)
+    {
+    case PlayerSlotBindingAssignment::None:
+        wcscpy_s(buf, bufCount, L"none");
+        break;
+    case PlayerSlotBindingAssignment::ActiveOpen:
+        if (s.boundSourceKind == InputGuideSourceKind::Unknown)
+        {
+            wcscpy_s(buf, bufCount, L"open(any)");
+        }
+        else
+        {
+            swprintf_s(buf, bufCount, L"open+%ls", SourceKindLabel(s.boundSourceKind));
+        }
+        break;
+    case PlayerSlotBindingAssignment::BoundLocked:
+        swprintf_s(buf, bufCount, L"locked:%ls", SourceKindLabel(s.boundSourceKind));
+        break;
+    default:
+        wcscpy_s(buf, bufCount, L"unknown");
+        break;
+    }
+}
+
+void FillPrimarySlotBoundDeviceIdentityLineForT18(wchar_t* buf, size_t bufCount)
+{
+    if (!buf || bufCount == 0)
+    {
+        return;
+    }
+    buf[0] = L'\0';
+    const PlayerBoundDeviceIdentity& id = PrimarySlot().boundDeviceIdentity;
+    switch (id.kind)
+    {
+    case PlayerBoundDeviceIdentityKind::Unbound:
+        wcscpy_s(buf, bufCount, L"unbound");
+        break;
+    case PlayerBoundDeviceIdentityKind::Keyboard:
+        wcscpy_s(buf, bufCount, L"keyboard");
+        break;
+    case PlayerBoundDeviceIdentityKind::XInputUser:
+        if (id.xinputUserIndex >= 0)
+        {
+            swprintf_s(buf, bufCount, L"XInput user %d", id.xinputUserIndex);
+        }
+        else
+        {
+            wcscpy_s(buf, bufCount, L"XInput (slot unspecified)");
+        }
+        break;
+    case PlayerBoundDeviceIdentityKind::HidPathHash:
+        if (id.hidInstancePathHash != 0u)
+        {
+            swprintf_s(
+                buf,
+                bufCount,
+                L"HID#%08X",
+                static_cast<unsigned>(id.hidInstancePathHash));
+        }
+        else if (id.hidPathShortToken != 0u)
+        {
+            swprintf_s(buf, bufCount, L"HID*#%04X", static_cast<unsigned>(id.hidPathShortToken));
+        }
+        else
+        {
+            wcscpy_s(buf, bufCount, L"HID (unset hash)");
+        }
+        break;
+    case PlayerBoundDeviceIdentityKind::Unknown:
+    default:
+        wcscpy_s(buf, bufCount, L"unknown");
+        break;
+    }
+}
 } // namespace
 
 void InputGuideArbiter_OnDeviceInventoryRefreshed(
@@ -341,6 +431,21 @@ void InputGuideArbiter_TickSinglePlayerFromConsumerFrames(
 
     const GameControllerKind g = EffectiveGuideFromOwner();
     LogGuideFamilyIfChanged(g);
+
+    // T77 step2: last-seen metadata only (does not affect T76 owner/guide commit).
+    const UINT32 tickU32 = static_cast<UINT32>(now);
+    if (kb)
+    {
+        s.lastSeenSourceMeta.sourceKind = InputGuideSourceKind::Keyboard;
+        s.lastSeenSourceMeta.deviceKind = PlayerBoundDeviceIdentityKind::Keyboard;
+        s.lastSeenSourceMeta.atTick = tickU32;
+    }
+    if (pad)
+    {
+        s.lastSeenSourceMeta.sourceKind = InputGuideSourceKind::Gamepad;
+        s.lastSeenSourceMeta.deviceKind = PlayerBoundDeviceIdentityKind::Unknown;
+        s.lastSeenSourceMeta.atTick = tickU32;
+    }
 }
 
 InputGuideSourceKind InputGuideArbiter_GetEffectiveOwnerSourceKind()
@@ -353,4 +458,16 @@ GameControllerKind InputGuideArbiter_GetEffectiveGuideFamilyForUi()
 {
     EnsurePrimaryPlayerSlotSeededForT76();
     return EffectiveGuideFromOwner();
+}
+
+void InputGuideArbiter_FormatPrimarySlotBoundSourceForT18(wchar_t* buf, size_t bufCount)
+{
+    EnsurePrimaryPlayerSlotSeededForT76();
+    FillPrimarySlotBoundSourceLineForT18(buf, bufCount);
+}
+
+void InputGuideArbiter_FormatPrimarySlotBoundDeviceIdentityForT18(wchar_t* buf, size_t bufCount)
+{
+    EnsurePrimaryPlayerSlotSeededForT76();
+    FillPrimarySlotBoundDeviceIdentityLineForT18(buf, bufCount);
 }

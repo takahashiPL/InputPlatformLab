@@ -5651,6 +5651,11 @@ static void Win32_HudPaged_FillT18PageBody(wchar_t* buf, size_t bufCount)
     wchar_t whyHud[384] = {};
     Win32_T18_FillWhyHudShort(s_t18, whyHud, _countof(whyHud));
 
+    wchar_t boundSrcLine[96] = {};
+    wchar_t boundDevLine[96] = {};
+    InputGuideArbiter_FormatPrimarySlotBoundSourceForT18(boundSrcLine, _countof(boundSrcLine));
+    InputGuideArbiter_FormatPrimarySlotBoundDeviceIdentityForT18(boundDevLine, _countof(boundDevLine));
+
     // T77: multi-player will use a slot table (default 4, cap 8). Today only slot 0 / 1P is wired; 2P+ lines come later.
     swprintf_s(
         buf,
@@ -5662,6 +5667,8 @@ static void Win32_HudPaged_FillT18PageBody(wchar_t* buf, size_t bufCount)
         L"product=%s\r\n"
         L"why:\r\n%s\r\n"
         L"path: (full in [T18] debug line)\r\n"
+        L"1P bound source=%s\r\n"
+        L"1P bound device=%s\r\n"
         L"1P input owner=%s\r\n"
         L"1P guide family=%s\r\n",
         slotStr,
@@ -5672,6 +5679,8 @@ static void Win32_HudPaged_FillT18PageBody(wchar_t* buf, size_t bufCount)
         Win32_ControllerSupportLevelLabel(s_t18.support_level),
         prodShort,
         (whyHud[0] != L'\0') ? whyHud : L"(none)",
+        boundSrcLine,
+        boundDevLine,
         Win32_InputGuideSourceKindUiLabel(InputGuideArbiter_GetEffectiveOwnerSourceKind()),
         Win32_T18_T76_OnePGuideFamilyLabel());
 }

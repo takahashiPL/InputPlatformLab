@@ -21,3 +21,7 @@ void InputGuideArbiter_TickSinglePlayerFromConsumerFrames(
 InputGuideSourceKind InputGuideArbiter_GetEffectiveOwnerSourceKind();
 // Keyboard owner: Unknown. Gamepad owner: latched activity family if set, else inventory fallback.
 GameControllerKind InputGuideArbiter_GetEffectiveGuideFamilyForUi();
+
+// T77 step2: T18 diagnostic lines for slot0 binding policy (no routing; slot1+ unchanged).
+void InputGuideArbiter_FormatPrimarySlotBoundSourceForT18(wchar_t* buf, size_t bufCount);
+void InputGuideArbiter_FormatPrimarySlotBoundDeviceIdentityForT18(wchar_t* buf, size_t bufCount);

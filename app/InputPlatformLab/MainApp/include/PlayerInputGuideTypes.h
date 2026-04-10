@@ -19,3 +19,21 @@ constexpr unsigned kPlayerInputSlotCap = 8u;
 // Local player slot id: 0 = 1P, 1 = 2P, ... (must stay within kPlayerInputSlotCap).
 using PlayerInputSlotIndex = UINT8;
 static_assert(kPlayerInputSlotCap <= 256u, "PlayerInputSlotIndex must cover all slots");
+
+// T77 step2: physical / logical identity for what a slot may bind to (routing still step3+).
+enum class PlayerBoundDeviceIdentityKind : UINT8
+{
+    Unknown = 0,
+    Unbound, // slot active but no device instance locked (1P step2 default)
+    Keyboard,
+    XInputUser,
+    HidPathHash,
+};
+
+// T77 step2: party-seat vs device-lock policy for a slot (not input routing).
+enum class PlayerSlotBindingAssignment : UINT8
+{
+    None = 0, // 2P+ default: no seat / no binding policy
+    ActiveOpen, // 1P today: seat in use; device binding open until step3/explicit bind
+    BoundLocked, // future: locked to a specific source instance (rebind UI)
+};
