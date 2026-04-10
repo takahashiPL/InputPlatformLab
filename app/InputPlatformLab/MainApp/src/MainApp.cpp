@@ -5687,6 +5687,30 @@ static void Win32_T18_FillWhyHudSingleLine(const T18ControllerIdentifySnapshot& 
     }
 }
 
+#if defined(_DEBUG)
+static void Win32_T18_FormatSlot1DebugBindShortTag(wchar_t* buf, size_t bufCount)
+{
+    if (!buf || bufCount == 0)
+    {
+        return;
+    }
+    buf[0] = L'\0';
+    wchar_t dev[96] = {};
+    InputGuideArbiter_FormatSlotBoundDeviceIdentityForT18(1u, dev, _countof(dev));
+    if (_wcsicmp(dev, L"keyboard") == 0)
+    {
+        wcscpy_s(buf, bufCount, L"·bk=kb");
+        return;
+    }
+    if (wcsstr(dev, L"XInput user 0") != nullptr)
+    {
+        wcscpy_s(buf, bufCount, L"·bk=xi0");
+        return;
+    }
+    wcscpy_s(buf, bufCount, L"·bk=?");
+}
+#endif
+
 // 2P–4P: one line each (bind · device · resolve · route candidate · consume policy/result).
 static void Win32_T18_FormatExtraPlayerOneLine(PlayerInputSlotIndex slot, wchar_t* out, size_t outCount)
 {
@@ -5714,15 +5738,24 @@ static void Win32_T18_FormatExtraPlayerOneLine(PlayerInputSlotIndex slot, wchar_
     wchar_t stc[16] = {};
     Win32_T18_CompactBindResolveStatus(bst, stc, _countof(stc));
     wchar_t t1suf[20] = {};
+    wchar_t bkdbg[16] = {};
+#if defined(_DEBUG)
+    if (slot == 1u)
+    {
+        InputGuideArbiter_FormatSlot1TrialObsForT18(t1suf, _countof(t1suf));
+        Win32_T18_FormatSlot1DebugBindShortTag(bkdbg, _countof(bkdbg));
+    }
+#else
     if (slot == 1u)
     {
         InputGuideArbiter_FormatSlot1TrialObsForT18(t1suf, _countof(t1suf));
     }
+#endif
     const unsigned pn = static_cast<unsigned>(slot) + 1u;
     swprintf_s(
         out,
         outCount,
-        L"%uP b=%ls·%ls st=%ls r=%ls c=%ls/%ls%ls",
+        L"%uP b=%ls·%ls st=%ls r=%ls c=%ls/%ls%ls%ls",
         pn,
         bsrc,
         bdev,
@@ -5730,7 +5763,8 @@ static void Win32_T18_FormatExtraPlayerOneLine(PlayerInputSlotIndex slot, wchar_
         rc,
         cp,
         cr,
-        t1suf);
+        t1suf,
+        bkdbg);
 }
 
 // T18 page body: no full device path here. Compact fit for paged HUD; full path → [T18] debug output.
@@ -5796,7 +5830,7 @@ static void Win32_HudPaged_FillT18PageBody(wchar_t* buf, size_t bufCount)
     InputGuideArbiter_FormatSlotConsumeResultForT18(0u, cr0, _countof(cr0));
     InputGuideArbiter_FormatSlot0HoldObsTokenForT18(p0hold, _countof(p0hold));
 
-    wchar_t line2p[224] = {};
+    wchar_t line2p[256] = {};
     wchar_t line3p[192] = {};
     wchar_t line4p[192] = {};
     Win32_T18_FormatExtraPlayerOneLine(1u, line2p, _countof(line2p));
@@ -9020,11 +9054,11 @@ static void PhysicalKey_FormatDebugLine(const PhysicalKeyEvent& ev, const wchar_
 }
 
 #if defined(_DEBUG)
-// T77 step18: T18 実機確認用（Debug のみ）。F9=slot1 consume Live override トグル、F10=trial armed トグル。
+// T77 step18/18-b: Debug のみ。F8=slot1 bind Keyboard<->XInput0、F9=consume Live/clear、F10=trial armed。
 static void Win32_DebugTryApplyT77Slot1TrialHotkeys(HWND hWnd, const PhysicalKeyEvent& ev)
 {
     const UINT vk = static_cast<UINT>(ev.native_key_code);
-    if (vk != VK_F9 && vk != VK_F10)
+    if (vk != VK_F8 && vk != VK_F9 && vk != VK_F10)
     {
         return;
     }
@@ -9046,7 +9080,24 @@ static void Win32_DebugTryApplyT77Slot1TrialHotkeys(HWND hWnd, const PhysicalKey
     }
     s_rawKeyboardKeyDown[vk] = true;
 
-    if (vk == VK_F9)
+    if (vk == VK_F8)
+    {
+        wchar_t dev[96] = {};
+        InputGuideArbiter_FormatSlotBoundDeviceIdentityForT18(1u, dev, _countof(dev));
+        const bool isXi0 = wcsstr(dev, L"XInput user 0") != nullptr;
+        if (isXi0)
+        {
+            InputGuideArbiter_BindSlotToKeyboard(1u);
+            OutputDebugStringW(L"[T77 dbg] F8: slot1 bind Keyboard\r\n");
+        }
+        else
+        {
+            InputGuideArbiter_BindSlotToXInputUser(1u, 0);
+            OutputDebugStringW(L"[T77 dbg] F8: slot1 bind XInput0\r\n");
+        }
+        Win32_T18_RefreshControllerIdentifySnapshot(false);
+    }
+    else if (vk == VK_F9)
     {
         const bool clearing =
             InputGuideArbiter_GetSlotConsumePolicySource(1u) ==
