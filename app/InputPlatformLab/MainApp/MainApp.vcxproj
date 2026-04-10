@@ -156,6 +156,7 @@
     <ClInclude Include="include\platform\win\Win32HudPaged.h" />
     <ClInclude Include="include\VirtualInputMenuSample.h" />
     <ClInclude Include="include\VirtualInputNeutral.h" />
+    <ClInclude Include="include\EffectiveInputGuideArbiter.h" />
     <ClInclude Include="include\LogicalInputState.h" />
   </ItemGroup>
   <ItemGroup>
@@ -165,6 +166,7 @@
     <ClCompile Include="src\platform\win\Win32DebugOverlayLegacyStacked.cpp" />
     <ClCompile Include="src\MainApp.cpp" />
     <ClCompile Include="src\VirtualInputNeutral.cpp" />
+    <ClCompile Include="src\EffectiveInputGuideArbiter.cpp" />
     <ClCompile Include="src\LogicalInputState.cpp" />
   </ItemGroup>
   <ItemGroup>

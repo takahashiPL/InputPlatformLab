@@ -10,6 +10,7 @@
 #include "WindowsRenderer.h"
 #include "Win32DebugOverlay.h"
 #include "Win32HudPaged.h"
+#include "EffectiveInputGuideArbiter.h"
 
 #include <windowsx.h>
 
@@ -5562,7 +5563,33 @@ static void Win32_T18_FillWhyHudShort(const T18ControllerIdentifySnapshot& s, wc
         L"no per-device HID map");
 }
 
-// ページ式 HUD 専用: 本文に device path 全文は載せない。フルパスは Win32_T18_LogIfChanged の
+static const wchar_t* Win32_InputGuideSourceKindUiLabel(InputGuideSourceKind k)
+{
+    switch (k)
+    {
+    case InputGuideSourceKind::Keyboard:
+        return L"Keyboard";
+    case InputGuideSourceKind::Gamepad:
+        return L"Gamepad";
+    default:
+        return L"Unknown";
+    }
+}
+
+// T76: Raw HID ゲームパッド経路で enumeration を間引き更新（接続直後に T18 family が古いままになりにくくする）。
+static void Win32_T76_ThrottledRefreshT18InventoryFromRawHid()
+{
+    static DWORD s_lastTick = 0;
+    const DWORD now = GetTickCount();
+    if (s_lastTick != 0 && (now - s_lastTick) < 400u)
+    {
+        return;
+    }
+    s_lastTick = now;
+    Win32_T18_RefreshControllerIdentifySnapshot(false);
+}
+
+// ページ式 HUD ��用: 本文に device path 全文は載せない。フルパスは Win32_T18_LogIfChanged の
 // [T18] device_path(full)=... のみ（スナップショット更新時・パス変更時）。
 static void Win32_HudPaged_FillT18PageBody(wchar_t* buf, size_t bufCount)
 {
@@ -5603,7 +5630,9 @@ static void Win32_HudPaged_FillT18PageBody(wchar_t* buf, size_t bufCount)
         L"parser=%s  support=%s\r\n"
         L"product=%s\r\n"
         L"why:\r\n%s\r\n"
-        L"path: (full in [T18] debug line)\r\n",
+        L"path: (full in [T18] debug line)\r\n"
+        L"T76 effective_input_owner=%s  ui_guide_family=%s\r\n"
+        L"(inventory family above; single-player arbitration now, per-slot T77)\r\n",
         slotStr,
         s_t18.hid_found ? L"yes" : L"no",
         vidPidLine,
@@ -5611,7 +5640,9 @@ static void Win32_HudPaged_FillT18PageBody(wchar_t* buf, size_t bufCount)
         Win32_ControllerParserKindLabel(s_t18.parser_kind),
         Win32_ControllerSupportLevelLabel(s_t18.support_level),
         prodShort,
-        (whyHud[0] != L'\0') ? whyHud : L"(none)");
+        (whyHud[0] != L'\0') ? whyHud : L"(none)",
+        Win32_InputGuideSourceKindUiLabel(InputGuideArbiter_GetEffectiveOwnerSourceKind()),
+        Win32_GameControllerKindFamilyLabel(InputGuideArbiter_GetEffectiveGuideFamilyForUi()));
 }
 
 // T19 Input state — 受け入れ・全ページ一覧は docs/HUD_PAGED_ACCEPTANCE.md。論理は LogicalInput_FillCurrentDownFromSources / LogicalInputState。
@@ -7024,6 +7055,7 @@ static void Win32_UnifiedInputMenuTick_MergeAndApply(HWND hwndForPaint)
 
     const VirtualInputConsumerFrame ctrlFrame =
         VirtualInputConsumer_BuildFrame(s_virtualInputPrev, s_virtualInputCurr);
+    InputGuideArbiter_TickSinglePlayerFromConsumerFrames(kbFrame, ctrlFrame);
     const VirtualInputConsumerFrame unified =
         VirtualInputConsumer_MergeKeyboardController(kbForMerge, ctrlFrame);
     Win32_LogVirtualInputMenuSampleIfChanged(unified, hwndForPaint);
@@ -7390,6 +7422,7 @@ static void Win32_XInputPollDigitalEdgesOnTimer(HWND hwnd)
         VirtualInputMenuSample_Reset(s_virtualInputMenuSampleState);
         s_virtualInputMenuSampleDumpHasPrev = false;
         Win32_MenuSample_ResetPaintTracking(s_mainWindowHwnd);
+        Win32_T18_RefreshControllerIdentifySnapshot(false);
         return;
     }
 
@@ -8006,6 +8039,7 @@ static void Win32_T18_RefreshControllerIdentifySnapshot(bool emitDiffLog)
 
     Win32_T18_FillIdentifyRationale(snap, snap.rationale, _countof(snap.rationale));
     s_t18 = snap;
+    InputGuideArbiter_OnDeviceInventoryRefreshed(snap.inferred_kind, snap.hid_found, snap.xinput_slot);
 
     if (kT18DebugLog && s_t18PageEnterDeferredPending && s_t18.hid_found)
     {
@@ -8549,6 +8583,7 @@ static void Win32_OnRawInputHidGamepadLayers(const RAWINPUT* raw)
     {
         return;
     }
+    Win32_T76_ThrottledRefreshT18InventoryFromRawHid();
     ControllerParserKind pk{};
     ControllerSupportLevel sl{};
     Win32_ResolveHidProductTable(t.vendor_id, t.product_id, pk, sl);
