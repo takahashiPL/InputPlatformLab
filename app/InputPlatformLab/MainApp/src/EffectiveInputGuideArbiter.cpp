@@ -54,6 +54,102 @@ PlayerSlotState* TryMutableSlot(PlayerInputSlotIndex slot)
     return &g_playerSlots[slot];
 }
 
+void ResolveOnePlayerSlot(PlayerSlotState& s, const PlayerInputInventoryBindingView& inv, UINT32 tick)
+{
+    PlayerSlotBindingResolution& r = s.bindingResolution;
+    r.lastResolvedTick = tick;
+    r.lastInventoryMatchIdentity = PlayerBoundDeviceIdentity{};
+
+    if (s.bindingAssignment == PlayerSlotBindingAssignment::None)
+    {
+        r.status = PlayerSlotBindingResolveStatus::IdleNoPolicy;
+        r.boundDevicePresent = false;
+        r.resolvedSourceKind = InputGuideSourceKind::Unknown;
+        r.resolvedGuideFamilyCandidate = GameControllerKind::Unknown;
+        return;
+    }
+
+    if (s.bindingAssignment == PlayerSlotBindingAssignment::ActiveOpen)
+    {
+        r.status = PlayerSlotBindingResolveStatus::OpenNoLock;
+        r.boundDevicePresent = false;
+        r.resolvedSourceKind = InputGuideSourceKind::Unknown;
+        r.resolvedGuideFamilyCandidate = (s.preferredGuideFamily != GameControllerKind::Unknown)
+            ? s.preferredGuideFamily
+            : inv.inventoryPrimaryPadFamily;
+        return;
+    }
+
+    if (s.boundSourceKind == InputGuideSourceKind::Keyboard ||
+        s.boundDeviceIdentity.kind == PlayerBoundDeviceIdentityKind::Keyboard)
+    {
+        r.status = PlayerSlotBindingResolveStatus::LockedPresent;
+        r.boundDevicePresent = true;
+        r.resolvedSourceKind = InputGuideSourceKind::Keyboard;
+        r.resolvedGuideFamilyCandidate = GameControllerKind::Unknown;
+        r.lastInventoryMatchIdentity.kind = PlayerBoundDeviceIdentityKind::Keyboard;
+        return;
+    }
+
+    if (s.boundDeviceIdentity.kind == PlayerBoundDeviceIdentityKind::XInputUser)
+    {
+        const INT32 n = s.boundDeviceIdentity.xinputUserIndex;
+        const bool ok = n >= 0 && n < 4 && inv.xinputUserConnected[static_cast<size_t>(n)];
+        r.boundDevicePresent = ok;
+        r.status = ok ? PlayerSlotBindingResolveStatus::LockedPresent : PlayerSlotBindingResolveStatus::LockedAbsent;
+        r.resolvedSourceKind = InputGuideSourceKind::Gamepad;
+        r.resolvedGuideFamilyCandidate = ok ? inv.inventoryPrimaryPadFamily : GameControllerKind::Unknown;
+        if (ok)
+        {
+            r.lastInventoryMatchIdentity.kind = PlayerBoundDeviceIdentityKind::XInputUser;
+            r.lastInventoryMatchIdentity.xinputUserIndex = n;
+        }
+        return;
+    }
+
+    if (s.boundDeviceIdentity.kind == PlayerBoundDeviceIdentityKind::HidPathHash)
+    {
+        const bool hashMatch = inv.inventoryHidRowPresent &&
+            s.boundDeviceIdentity.hidInstancePathHash != 0u &&
+            s.boundDeviceIdentity.hidInstancePathHash == inv.inventoryHidPathFnv1a;
+        const bool tokenMatch = inv.inventoryHidRowPresent &&
+            s.boundDeviceIdentity.hidPathShortToken != 0u &&
+            s.boundDeviceIdentity.hidPathShortToken == inv.inventoryHidPathToken16;
+        const bool vidPidMatch = inv.inventoryHidRowPresent &&
+            s.boundDeviceIdentity.vendorId != 0u &&
+            s.boundDeviceIdentity.vendorId == inv.inventoryHidVendorId &&
+            s.boundDeviceIdentity.productId == inv.inventoryHidProductId;
+        const bool present = hashMatch || tokenMatch || vidPidMatch;
+        r.boundDevicePresent = present;
+        r.status =
+            present ? PlayerSlotBindingResolveStatus::LockedPresent : PlayerSlotBindingResolveStatus::LockedAbsent;
+        r.resolvedSourceKind = InputGuideSourceKind::Gamepad;
+        r.resolvedGuideFamilyCandidate = present ? inv.inventoryPrimaryPadFamily : GameControllerKind::Unknown;
+        if (present)
+        {
+            r.lastInventoryMatchIdentity = s.boundDeviceIdentity;
+            r.lastInventoryMatchIdentity.hidInstancePathHash = inv.inventoryHidPathFnv1a;
+            r.lastInventoryMatchIdentity.hidPathShortToken = inv.inventoryHidPathToken16;
+        }
+        return;
+    }
+
+    r.boundDevicePresent = false;
+    r.status = PlayerSlotBindingResolveStatus::LockedAbsent;
+    r.resolvedSourceKind = s.boundSourceKind;
+    r.resolvedGuideFamilyCandidate = GameControllerKind::Unknown;
+}
+
+void ResolveAllSlotBindingsFromInventoryView(const PlayerInputInventoryBindingView& inv)
+{
+    EnsurePrimaryPlayerSlotSeededForT76();
+    const UINT32 tick = static_cast<UINT32>(GetTickCount());
+    for (unsigned i = 0; i < kPlayerInputSlotCap; ++i)
+    {
+        ResolveOnePlayerSlot(g_playerSlots[i], inv, tick);
+    }
+}
+
 bool ConsumerFrameHasMeaningfulAction(const VirtualInputConsumerFrame& f)
 {
     return f.confirmPressed || f.cancelPressed || f.menuPressed || f.moveX != 0 || f.moveY != 0;
@@ -345,6 +441,123 @@ void FillPrimarySlotBoundSourceLineForT18(wchar_t* buf, size_t bufCount)
 void FillPrimarySlotBoundDeviceIdentityLineForT18(wchar_t* buf, size_t bufCount)
 {
     FillSlotBoundDeviceIdentityLineForT18(PrimarySlot().boundDeviceIdentity, buf, bufCount);
+}
+
+void FillSlotBindStatusLineForT18(const PlayerSlotState& s, wchar_t* buf, size_t bufCount)
+{
+    if (!buf || bufCount == 0)
+    {
+        return;
+    }
+    buf[0] = L'\0';
+    switch (s.bindingResolution.status)
+    {
+    case PlayerSlotBindingResolveStatus::Unresolved:
+        wcscpy_s(buf, bufCount, L"unresolved");
+        break;
+    case PlayerSlotBindingResolveStatus::IdleNoPolicy:
+        wcscpy_s(buf, bufCount, L"none");
+        break;
+    case PlayerSlotBindingResolveStatus::OpenNoLock:
+        wcscpy_s(buf, bufCount, L"open");
+        break;
+    case PlayerSlotBindingResolveStatus::LockedPresent:
+        wcscpy_s(buf, bufCount, L"locked,present");
+        break;
+    case PlayerSlotBindingResolveStatus::LockedAbsent:
+        wcscpy_s(buf, bufCount, L"locked,absent");
+        break;
+    default:
+        wcscpy_s(buf, bufCount, L"unknown");
+        break;
+    }
+}
+
+void FillSlotBindMatchLineForT18(const PlayerSlotState& s, wchar_t* buf, size_t bufCount)
+{
+    if (!buf || bufCount == 0)
+    {
+        return;
+    }
+    buf[0] = L'\0';
+    switch (s.bindingAssignment)
+    {
+    case PlayerSlotBindingAssignment::None:
+        wcscpy_s(buf, bufCount, L"none");
+        break;
+    case PlayerSlotBindingAssignment::ActiveOpen:
+        wcscpy_s(buf, bufCount, L"open(any)");
+        break;
+    case PlayerSlotBindingAssignment::BoundLocked:
+    {
+        const PlayerBoundDeviceIdentity& id = s.boundDeviceIdentity;
+        switch (id.kind)
+        {
+        case PlayerBoundDeviceIdentityKind::Keyboard:
+            wcscpy_s(buf, bufCount, L"Keyboard");
+            break;
+        case PlayerBoundDeviceIdentityKind::XInputUser:
+            if (id.xinputUserIndex >= 0)
+            {
+                swprintf_s(buf, bufCount, L"XInput user %d", id.xinputUserIndex);
+            }
+            else
+            {
+                wcscpy_s(buf, bufCount, L"XInput (unspecified)");
+            }
+            break;
+        case PlayerBoundDeviceIdentityKind::HidPathHash:
+            if (id.hidInstancePathHash != 0u)
+            {
+                swprintf_s(
+                    buf,
+                    bufCount,
+                    L"HID#%08X",
+                    static_cast<unsigned>(id.hidInstancePathHash));
+            }
+            else if (id.hidPathShortToken != 0u)
+            {
+                swprintf_s(buf, bufCount, L"HID*#%04X", static_cast<unsigned>(id.hidPathShortToken));
+            }
+            else if (id.vendorId != 0u)
+            {
+                swprintf_s(
+                    buf,
+                    bufCount,
+                    L"VID/PID %04X/%04X",
+                    static_cast<unsigned>(id.vendorId),
+                    static_cast<unsigned>(id.productId));
+            }
+            else
+            {
+                wcscpy_s(buf, bufCount, L"HID bind");
+            }
+            break;
+        case PlayerBoundDeviceIdentityKind::Unbound:
+            if (s.boundSourceKind == InputGuideSourceKind::Keyboard)
+            {
+                wcscpy_s(buf, bufCount, L"Keyboard");
+            }
+            else if (s.boundSourceKind == InputGuideSourceKind::Gamepad)
+            {
+                wcscpy_s(buf, bufCount, L"Gamepad (no instance)");
+            }
+            else
+            {
+                wcscpy_s(buf, bufCount, L"unbound");
+            }
+            break;
+        case PlayerBoundDeviceIdentityKind::Unknown:
+        default:
+            swprintf_s(buf, bufCount, L"%ls", SourceKindLabel(s.boundSourceKind));
+            break;
+        }
+        break;
+    }
+    default:
+        wcscpy_s(buf, bufCount, L"unknown");
+        break;
+    }
 }
 } // namespace
 
@@ -666,4 +879,43 @@ void InputGuideArbiter_FormatSlotBoundDeviceIdentityForT18(PlayerInputSlotIndex 
         return;
     }
     FillSlotBoundDeviceIdentityLineForT18(s->boundDeviceIdentity, buf, bufCount);
+}
+
+void InputGuideArbiter_ResolveSlotBindingsFromInventory(const PlayerInputInventoryBindingView& inventory)
+{
+    ResolveAllSlotBindingsFromInventoryView(inventory);
+}
+
+void InputGuideArbiter_FormatSlotBindStatusForT18(PlayerInputSlotIndex slot, wchar_t* buf, size_t bufCount)
+{
+    if (!buf || bufCount == 0)
+    {
+        return;
+    }
+    buf[0] = L'\0';
+    EnsurePrimaryPlayerSlotSeededForT76();
+    PlayerSlotState* s = TryMutableSlot(slot);
+    if (!s)
+    {
+        wcscpy_s(buf, bufCount, L"invalid slot");
+        return;
+    }
+    FillSlotBindStatusLineForT18(*s, buf, bufCount);
+}
+
+void InputGuideArbiter_FormatSlotBindMatchForT18(PlayerInputSlotIndex slot, wchar_t* buf, size_t bufCount)
+{
+    if (!buf || bufCount == 0)
+    {
+        return;
+    }
+    buf[0] = L'\0';
+    EnsurePrimaryPlayerSlotSeededForT76();
+    PlayerSlotState* s = TryMutableSlot(slot);
+    if (!s)
+    {
+        wcscpy_s(buf, bufCount, L"invalid slot");
+        return;
+    }
+    FillSlotBindMatchLineForT18(*s, buf, bufCount);
 }

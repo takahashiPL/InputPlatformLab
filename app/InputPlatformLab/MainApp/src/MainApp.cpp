@@ -5668,6 +5668,19 @@ static void Win32_HudPaged_FillT18PageBody(wchar_t* buf, size_t bufCount)
     InputGuideArbiter_FormatSlotBoundSourceForT18(2u, s2src, _countof(s2src));
     InputGuideArbiter_FormatSlotBoundDeviceIdentityForT18(2u, s2dev, _countof(s2dev));
 
+    wchar_t p0st[80] = {};
+    wchar_t p0mt[80] = {};
+    wchar_t p1st[80] = {};
+    wchar_t p1mt[80] = {};
+    wchar_t p2st[80] = {};
+    wchar_t p2mt[80] = {};
+    InputGuideArbiter_FormatSlotBindStatusForT18(0u, p0st, _countof(p0st));
+    InputGuideArbiter_FormatSlotBindMatchForT18(0u, p0mt, _countof(p0mt));
+    InputGuideArbiter_FormatSlotBindStatusForT18(1u, p1st, _countof(p1st));
+    InputGuideArbiter_FormatSlotBindMatchForT18(1u, p1mt, _countof(p1mt));
+    InputGuideArbiter_FormatSlotBindStatusForT18(2u, p2st, _countof(p2st));
+    InputGuideArbiter_FormatSlotBindMatchForT18(2u, p2mt, _countof(p2mt));
+
     // T77: multi-player will use a slot table (default 4, cap 8). Input routing remains 1P; 2P/3P lines = policy only.
     swprintf_s(
         buf,
@@ -5681,8 +5694,14 @@ static void Win32_HudPaged_FillT18PageBody(wchar_t* buf, size_t bufCount)
         L"path: (full in [T18] debug line)\r\n"
         L"1P bound source=%s\r\n"
         L"1P bound device=%s\r\n"
+        L"1P bind status=%s\r\n"
+        L"1P bind match=%s\r\n"
         L"2P bind(policy)=%s | %s\r\n"
+        L"2P bind status=%s\r\n"
+        L"2P bind match=%s\r\n"
         L"3P bind(policy)=%s | %s\r\n"
+        L"3P bind status=%s\r\n"
+        L"3P bind match=%s\r\n"
         L"1P input owner=%s\r\n"
         L"1P guide family=%s\r\n",
         slotStr,
@@ -5695,10 +5714,16 @@ static void Win32_HudPaged_FillT18PageBody(wchar_t* buf, size_t bufCount)
         (whyHud[0] != L'\0') ? whyHud : L"(none)",
         boundSrcLine,
         boundDevLine,
+        p0st,
+        p0mt,
         s1src,
         s1dev,
+        p1st,
+        p1mt,
         s2src,
         s2dev,
+        p2st,
+        p2mt,
         Win32_InputGuideSourceKindUiLabel(InputGuideArbiter_GetEffectiveOwnerSourceKind()),
         Win32_T18_T76_OnePGuideFamilyLabel());
 }
@@ -7967,6 +7992,48 @@ static void Win32_T18_LogCurrentSnapshotForced()
     s_t18PageEnterDeferredPending = (kT18DebugLog && !s_t18.hid_found);
 }
 
+// T77 step4: FNV-1a over wchar device path (must match arbiter HID bind resolution vs same snap path).
+static UINT32 Win32_T77_Fnv1a32WidePath(const wchar_t* path)
+{
+    constexpr UINT32 kOffset = 2166136261u;
+    constexpr UINT32 kPrime = 16777619u;
+    UINT32 h = kOffset;
+    if (!path)
+    {
+        return 0u;
+    }
+    for (; *path != L'\0'; ++path)
+    {
+        const wchar_t wc = *path;
+        h ^= static_cast<UINT32>(static_cast<unsigned char>(wc & 0xFF));
+        h *= kPrime;
+        h ^= static_cast<UINT32>(static_cast<unsigned char>((wc >> 8) & 0xFF));
+        h *= kPrime;
+    }
+    return h;
+}
+
+static void Win32_T77_ResolvePlayerSlotBindingsAfterSnapshot(const T18ControllerIdentifySnapshot& snap)
+{
+    PlayerInputInventoryBindingView view{};
+    for (UINT8 i = 0; i < XUSER_MAX_COUNT; ++i)
+    {
+        ControllerSlotProbeResult probe{};
+        Win32_FillControllerSlotProbe(i, probe);
+        view.xinputUserConnected[i] = probe.connected;
+    }
+    view.inventoryHidRowPresent = snap.hid_found;
+    view.inventoryHidVendorId = snap.hid.vendor_id;
+    view.inventoryHidProductId = snap.hid.product_id;
+    if (snap.device_path[0] != L'\0')
+    {
+        view.inventoryHidPathFnv1a = Win32_T77_Fnv1a32WidePath(snap.device_path);
+    }
+    view.inventoryHidPathToken16 = static_cast<UINT16>(view.inventoryHidPathFnv1a & 0xFFFFu);
+    view.inventoryPrimaryPadFamily = snap.inferred_kind;
+    InputGuideArbiter_ResolveSlotBindingsFromInventory(view);
+}
+
 static void Win32_T18_RefreshControllerIdentifySnapshot(bool emitDiffLog)
 {
     T18ControllerIdentifySnapshot snap{};
@@ -8103,6 +8170,7 @@ static void Win32_T18_RefreshControllerIdentifySnapshot(bool emitDiffLog)
     Win32_T18_FillIdentifyRationale(snap, snap.rationale, _countof(snap.rationale));
     s_t18 = snap;
     InputGuideArbiter_OnDeviceInventoryRefreshed(snap.inferred_kind, snap.hid_found, snap.xinput_slot);
+    Win32_T77_ResolvePlayerSlotBindingsAfterSnapshot(snap);
 
     if (kT18DebugLog && s_t18PageEnterDeferredPending && s_t18.hid_found)
     {

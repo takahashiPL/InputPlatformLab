@@ -37,3 +37,13 @@ enum class PlayerSlotBindingAssignment : UINT8
     ActiveOpen, // 1P today: seat in use; device binding open until step3/explicit bind
     BoundLocked, // future: locked to a specific source instance (rebind UI)
 };
+
+// T77 step4: binding policy vs current inventory (T18) — display / future routing only.
+enum class PlayerSlotBindingResolveStatus : UINT8
+{
+    Unresolved = 0,
+    IdleNoPolicy,
+    OpenNoLock,
+    LockedPresent,
+    LockedAbsent,
+};

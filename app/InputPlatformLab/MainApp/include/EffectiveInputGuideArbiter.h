@@ -47,3 +47,8 @@ void InputGuideArbiter_BindSlotToHidPathHash(
 
 // Demo: slot0 stays ActiveOpen; slot1 keyboard; slot2 XInput user 0. Policy/display only.
 void InputGuideArbiter_ApplyStep3DemoReservationBindings();
+
+// T77 step4: refresh bindingResolution from T18/inventory view (after OnDeviceInventoryRefreshed). No routing.
+void InputGuideArbiter_ResolveSlotBindingsFromInventory(const PlayerInputInventoryBindingView& inventory);
+void InputGuideArbiter_FormatSlotBindStatusForT18(PlayerInputSlotIndex slot, wchar_t* buf, size_t bufCount);
+void InputGuideArbiter_FormatSlotBindMatchForT18(PlayerInputSlotIndex slot, wchar_t* buf, size_t bufCount);

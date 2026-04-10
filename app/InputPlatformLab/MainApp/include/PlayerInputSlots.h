@@ -7,6 +7,7 @@
 // - No auto-assign: nothing in this module assigns devices to slots from the connection list.
 // - No rebind UI / persistence yet: bindings are runtime-only unless code calls the arbiter setters.
 // - Step3: binding policy can be set per slot (open / locked / none); input is still merged for 1P / T76 only.
+// - Step4: resolver compares policy + bound identity to T18/inventory view (no per-slot input routing yet).
 #pragma once
 
 #include "GamepadTypes.h"
@@ -34,6 +35,29 @@ struct PlayerSlotLastSeenSourceMeta
     UINT32 atTick = 0;
 };
 
+// T18 / inventory row passed into binding resolution (built in MainApp from snapshot + XInput probes).
+struct PlayerInputInventoryBindingView
+{
+    bool xinputUserConnected[4] = {};
+    UINT32 inventoryHidPathFnv1a = 0;
+    UINT16 inventoryHidPathToken16 = 0;
+    UINT16 inventoryHidVendorId = 0;
+    UINT16 inventoryHidProductId = 0;
+    bool inventoryHidRowPresent = false;
+    GameControllerKind inventoryPrimaryPadFamily = GameControllerKind::Unknown;
+};
+
+// Result of comparing slot binding to PlayerInputInventoryBindingView (step4).
+struct PlayerSlotBindingResolution
+{
+    PlayerSlotBindingResolveStatus status = PlayerSlotBindingResolveStatus::Unresolved;
+    bool boundDevicePresent = false;
+    InputGuideSourceKind resolvedSourceKind = InputGuideSourceKind::Unknown;
+    GameControllerKind resolvedGuideFamilyCandidate = GameControllerKind::Unknown;
+    PlayerBoundDeviceIdentity lastInventoryMatchIdentity;
+    UINT32 lastResolvedTick = 0;
+};
+
 // One local player slot: binding (T77 step2), effective owner/guide (T76 on slot 0), inventory mirror, debounce.
 struct PlayerSlotState
 {
@@ -46,6 +70,7 @@ struct PlayerSlotState
     PlayerBoundDeviceIdentity boundDeviceIdentity;
     GameControllerKind preferredGuideFamily = GameControllerKind::Unknown;
     PlayerSlotLastSeenSourceMeta lastSeenSourceMeta;
+    PlayerSlotBindingResolution bindingResolution;
 
     // T76 effective state (maps to slot 0 / 1P).
     InputGuideSourceKind effectiveOwnerSource = InputGuideSourceKind::Unknown;
