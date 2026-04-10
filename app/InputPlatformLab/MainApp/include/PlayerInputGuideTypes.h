@@ -20,6 +20,10 @@ constexpr unsigned kPlayerInputSlotCap = 8u;
 using PlayerInputSlotIndex = UINT8;
 static_assert(kPlayerInputSlotCap <= 256u, "PlayerInputSlotIndex must cover all slots");
 
+// T77 step21: live consume trial target sentinel (valid slots are 0..kPlayerInputSlotCap-1).
+constexpr PlayerInputSlotIndex kPlayerInputNoLiveConsumeTrialTarget =
+    static_cast<PlayerInputSlotIndex>(255u);
+
 // T77 step2: physical / logical identity for what a slot may bind to (routing still step3+).
 enum class PlayerBoundDeviceIdentityKind : UINT8
 {

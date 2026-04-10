@@ -5739,16 +5739,11 @@ static void Win32_T18_FormatExtraPlayerOneLine(PlayerInputSlotIndex slot, wchar_
     Win32_T18_CompactBindResolveStatus(bst, stc, _countof(stc));
     wchar_t t1suf[20] = {};
     wchar_t bkdbg[16] = {};
+    InputGuideArbiter_FormatLiveTrialObsForT18(slot, t1suf, _countof(t1suf));
 #if defined(_DEBUG)
     if (slot == 1u)
     {
-        InputGuideArbiter_FormatSlot1TrialObsForT18(t1suf, _countof(t1suf));
         Win32_T18_FormatSlot1DebugBindShortTag(bkdbg, _countof(bkdbg));
-    }
-#else
-    if (slot == 1u)
-    {
-        InputGuideArbiter_FormatSlot1TrialObsForT18(t1suf, _countof(t1suf));
     }
 #endif
     const unsigned pn = static_cast<unsigned>(slot) + 1u;
@@ -5826,9 +5821,11 @@ static void Win32_HudPaged_FillT18PageBody(wchar_t* buf, size_t bufCount)
     wchar_t cd0[48] = {};
     wchar_t cr0[48] = {};
     wchar_t lvTag[8] = {};
+    wchar_t trgSuf[16] = {};
     InputGuideArbiter_FormatSlotConsumePolicyForT18(0u, cd0, _countof(cd0));
     InputGuideArbiter_FormatSlotConsumeResultForT18(0u, cr0, _countof(cr0));
     InputGuideArbiter_FormatSingleLiveConsumeSlotTagForT18(lvTag, _countof(lvTag));
+    InputGuideArbiter_FormatLiveConsumeTrialTargetObsSuffixForT18(trgSuf, _countof(trgSuf));
 
     wchar_t line2p[256] = {};
     wchar_t line3p[192] = {};
@@ -5846,7 +5843,7 @@ static void Win32_HudPaged_FillT18PageBody(wchar_t* buf, size_t bufCount)
         L"1P bind st=%ls mt=%ls\r\n"
         L"1P route cand=%ls | act=%ls | src=%ls\r\n"
         L"1P owner=%ls guide=%ls\r\n"
-        L"1P consume pol=%ls res=%ls lv=%ls src=stg0\r\n"
+        L"1P consume pol=%ls res=%ls lv=%ls%ls src=stg0\r\n"
         L"1P staged in=%ls log=%ls\r\n"
         L"%ls\r\n"
         L"%ls\r\n"
@@ -5871,6 +5868,7 @@ static void Win32_HudPaged_FillT18PageBody(wchar_t* buf, size_t bufCount)
         cd0,
         cr0,
         lvTag,
+        trgSuf,
         stg0,
         sl0,
         line2p,
@@ -7246,7 +7244,7 @@ static void Win32_UnifiedInputMenuTick_WhenMenuClosed(HWND hwndForPaint)
     }
 }
 
-// T77 step11/12/15/16/19/20: single live consume slot (GetSingleLiveConsumeSlotIndex); default 0; slot1 kb trial only when armed+eligible+Manual Live.
+// T77 step11/12/15–21: single live consume slot; default 0; trial target slot (default2P) live only when armed+kb-eligible+Manual Live.
 static void Win32_DispatchVirtualMenuSampleLiveConsumeSlots(HWND hwndForPaint)
 {
     const UINT32 t = static_cast<UINT32>(GetTickCount());
@@ -9054,11 +9052,11 @@ static void PhysicalKey_FormatDebugLine(const PhysicalKeyEvent& ev, const wchar_
 }
 
 #if defined(_DEBUG)
-// T77 step18/18-b: Debug のみ。F8=slot1 bind Keyboard<->XInput0、F9=consume Live/clear、F10=trial armed。
+// T77 step18/21: Debug のみ。F8/F9=trial target slot（既定2P; trg=none 時も2P）bind/consume、F10=trial armed、F11=trg 2P→3P→4P→none。
 static void Win32_DebugTryApplyT77Slot1TrialHotkeys(HWND hWnd, const PhysicalKeyEvent& ev)
 {
     const UINT vk = static_cast<UINT>(ev.native_key_code);
-    if (vk != VK_F8 && vk != VK_F9 && vk != VK_F10)
+    if (vk != VK_F8 && vk != VK_F9 && vk != VK_F10 && vk != VK_F11)
     {
         return;
     }
@@ -9082,44 +9080,74 @@ static void Win32_DebugTryApplyT77Slot1TrialHotkeys(HWND hWnd, const PhysicalKey
 
     if (vk == VK_F8)
     {
+        const PlayerInputSlotIndex hs = InputGuideArbiter_GetLiveConsumeTrialHotkeySlot();
         wchar_t dev[96] = {};
-        InputGuideArbiter_FormatSlotBoundDeviceIdentityForT18(1u, dev, _countof(dev));
+        InputGuideArbiter_FormatSlotBoundDeviceIdentityForT18(hs, dev, _countof(dev));
         const bool isXi0 = wcsstr(dev, L"XInput user 0") != nullptr;
         if (isXi0)
         {
-            InputGuideArbiter_BindSlotToKeyboard(1u);
-            OutputDebugStringW(L"[T77 dbg] F8: slot1 bind Keyboard\r\n");
+            InputGuideArbiter_BindSlotToKeyboard(hs);
+            wchar_t msg[96] = {};
+            swprintf_s(
+                msg,
+                _countof(msg),
+                L"[T77 dbg] F8: trial slot %uP bind Keyboard\r\n",
+                static_cast<unsigned>(hs) + 1u);
+            OutputDebugStringW(msg);
         }
         else
         {
-            InputGuideArbiter_BindSlotToXInputUser(1u, 0);
-            OutputDebugStringW(L"[T77 dbg] F8: slot1 bind XInput0\r\n");
+            InputGuideArbiter_BindSlotToXInputUser(hs, 0);
+            wchar_t msg[96] = {};
+            swprintf_s(
+                msg,
+                _countof(msg),
+                L"[T77 dbg] F8: trial slot %uP bind XInput0\r\n",
+                static_cast<unsigned>(hs) + 1u);
+            OutputDebugStringW(msg);
         }
         Win32_T18_RefreshControllerIdentifySnapshot(false);
     }
     else if (vk == VK_F9)
     {
+        const PlayerInputSlotIndex hs = InputGuideArbiter_GetLiveConsumeTrialHotkeySlot();
         const bool clearing =
-            InputGuideArbiter_GetSlotConsumePolicySource(1u) ==
+            InputGuideArbiter_GetSlotConsumePolicySource(hs) ==
                 PlayerSlotConsumePolicySource::ManualOverride &&
-            InputGuideArbiter_GetSlotActualConsumePolicy(1u) == PlayerSlotActualConsumePolicy::Live;
+            InputGuideArbiter_GetSlotActualConsumePolicy(hs) == PlayerSlotActualConsumePolicy::Live;
         if (clearing)
         {
-            InputGuideArbiter_ClearSlotActualConsumePolicyOverride(1u);
-            OutputDebugStringW(L"[T77 dbg] F9: slot1 consume override cleared\r\n");
+            InputGuideArbiter_ClearSlotActualConsumePolicyOverride(hs);
+            wchar_t msg[96] = {};
+            swprintf_s(
+                msg,
+                _countof(msg),
+                L"[T77 dbg] F9: trial slot %uP consume override cleared\r\n",
+                static_cast<unsigned>(hs) + 1u);
+            OutputDebugStringW(msg);
         }
         else
         {
-            InputGuideArbiter_SetSlotActualConsumePolicyOverride(1u, PlayerSlotActualConsumePolicy::Live);
-            OutputDebugStringW(L"[T77 dbg] F9: slot1 consume override Live\r\n");
+            InputGuideArbiter_SetSlotActualConsumePolicyOverride(hs, PlayerSlotActualConsumePolicy::Live);
+            wchar_t msg[96] = {};
+            swprintf_s(
+                msg,
+                _countof(msg),
+                L"[T77 dbg] F9: trial slot %uP consume override Live\r\n",
+                static_cast<unsigned>(hs) + 1u);
+            OutputDebugStringW(msg);
         }
+    }
+    else if (vk == VK_F10)
+    {
+        const bool was = InputGuideArbiter_IsLiveConsumeTrialArmed();
+        InputGuideArbiter_SetLiveConsumeTrialArmed(!was);
+        OutputDebugStringW(
+            was ? L"[T77 dbg] F10: trial armed off\r\n" : L"[T77 dbg] F10: trial armed on\r\n");
     }
     else
     {
-        const bool was = InputGuideArbiter_IsSlot1LiveConsumeTrialArmed();
-        InputGuideArbiter_SetSlot1LiveConsumeTrialArmed(!was);
-        OutputDebugStringW(
-            was ? L"[T77 dbg] F10: slot1 trial armed off\r\n" : L"[T77 dbg] F10: slot1 trial armed on\r\n");
+        InputGuideArbiter_DebugCycleLiveConsumeTrialTargetSlot();
     }
 
     if (hWnd)

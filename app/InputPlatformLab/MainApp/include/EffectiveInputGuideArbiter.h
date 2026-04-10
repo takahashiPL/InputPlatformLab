@@ -37,18 +37,28 @@ void InputGuideArbiter_StagePerSlotLogicalDryFanOut();
 void InputGuideArbiter_SyncSlot0StagedLogicalMirrorFromLivePrimary();
 
 // T77 step10/11: slot0 staged mirror (before merge) + per-slot dispatch getters (step11: slot1+ staged readable; live consume only slot0).
-// T77 step19/20: exactly one live consume slot per tick (GetSingleLiveConsumeSlotIndex: 0 default, 1 = kb trial);
-// step20: Debug-only change logs (InputGuideArbiter_DebugLogSlot1TrialObsIfChanged) align lv=/tr=/dispatch.
+// T77 step19–21: exactly one live consume slot per tick (GetSingleLiveConsumeSlotIndex: 0 default;
+// non-zero only when trial armed + Manual Live + kb route on GetLiveConsumeTrialTargetSlot()).
+// step20: Debug-only change logs align lv=/tr=/dispatch. step21: slot-indexed trial target (default 2P).
 // TryGet merged: only after step8 in the same tick. Slot0 logical: fallback InputCore if unstaged. Slot1+ logical: nullptr if unstaged.
 bool InputGuideArbiter_CanSlotDispatchLiveConsume(PlayerInputSlotIndex slot);
 bool InputGuideArbiter_ShouldSlotDispatchDryRunConsume(PlayerInputSlotIndex slot);
 PlayerInputSlotIndex InputGuideArbiter_GetSingleLiveConsumeSlotIndex();
 void InputGuideArbiter_FormatSingleLiveConsumeSlotTagForT18(wchar_t* buf, size_t bufCount);
-// Step15/16: default off. Slot1 real menu Apply only when ManualOverride Live + armed + keyboard-bound route (step16).
-void InputGuideArbiter_SetSlot1LiveConsumeTrialArmed(bool armed);
-bool InputGuideArbiter_IsSlot1LiveConsumeTrialArmed();
-// True when slot1 owns the single live consume stream (same as GetSingleLiveConsumeSlotIndex()==1).
+// Step15/16/21: default off. Live Apply on trial target only when armed + ManualOverride Live + keyboard-bound route.
+void InputGuideArbiter_SetLiveConsumeTrialArmed(bool armed);
+bool InputGuideArbiter_IsLiveConsumeTrialArmed();
+PlayerInputSlotIndex InputGuideArbiter_GetLiveConsumeTrialTargetSlot();
+void InputGuideArbiter_FormatLiveConsumeTrialTargetObsSuffixForT18(wchar_t* buf, size_t bufCount);
+// F8/F9 apply to the trial target slot; if target is "none", slot1 (2P) is used (legacy demo).
+PlayerInputSlotIndex InputGuideArbiter_GetLiveConsumeTrialHotkeySlot();
+#if defined(_DEBUG)
+// Cycles trial target 2P→3P→4P→none (Debug only). F7 is reserved for T17 scroll.
+void InputGuideArbiter_DebugCycleLiveConsumeTrialTargetSlot();
+#endif
+// Legacy: true iff resolved live slot index is 1 (2P).
 bool InputGuideArbiter_IsSlot1LiveConsumeTrialActive();
+// True when a non-primary slot owns the single live consume stream (hold on 1P).
 bool InputGuideArbiter_IsSlot0LiveConsumeHeldForSlot1KbTrial();
 // Debug: call once per consume pass; logs only on change (spam-safe).
 void InputGuideArbiter_DebugLogSlot1TrialObsIfChanged();
@@ -126,5 +136,5 @@ void InputGuideArbiter_RecordSlotConsumeDispatchDryRun(
     const VirtualInputMenuSampleEvents& ev,
     UINT32 tick);
 void InputGuideArbiter_FormatSlotConsumeResultForT18(PlayerInputSlotIndex slot, wchar_t* buf, size_t bufCount);
-// Step17: unified trial token for 2P line: ·tr=off|rdy|nkb|kArm|kOn
-void InputGuideArbiter_FormatSlot1TrialObsForT18(wchar_t* buf, size_t bufCount);
+// Step17/21: trial phase on the trial-target player line: ·tr=off|rdy|nkb|kArm|kOn (empty if not target line).
+void InputGuideArbiter_FormatLiveTrialObsForT18(PlayerInputSlotIndex lineSlot, wchar_t* buf, size_t bufCount);
