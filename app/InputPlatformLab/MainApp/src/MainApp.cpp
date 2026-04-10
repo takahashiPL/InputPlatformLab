@@ -5735,6 +5735,15 @@ static void Win32_HudPaged_FillT18PageBody(wchar_t* buf, size_t bufCount)
     InputGuideArbiter_FormatSlotConsumeDispatchForT18(2u, cd2, _countof(cd2));
     InputGuideArbiter_FormatSlotConsumeDispatchForT18(3u, cd3, _countof(cd3));
 
+    wchar_t cr0[48] = {};
+    wchar_t cr1[48] = {};
+    wchar_t cr2[48] = {};
+    wchar_t cr3[48] = {};
+    InputGuideArbiter_FormatSlotConsumeResultForT18(0u, cr0, _countof(cr0));
+    InputGuideArbiter_FormatSlotConsumeResultForT18(1u, cr1, _countof(cr1));
+    InputGuideArbiter_FormatSlotConsumeResultForT18(2u, cr2, _countof(cr2));
+    InputGuideArbiter_FormatSlotConsumeResultForT18(3u, cr3, _countof(cr3));
+
     // T77: multi-player will use a slot table (default 4, cap 8). Input routing remains 1P; 2P/3P lines = policy only.
     swprintf_s(
         buf,
@@ -5781,6 +5790,10 @@ static void Win32_HudPaged_FillT18PageBody(wchar_t* buf, size_t bufCount)
         L"2P consume dispatch=%s\r\n"
         L"3P consume dispatch=%s\r\n"
         L"4P consume dispatch=%s\r\n"
+        L"1P consume result=%s\r\n"
+        L"2P consume result=%s\r\n"
+        L"3P consume result=%s\r\n"
+        L"4P consume result=%s\r\n"
         L"1P input owner=%s\r\n"
         L"1P guide family=%s\r\n",
         slotStr,
@@ -5827,6 +5840,10 @@ static void Win32_HudPaged_FillT18PageBody(wchar_t* buf, size_t bufCount)
         cd1,
         cd2,
         cd3,
+        cr0,
+        cr1,
+        cr2,
+        cr3,
         Win32_InputGuideSourceKindUiLabel(InputGuideArbiter_GetEffectiveOwnerSourceKind()),
         Win32_T18_T76_OnePGuideFamilyLabel());
 }
@@ -7199,20 +7216,29 @@ static void Win32_UnifiedInputMenuTick_WhenMenuClosed(HWND hwndForPaint)
     }
 }
 
-// T77 step11: per-slot consume dispatch — only slot0 applies to app; slot1+ skipped (eligibility false).
+// T77 step11/12: per-slot consume dispatch — slot0 live; slot1+ VirtualInputMenuSample_Apply on scratch only (recorded, no app state).
 static void Win32_DispatchVirtualMenuSampleLiveConsumeSlots(HWND hwndForPaint)
 {
+    const UINT32 t = static_cast<UINT32>(GetTickCount());
     for (unsigned ui = 0; ui < kPlayerInputSlotCap; ++ui)
     {
         const PlayerInputSlotIndex si = static_cast<PlayerInputSlotIndex>(ui);
-        if (!InputGuideArbiter_CanSlotDispatchLiveConsume(si))
+        const VirtualInputConsumerFrame* m = InputGuideArbiter_TryGetSlotStagedMergedForDispatch(si);
+        if (!m)
         {
+            InputGuideArbiter_RecordSlotConsumeDispatchSkipped(si, t);
             continue;
         }
-        const VirtualInputConsumerFrame* m = InputGuideArbiter_TryGetSlotStagedMergedForDispatch(si);
-        if (m)
+        if (InputGuideArbiter_CanSlotDispatchLiveConsume(si))
         {
             Win32_LogVirtualInputMenuSampleIfChanged(*m, hwndForPaint);
+            InputGuideArbiter_RecordSlotConsumeDispatchLive(si, t);
+        }
+        else
+        {
+            VirtualInputMenuSampleState scratch = s_virtualInputMenuSampleState;
+            const VirtualInputMenuSampleEvents dryEv = VirtualInputMenuSample_Apply(scratch, *m);
+            InputGuideArbiter_RecordSlotConsumeDispatchDryRun(si, dryEv, t);
         }
     }
 }

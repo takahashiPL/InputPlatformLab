@@ -95,3 +95,12 @@ void InputGuideArbiter_FormatSlotStagedLogicalSummaryForT18(PlayerInputSlotIndex
 
 // T77 step11: live consume dispatch eligibility for T18 (enabled = slot0 only).
 void InputGuideArbiter_FormatSlotConsumeDispatchForT18(PlayerInputSlotIndex slot, wchar_t* buf, size_t bufCount);
+
+// T77 step12: record last consume outcome (MainApp dispatch loop). Dry-run does not mutate app menu state.
+void InputGuideArbiter_RecordSlotConsumeDispatchSkipped(PlayerInputSlotIndex slot, UINT32 tick);
+void InputGuideArbiter_RecordSlotConsumeDispatchLive(PlayerInputSlotIndex slot, UINT32 tick);
+void InputGuideArbiter_RecordSlotConsumeDispatchDryRun(
+    PlayerInputSlotIndex slot,
+    const VirtualInputMenuSampleEvents& ev,
+    UINT32 tick);
+void InputGuideArbiter_FormatSlotConsumeResultForT18(PlayerInputSlotIndex slot, wchar_t* buf, size_t bufCount);

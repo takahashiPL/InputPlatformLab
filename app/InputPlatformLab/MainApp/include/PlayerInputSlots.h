@@ -14,6 +14,7 @@
 // - Step9: stagedLogical = logical/action snapshot from stagedInput (slot0 mirrors live app logical; slot1+ dry-run only).
 // - Step10: live app consume (menu/HUD/T19) reads slot0 staged logical + staged merged frame; slot1+ still not consumed.
 // - Step11: generic per-slot consume dispatch loop/eligibility; only slot0 live-enabled, slot1+ skipped (dry-run staging only).
+// - Step12: slot1+ runs VirtualInputMenuSample_Apply on a scratch copy only; consumeDispatchLast records outcome (no app state).
 #pragma once
 
 #include "GamepadTypes.h"
@@ -118,6 +119,25 @@ struct PlayerSlotStagedLogicalBlock
     UINT32 lastStagedTick = 0;
 };
 
+// Step12: last menu-sample consume dispatch outcome (live vs dry-run scratch vs skipped).
+enum class PlayerSlotConsumeDispatchResultKind : UINT8
+{
+    SkippedDisabled = 0,
+    LiveApplied,
+    DryRunApplied,
+};
+
+struct PlayerSlotConsumeDispatchRecord
+{
+    PlayerSlotConsumeDispatchResultKind kind = PlayerSlotConsumeDispatchResultKind::SkippedDisabled;
+    UINT32 lastTick = 0;
+    bool menuToggled = false;
+    bool selectionChanged = false;
+    bool activated = false;
+    bool cancelled = false;
+    bool menuClosedByCancel = false;
+};
+
 // Step5: routing precursor — who this slot would read from next; does not move logical input yet.
 struct PlayerSlotRouteCandidate
 {
@@ -152,6 +172,7 @@ struct PlayerSlotState
 
     PlayerSlotStagedInputFrames stagedInput;
     PlayerSlotStagedLogicalBlock stagedLogical;
+    PlayerSlotConsumeDispatchRecord consumeDispatchLast;
 
     // T76 effective state (maps to slot 0 / 1P).
     InputGuideSourceKind effectiveOwnerSource = InputGuideSourceKind::Unknown;

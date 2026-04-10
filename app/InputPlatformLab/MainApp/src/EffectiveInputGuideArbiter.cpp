@@ -1112,6 +1112,56 @@ const PlayerSlotStagedActionSnapshot* InputGuideArbiter_TryGetSlotStagedActionFo
     return &s->stagedLogical.action;
 }
 
+void InputGuideArbiter_RecordSlotConsumeDispatchSkipped(PlayerInputSlotIndex slot, UINT32 tick)
+{
+    EnsurePrimaryPlayerSlotSeededForT76();
+    PlayerSlotState* s = TryMutableSlot(slot);
+    if (!s)
+    {
+        return;
+    }
+    PlayerSlotConsumeDispatchRecord& r = s->consumeDispatchLast;
+    r = PlayerSlotConsumeDispatchRecord{};
+    r.kind = PlayerSlotConsumeDispatchResultKind::SkippedDisabled;
+    r.lastTick = tick;
+}
+
+void InputGuideArbiter_RecordSlotConsumeDispatchLive(PlayerInputSlotIndex slot, UINT32 tick)
+{
+    EnsurePrimaryPlayerSlotSeededForT76();
+    PlayerSlotState* s = TryMutableSlot(slot);
+    if (!s)
+    {
+        return;
+    }
+    PlayerSlotConsumeDispatchRecord& r = s->consumeDispatchLast;
+    r = PlayerSlotConsumeDispatchRecord{};
+    r.kind = PlayerSlotConsumeDispatchResultKind::LiveApplied;
+    r.lastTick = tick;
+}
+
+void InputGuideArbiter_RecordSlotConsumeDispatchDryRun(
+    PlayerInputSlotIndex slot,
+    const VirtualInputMenuSampleEvents& ev,
+    UINT32 tick)
+{
+    EnsurePrimaryPlayerSlotSeededForT76();
+    PlayerSlotState* s = TryMutableSlot(slot);
+    if (!s)
+    {
+        return;
+    }
+    PlayerSlotConsumeDispatchRecord& r = s->consumeDispatchLast;
+    r = PlayerSlotConsumeDispatchRecord{};
+    r.kind = PlayerSlotConsumeDispatchResultKind::DryRunApplied;
+    r.lastTick = tick;
+    r.menuToggled = ev.menuToggled;
+    r.selectionChanged = ev.selectionChanged;
+    r.activated = ev.activated;
+    r.cancelled = ev.cancelled;
+    r.menuClosedByCancel = ev.menuClosedByCancel;
+}
+
 InputGuideSourceKind InputGuideArbiter_GetEffectiveOwnerSourceKind()
 {
     EnsurePrimaryPlayerSlotSeededForT76();
@@ -1587,5 +1637,33 @@ void InputGuideArbiter_FormatSlotConsumeDispatchForT18(PlayerInputSlotIndex slot
     else
     {
         wcscpy_s(buf, bufCount, L"disabled");
+    }
+}
+
+void InputGuideArbiter_FormatSlotConsumeResultForT18(PlayerInputSlotIndex slot, wchar_t* buf, size_t bufCount)
+{
+    if (!buf || bufCount == 0)
+    {
+        return;
+    }
+    buf[0] = L'\0';
+    EnsurePrimaryPlayerSlotSeededForT76();
+    PlayerSlotState* p = TryMutableSlot(slot);
+    if (!p)
+    {
+        wcscpy_s(buf, bufCount, L"invalid");
+        return;
+    }
+    switch (p->consumeDispatchLast.kind)
+    {
+    case PlayerSlotConsumeDispatchResultKind::LiveApplied:
+        wcscpy_s(buf, bufCount, L"live");
+        break;
+    case PlayerSlotConsumeDispatchResultKind::DryRunApplied:
+        wcscpy_s(buf, bufCount, L"dry-run");
+        break;
+    default:
+        wcscpy_s(buf, bufCount, L"disabled");
+        break;
     }
 }
