@@ -5726,6 +5726,15 @@ static void Win32_HudPaged_FillT18PageBody(wchar_t* buf, size_t bufCount)
     InputGuideArbiter_FormatSlotStagedLogicalSummaryForT18(2u, sl2, _countof(sl2));
     InputGuideArbiter_FormatSlotStagedLogicalSummaryForT18(3u, sl3, _countof(sl3));
 
+    wchar_t cd0[48] = {};
+    wchar_t cd1[48] = {};
+    wchar_t cd2[48] = {};
+    wchar_t cd3[48] = {};
+    InputGuideArbiter_FormatSlotConsumeDispatchForT18(0u, cd0, _countof(cd0));
+    InputGuideArbiter_FormatSlotConsumeDispatchForT18(1u, cd1, _countof(cd1));
+    InputGuideArbiter_FormatSlotConsumeDispatchForT18(2u, cd2, _countof(cd2));
+    InputGuideArbiter_FormatSlotConsumeDispatchForT18(3u, cd3, _countof(cd3));
+
     // T77: multi-player will use a slot table (default 4, cap 8). Input routing remains 1P; 2P/3P lines = policy only.
     swprintf_s(
         buf,
@@ -5768,6 +5777,10 @@ static void Win32_HudPaged_FillT18PageBody(wchar_t* buf, size_t bufCount)
         L"3P staged logical=%s\r\n"
         L"4P staged logical=%s\r\n"
         L"1P consume source=slot0-staged-logical\r\n"
+        L"1P consume dispatch=%s\r\n"
+        L"2P consume dispatch=%s\r\n"
+        L"3P consume dispatch=%s\r\n"
+        L"4P consume dispatch=%s\r\n"
         L"1P input owner=%s\r\n"
         L"1P guide family=%s\r\n",
         slotStr,
@@ -5810,6 +5823,10 @@ static void Win32_HudPaged_FillT18PageBody(wchar_t* buf, size_t bufCount)
         sl1,
         sl2,
         sl3,
+        cd0,
+        cd1,
+        cd2,
+        cd3,
         Win32_InputGuideSourceKindUiLabel(InputGuideArbiter_GetEffectiveOwnerSourceKind()),
         Win32_T18_T76_OnePGuideFamilyLabel());
 }
@@ -6083,7 +6100,7 @@ static void Win32_HudPaged_AppendBodyLine(wchar_t* buf, size_t bufCount, const w
 static void Win32_HudPaged_FillT19LogicalSection(wchar_t* buf, size_t bufCount)
 {
     buf[0] = L'\0';
-    const LogicalInputState* li = InputGuideArbiter_GetSlot0StagedLogicalForLiveConsume();
+    const LogicalInputState* li = InputGuideArbiter_GetSlotStagedLogicalForDispatch(0u);
     if (!li)
     {
         wcscpy_s(buf, bufCount, L"(LogicalInputState unavailable)\r\n");
@@ -6157,7 +6174,7 @@ static void Win32_HudPaged_FillT19PadExtrasSection(wchar_t* buf, size_t bufCount
     {
         return;
     }
-    const LogicalInputState* li = InputGuideArbiter_GetSlot0StagedLogicalForLiveConsume();
+    const LogicalInputState* li = InputGuideArbiter_GetSlotStagedLogicalForDispatch(0u);
     if (!li)
     {
         return;
@@ -6235,7 +6252,7 @@ static void Win32_HudPaged_FillT19AnalogSectionInto(wchar_t* buf, size_t bufCoun
     {
         return;
     }
-    const LogicalInputState* li = InputGuideArbiter_GetSlot0StagedLogicalForLiveConsume();
+    const LogicalInputState* li = InputGuideArbiter_GetSlotStagedLogicalForDispatch(0u);
     if (!li)
     {
         return;
@@ -6293,7 +6310,7 @@ static void Win32_HudPaged_FillT19AnalogSectionInto(wchar_t* buf, size_t bufCoun
 static void Win32_HudPaged_FillT19PageBody(wchar_t* buf, size_t bufCount)
 {
     buf[0] = L'\0';
-    const LogicalInputState* li = InputGuideArbiter_GetSlot0StagedLogicalForLiveConsume();
+    const LogicalInputState* li = InputGuideArbiter_GetSlotStagedLogicalForDispatch(0u);
     if (!li)
     {
         wcscpy_s(buf, bufCount, L"(LogicalInputState unavailable)\r\n");
@@ -7182,6 +7199,24 @@ static void Win32_UnifiedInputMenuTick_WhenMenuClosed(HWND hwndForPaint)
     }
 }
 
+// T77 step11: per-slot consume dispatch — only slot0 applies to app; slot1+ skipped (eligibility false).
+static void Win32_DispatchVirtualMenuSampleLiveConsumeSlots(HWND hwndForPaint)
+{
+    for (unsigned ui = 0; ui < kPlayerInputSlotCap; ++ui)
+    {
+        const PlayerInputSlotIndex si = static_cast<PlayerInputSlotIndex>(ui);
+        if (!InputGuideArbiter_CanSlotDispatchLiveConsume(si))
+        {
+            continue;
+        }
+        const VirtualInputConsumerFrame* m = InputGuideArbiter_TryGetSlotStagedMergedForDispatch(si);
+        if (m)
+        {
+            Win32_LogVirtualInputMenuSampleIfChanged(*m, hwndForPaint);
+        }
+    }
+}
+
 // キーとパッドの ConsumerFrame をマージしメニュー試作へ。末尾でタイマー境界のキー状態を進める。
 static void Win32_UnifiedInputMenuTick_MergeAndApply(HWND hwndForPaint)
 {
@@ -7234,9 +7269,7 @@ static void Win32_UnifiedInputMenuTick_MergeAndApply(HWND hwndForPaint)
         VirtualInputConsumer_MergeKeyboardController(kbForMerge, ctrlFrame);
     InputGuideArbiter_StagePerSlotInputFramesDryFanOut(kbFrame, ctrlFrame, unified);
     InputGuideArbiter_StagePerSlotLogicalDryFanOut();
-    Win32_LogVirtualInputMenuSampleIfChanged(
-        InputGuideArbiter_GetSlot0StagedMergedForLiveConsume(),
-        hwndForPaint);
+    Win32_DispatchVirtualMenuSampleLiveConsumeSlots(hwndForPaint);
     s_keyboardActionStateAtLastTimer = s_keyboardActionState;
 }
 
@@ -9071,7 +9104,7 @@ static void Win32_WndProc_OnXInputPollTimer(HWND hWnd)
         wchar_t analogNow[16384] = {};
         Win32_HudPaged_T19LogicalButtonDisplaySnap logicalSnapNow[kT19LogicalDisplayRowCount] = {};
         Win32_HudPaged_T19PadExtrasDisplaySnap padExtrasNow = {};
-        const LogicalInputState* liTimer = InputGuideArbiter_GetSlot0StagedLogicalForLiveConsume();
+        const LogicalInputState* liTimer = InputGuideArbiter_GetSlotStagedLogicalForDispatch(0u);
         if (liTimer)
         {
             Win32_HudPaged_T19FillLogicalDisplaySnapshot(*liTimer, logicalSnapNow, _countof(logicalSnapNow));

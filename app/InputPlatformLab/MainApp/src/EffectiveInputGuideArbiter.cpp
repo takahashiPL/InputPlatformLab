@@ -1062,32 +1062,54 @@ void InputGuideArbiter_SyncSlot0StagedLogicalMirrorFromLivePrimary()
     lg.action = {};
 }
 
-const LogicalInputState* InputGuideArbiter_GetSlot0StagedLogicalForLiveConsume()
+bool InputGuideArbiter_CanSlotDispatchLiveConsume(PlayerInputSlotIndex slot)
+{
+    return static_cast<unsigned>(slot) < kPlayerInputSlotCap && slot == 0u;
+}
+
+const LogicalInputState* InputGuideArbiter_GetSlotStagedLogicalForDispatch(PlayerInputSlotIndex slot)
 {
     EnsurePrimaryPlayerSlotSeededForT76();
-    const PlayerSlotState& s = PrimarySlot();
-    if (!s.stagedLogical.valid)
+    PlayerSlotState* s = TryMutableSlot(slot);
+    if (!s)
     {
         return InputCore_LogicalInputState();
     }
-    return &s.stagedLogical.logical;
-}
-
-const VirtualInputConsumerFrame& InputGuideArbiter_GetSlot0StagedMergedForLiveConsume()
-{
-    EnsurePrimaryPlayerSlotSeededForT76();
-    return PrimarySlot().stagedInput.merged;
-}
-
-const PlayerSlotStagedActionSnapshot* InputGuideArbiter_GetSlot0StagedActionForLiveConsume()
-{
-    EnsurePrimaryPlayerSlotSeededForT76();
-    const PlayerSlotState& s = PrimarySlot();
-    if (!s.stagedLogical.valid)
+    if (slot == 0u)
+    {
+        if (!s->stagedLogical.valid)
+        {
+            return InputCore_LogicalInputState();
+        }
+        return &s->stagedLogical.logical;
+    }
+    if (!s->stagedLogical.valid)
     {
         return nullptr;
     }
-    return &s.stagedLogical.action;
+    return &s->stagedLogical.logical;
+}
+
+const VirtualInputConsumerFrame* InputGuideArbiter_TryGetSlotStagedMergedForDispatch(PlayerInputSlotIndex slot)
+{
+    EnsurePrimaryPlayerSlotSeededForT76();
+    PlayerSlotState* s = TryMutableSlot(slot);
+    if (!s || !s->stagedInput.mergedValid)
+    {
+        return nullptr;
+    }
+    return &s->stagedInput.merged;
+}
+
+const PlayerSlotStagedActionSnapshot* InputGuideArbiter_TryGetSlotStagedActionForDispatch(PlayerInputSlotIndex slot)
+{
+    EnsurePrimaryPlayerSlotSeededForT76();
+    PlayerSlotState* s = TryMutableSlot(slot);
+    if (!s || !s->stagedLogical.valid)
+    {
+        return nullptr;
+    }
+    return &s->stagedLogical.action;
 }
 
 InputGuideSourceKind InputGuideArbiter_GetEffectiveOwnerSourceKind()
@@ -1543,5 +1565,27 @@ void InputGuideArbiter_FormatSlotStagedLogicalSummaryForT18(PlayerInputSlotIndex
     default:
         wcscpy_s(buf, bufCount, L"none");
         break;
+    }
+}
+
+void InputGuideArbiter_FormatSlotConsumeDispatchForT18(PlayerInputSlotIndex slot, wchar_t* buf, size_t bufCount)
+{
+    if (!buf || bufCount == 0)
+    {
+        return;
+    }
+    buf[0] = L'\0';
+    if (static_cast<unsigned>(slot) >= kPlayerInputSlotCap)
+    {
+        wcscpy_s(buf, bufCount, L"invalid");
+        return;
+    }
+    if (InputGuideArbiter_CanSlotDispatchLiveConsume(slot))
+    {
+        wcscpy_s(buf, bufCount, L"enabled");
+    }
+    else
+    {
+        wcscpy_s(buf, bufCount, L"disabled");
     }
 }

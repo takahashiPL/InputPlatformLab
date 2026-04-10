@@ -13,6 +13,7 @@
 // - Step8: stagedInput = consumer frames implied by activeRoute (dry-fan-out); slot0 mirrors live 1P merge; slot1+ generate only.
 // - Step9: stagedLogical = logical/action snapshot from stagedInput (slot0 mirrors live app logical; slot1+ dry-run only).
 // - Step10: live app consume (menu/HUD/T19) reads slot0 staged logical + staged merged frame; slot1+ still not consumed.
+// - Step11: generic per-slot consume dispatch loop/eligibility; only slot0 live-enabled, slot1+ skipped (dry-run staging only).
 #pragma once
 
 #include "GamepadTypes.h"

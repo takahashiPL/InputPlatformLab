@@ -36,10 +36,12 @@ void InputGuideArbiter_StagePerSlotLogicalDryFanOut();
 // T77 step10: after app LogicalInputState_Update, mirror live into slot0 staged (T19/timer reads consume path). Idempotent with step9 slot0 copy.
 void InputGuideArbiter_SyncSlot0StagedLogicalMirrorFromLivePrimary();
 
-// T77 step10: live consume reads slot0 staged (fallback InputCore if unstaged). Call GetSlot0StagedMerged only after step8 in the same tick.
-const LogicalInputState* InputGuideArbiter_GetSlot0StagedLogicalForLiveConsume();
-const VirtualInputConsumerFrame& InputGuideArbiter_GetSlot0StagedMergedForLiveConsume();
-const PlayerSlotStagedActionSnapshot* InputGuideArbiter_GetSlot0StagedActionForLiveConsume();
+// T77 step10/11: slot0 staged mirror (before merge) + per-slot dispatch getters (step11: slot1+ staged readable; live consume only slot0).
+// TryGet merged: only after step8 in the same tick. Slot0 logical: fallback InputCore if unstaged. Slot1+ logical: nullptr if unstaged.
+bool InputGuideArbiter_CanSlotDispatchLiveConsume(PlayerInputSlotIndex slot);
+const LogicalInputState* InputGuideArbiter_GetSlotStagedLogicalForDispatch(PlayerInputSlotIndex slot);
+const VirtualInputConsumerFrame* InputGuideArbiter_TryGetSlotStagedMergedForDispatch(PlayerInputSlotIndex slot);
+const PlayerSlotStagedActionSnapshot* InputGuideArbiter_TryGetSlotStagedActionForDispatch(PlayerInputSlotIndex slot);
 
 InputGuideSourceKind InputGuideArbiter_GetEffectiveOwnerSourceKind();
 // Keyboard owner: Unknown. Gamepad owner: latched activity family if set, else inventory fallback.
@@ -90,3 +92,6 @@ void InputGuideArbiter_FormatSlotStagedInputSummaryForT18(PlayerInputSlotIndex s
 
 // T77 step9: compact staged-logical label (after staged input in T18).
 void InputGuideArbiter_FormatSlotStagedLogicalSummaryForT18(PlayerInputSlotIndex slot, wchar_t* buf, size_t bufCount);
+
+// T77 step11: live consume dispatch eligibility for T18 (enabled = slot0 only).
+void InputGuideArbiter_FormatSlotConsumeDispatchForT18(PlayerInputSlotIndex slot, wchar_t* buf, size_t bufCount);
