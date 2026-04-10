@@ -49,7 +49,7 @@ enum class PlayerSlotActualConsumePolicy : UINT8
 enum class PlayerSlotConsumePolicySource : UINT8
 {
     DefaultStep13Seed = 0,
-    ManualOverride, // not used by Refresh; reserved for experiments
+    ManualOverride, // T77 step14: Refresh skips; actualConsumePolicy holds override value
 };
 
 // T77 step4: binding policy vs current inventory (T18) — display / future routing only.

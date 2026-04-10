@@ -40,7 +40,15 @@ void InputGuideArbiter_SyncSlot0StagedLogicalMirrorFromLivePrimary();
 // TryGet merged: only after step8 in the same tick. Slot0 logical: fallback InputCore if unstaged. Slot1+ logical: nullptr if unstaged.
 bool InputGuideArbiter_CanSlotDispatchLiveConsume(PlayerInputSlotIndex slot);
 bool InputGuideArbiter_ShouldSlotDispatchDryRunConsume(PlayerInputSlotIndex slot);
+// Resolved policy (default seed or manual override).
 PlayerSlotActualConsumePolicy InputGuideArbiter_GetSlotActualConsumePolicy(PlayerInputSlotIndex slot);
+// Seat/binding seed only (ignores ManualOverride).
+PlayerSlotActualConsumePolicy InputGuideArbiter_GetSlotDefaultStep13ConsumePolicy(PlayerInputSlotIndex slot);
+PlayerSlotConsumePolicySource InputGuideArbiter_GetSlotConsumePolicySource(PlayerInputSlotIndex slot);
+void InputGuideArbiter_SetSlotActualConsumePolicyOverride(
+    PlayerInputSlotIndex slot,
+    PlayerSlotActualConsumePolicy policy);
+void InputGuideArbiter_ClearSlotActualConsumePolicyOverride(PlayerInputSlotIndex slot);
 const LogicalInputState* InputGuideArbiter_GetSlotStagedLogicalForDispatch(PlayerInputSlotIndex slot);
 const VirtualInputConsumerFrame* InputGuideArbiter_TryGetSlotStagedMergedForDispatch(PlayerInputSlotIndex slot);
 const PlayerSlotStagedActionSnapshot* InputGuideArbiter_TryGetSlotStagedActionForDispatch(PlayerInputSlotIndex slot);

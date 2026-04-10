@@ -16,6 +16,7 @@
 // - Step11: generic per-slot consume dispatch loop/eligibility; only slot0 live-enabled, slot1+ skipped (dry-run staging only).
 // - Step12: slot1+ runs VirtualInputMenuSample_Apply on a scratch copy only; consumeDispatchLast records outcome (no app state).
 // - Step13: actualConsumePolicy + refresh from seat/binding (default: slot0 Live, assigned slot1+ DryRun, unassigned Disabled).
+// - Step14: optional ManualOverride on consumePolicySource; Refresh only updates DefaultStep13Seed slots.
 #pragma once
 
 #include "GamepadTypes.h"

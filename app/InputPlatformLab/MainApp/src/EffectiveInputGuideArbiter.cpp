@@ -20,6 +20,21 @@ constexpr PlayerInputSlotIndex kT76PrimaryPlayerSlotIndex = 0u;
 
 PlayerSlotState g_playerSlots[kPlayerInputSlotCap];
 
+PlayerSlotActualConsumePolicy ComputeDefaultStep13ConsumePolicy(
+    unsigned slotIndex,
+    const PlayerSlotState& s)
+{
+    if (slotIndex == 0u)
+    {
+        return PlayerSlotActualConsumePolicy::Live;
+    }
+    if (s.slotAssigned || s.bindingAssignment != PlayerSlotBindingAssignment::None)
+    {
+        return PlayerSlotActualConsumePolicy::DryRun;
+    }
+    return PlayerSlotActualConsumePolicy::Disabled;
+}
+
 void RefreshDefaultConsumePolicyFromSeatFlags()
 {
     for (unsigned i = 0; i < kPlayerInputSlotCap; ++i)
@@ -29,19 +44,7 @@ void RefreshDefaultConsumePolicyFromSeatFlags()
         {
             continue;
         }
-        if (i == 0u)
-        {
-            s.actualConsumePolicy = PlayerSlotActualConsumePolicy::Live;
-            continue;
-        }
-        if (s.slotAssigned || s.bindingAssignment != PlayerSlotBindingAssignment::None)
-        {
-            s.actualConsumePolicy = PlayerSlotActualConsumePolicy::DryRun;
-        }
-        else
-        {
-            s.actualConsumePolicy = PlayerSlotActualConsumePolicy::Disabled;
-        }
+        s.actualConsumePolicy = ComputeDefaultStep13ConsumePolicy(i, s);
     }
 }
 
@@ -1130,6 +1133,62 @@ PlayerSlotActualConsumePolicy InputGuideArbiter_GetSlotActualConsumePolicy(Playe
     return s->actualConsumePolicy;
 }
 
+PlayerSlotActualConsumePolicy InputGuideArbiter_GetSlotDefaultStep13ConsumePolicy(PlayerInputSlotIndex slot)
+{
+    if (static_cast<unsigned>(slot) >= kPlayerInputSlotCap)
+    {
+        return PlayerSlotActualConsumePolicy::Disabled;
+    }
+    EnsurePrimaryPlayerSlotSeededForT76();
+    const PlayerSlotState* s = TryMutableSlot(slot);
+    if (!s)
+    {
+        return PlayerSlotActualConsumePolicy::Disabled;
+    }
+    return ComputeDefaultStep13ConsumePolicy(static_cast<unsigned>(slot), *s);
+}
+
+PlayerSlotConsumePolicySource InputGuideArbiter_GetSlotConsumePolicySource(PlayerInputSlotIndex slot)
+{
+    if (static_cast<unsigned>(slot) >= kPlayerInputSlotCap)
+    {
+        return PlayerSlotConsumePolicySource::DefaultStep13Seed;
+    }
+    EnsurePrimaryPlayerSlotSeededForT76();
+    const PlayerSlotState* s = TryMutableSlot(slot);
+    if (!s)
+    {
+        return PlayerSlotConsumePolicySource::DefaultStep13Seed;
+    }
+    return s->consumePolicySource;
+}
+
+void InputGuideArbiter_SetSlotActualConsumePolicyOverride(
+    PlayerInputSlotIndex slot,
+    PlayerSlotActualConsumePolicy policy)
+{
+    EnsurePrimaryPlayerSlotSeededForT76();
+    PlayerSlotState* s = TryMutableSlot(slot);
+    if (!s)
+    {
+        return;
+    }
+    s->actualConsumePolicy = policy;
+    s->consumePolicySource = PlayerSlotConsumePolicySource::ManualOverride;
+}
+
+void InputGuideArbiter_ClearSlotActualConsumePolicyOverride(PlayerInputSlotIndex slot)
+{
+    EnsurePrimaryPlayerSlotSeededForT76();
+    PlayerSlotState* s = TryMutableSlot(slot);
+    if (!s)
+    {
+        return;
+    }
+    s->consumePolicySource = PlayerSlotConsumePolicySource::DefaultStep13Seed;
+    RefreshDefaultConsumePolicyFromSeatFlags();
+}
+
 const LogicalInputState* InputGuideArbiter_GetSlotStagedLogicalForDispatch(PlayerInputSlotIndex slot)
 {
     EnsurePrimaryPlayerSlotSeededForT76();
@@ -1698,18 +1757,29 @@ void InputGuideArbiter_FormatSlotConsumePolicyForT18(PlayerInputSlotIndex slot, 
         return;
     }
     EnsurePrimaryPlayerSlotSeededForT76();
-    switch (InputGuideArbiter_GetSlotActualConsumePolicy(slot))
+    PlayerSlotState* p = TryMutableSlot(slot);
+    const PlayerSlotActualConsumePolicy pol =
+        p ? p->actualConsumePolicy : PlayerSlotActualConsumePolicy::Disabled;
+    const bool isOverride =
+        p && p->consumePolicySource == PlayerSlotConsumePolicySource::ManualOverride;
+    const wchar_t* polLabel = L"disabled";
+    switch (pol)
     {
     case PlayerSlotActualConsumePolicy::Live:
-        wcscpy_s(buf, bufCount, L"live");
+        polLabel = L"live";
         break;
     case PlayerSlotActualConsumePolicy::DryRun:
-        wcscpy_s(buf, bufCount, L"dry-run");
+        polLabel = L"dry-run";
         break;
     default:
-        wcscpy_s(buf, bufCount, L"disabled");
         break;
     }
+    swprintf_s(
+        buf,
+        bufCount,
+        L"%ls(%ls)",
+        polLabel,
+        isOverride ? L"override" : L"default");
 }
 
 void InputGuideArbiter_FormatSlotConsumeResultForT18(PlayerInputSlotIndex slot, wchar_t* buf, size_t bufCount)
