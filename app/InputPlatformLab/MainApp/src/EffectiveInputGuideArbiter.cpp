@@ -286,8 +286,14 @@ void InputGuideArbiter_TickSinglePlayerFromConsumerFrames(
     }
     else
     {
-        g_sp.pendingOwnerIdeal = InputGuideSourceKind::Unknown;
-        g_sp.pendingOwnerSinceTick = 0u;
+        // rawIdeal == owner: idle. Keyboard consumer actions are often 1-tick edges; pad idle still
+        // reads as Gamepad — do not clear a pending switch to the opposite source (T76 close).
+        if (g_sp.pendingOwnerIdeal == InputGuideSourceKind::Unknown ||
+            g_sp.pendingOwnerIdeal == g_sp.ownerSource)
+        {
+            g_sp.pendingOwnerIdeal = InputGuideSourceKind::Unknown;
+            g_sp.pendingOwnerSinceTick = 0u;
+        }
     }
 
     if (shouldCommit)

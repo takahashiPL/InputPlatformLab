@@ -5576,6 +5576,37 @@ static const wchar_t* Win32_InputGuideSourceKindUiLabel(InputGuideSourceKind k)
     }
 }
 
+// T18 のみ: 1P effective guide の短ラベル（Keyboard 主体時は Keyboard、Unknown 主体時は Unknown）。
+static const wchar_t* Win32_T18_T76_OnePGuideFamilyLabel()
+{
+    const InputGuideSourceKind owner = InputGuideArbiter_GetEffectiveOwnerSourceKind();
+    if (owner == InputGuideSourceKind::Keyboard)
+    {
+        return L"Keyboard";
+    }
+    if (owner != InputGuideSourceKind::Gamepad)
+    {
+        return L"Unknown";
+    }
+    const GameControllerKind g = InputGuideArbiter_GetEffectiveGuideFamilyForUi();
+    switch (g)
+    {
+    case GameControllerKind::Xbox:
+        return L"Xbox";
+    case GameControllerKind::PlayStation4:
+        return L"PS4";
+    case GameControllerKind::PlayStation5:
+        return L"PS5";
+    case GameControllerKind::Nintendo:
+        return L"Nintendo";
+    case GameControllerKind::XInputCompatible:
+        return L"XInputCompatible";
+    case GameControllerKind::Unknown:
+    default:
+        return L"Unknown";
+    }
+}
+
 // T76: Raw HID ゲームパッド経路で enumeration を間引き更新（接続直後に T18 family が古いままになりにくくする）。
 static void Win32_T76_ThrottledRefreshT18InventoryFromRawHid()
 {
@@ -5589,8 +5620,7 @@ static void Win32_T76_ThrottledRefreshT18InventoryFromRawHid()
     Win32_T18_RefreshControllerIdentifySnapshot(false);
 }
 
-// ページ式 HUD ��用: 本文に device path 全文は載せない。フルパスは Win32_T18_LogIfChanged の
-// [T18] device_path(full)=... のみ（スナップショット更新時・パス変更時）。
+// T18 page body: no full device path here. 1P T76 lines are diagnostic only.
 static void Win32_HudPaged_FillT18PageBody(wchar_t* buf, size_t bufCount)
 {
     buf[0] = L'\0';
@@ -5631,8 +5661,8 @@ static void Win32_HudPaged_FillT18PageBody(wchar_t* buf, size_t bufCount)
         L"product=%s\r\n"
         L"why:\r\n%s\r\n"
         L"path: (full in [T18] debug line)\r\n"
-        L"T76 effective_input_owner=%s  ui_guide_family=%s\r\n"
-        L"(inventory family above; single-player arbitration now, per-slot T77)\r\n",
+        L"1P input owner=%s\r\n"
+        L"1P guide family=%s\r\n",
         slotStr,
         s_t18.hid_found ? L"yes" : L"no",
         vidPidLine,
@@ -5642,7 +5672,7 @@ static void Win32_HudPaged_FillT18PageBody(wchar_t* buf, size_t bufCount)
         prodShort,
         (whyHud[0] != L'\0') ? whyHud : L"(none)",
         Win32_InputGuideSourceKindUiLabel(InputGuideArbiter_GetEffectiveOwnerSourceKind()),
-        Win32_GameControllerKindFamilyLabel(InputGuideArbiter_GetEffectiveGuideFamilyForUi()));
+        Win32_T18_T76_OnePGuideFamilyLabel());
 }
 
 // T19 Input state — 受け入れ・全ページ一覧は docs/HUD_PAGED_ACCEPTANCE.md。論理は LogicalInput_FillCurrentDownFromSources / LogicalInputState。
