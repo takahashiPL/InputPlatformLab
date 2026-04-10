@@ -1998,27 +1998,28 @@ void InputGuideArbiter_DebugLogSlot1TrialObsIfChanged()
 #if !defined(_DEBUG)
     return;
 #else
+    // T77 step20: change-only observability for single live consume slot (no spam).
     EnsurePrimaryPlayerSlotSeededForT76();
     const PlayerSlotState* s1 = TryMutableSlot(1u);
     const int phase = Slot1TrialObsPhaseCode(s1);
-    const bool h0 = InputGuideArbiter_GetSingleLiveConsumeSlotIndex() == 1u;
+    const unsigned liveSlot = static_cast<unsigned>(InputGuideArbiter_GetSingleLiveConsumeSlotIndex());
     const UINT8 s1k = static_cast<UINT8>(s1->consumeDispatchLast.kind);
 
     static bool s_haveBaseline = false;
     static int s_prevPhase = 0;
-    static bool s_prevH0 = false;
+    static unsigned s_prevLiveSlot = 0;
     static UINT8 s_prevKind = 0;
 
     if (!s_haveBaseline)
     {
         s_haveBaseline = true;
         s_prevPhase = phase;
-        s_prevH0 = h0;
+        s_prevLiveSlot = liveSlot;
         s_prevKind = s1k;
         return;
     }
 
-    if (phase == s_prevPhase && h0 == s_prevH0 && s1k == s_prevKind)
+    if (phase == s_prevPhase && liveSlot == s_prevLiveSlot && s1k == s_prevKind)
     {
         return;
     }
@@ -2027,11 +2028,11 @@ void InputGuideArbiter_DebugLogSlot1TrialObsIfChanged()
     swprintf_s(
         line,
         _countof(line),
-        L"[T77] trial %ls->%ls hold0 %d->%d s1k %u->%u\r\n",
+        L"[T77] trial %ls->%ls liveSlot %u->%u s1k %u->%u\r\n",
         Slot1TrialObsPhaseLabel(s_prevPhase),
         Slot1TrialObsPhaseLabel(phase),
-        s_prevH0 ? 1 : 0,
-        h0 ? 1 : 0,
+        s_prevLiveSlot,
+        liveSlot,
         static_cast<unsigned>(s_prevKind),
         static_cast<unsigned>(s1k));
 
@@ -2043,7 +2044,7 @@ void InputGuideArbiter_DebugLogSlot1TrialObsIfChanged()
     }
 
     s_prevPhase = phase;
-    s_prevH0 = h0;
+    s_prevLiveSlot = liveSlot;
     s_prevKind = s1k;
 #endif
 }

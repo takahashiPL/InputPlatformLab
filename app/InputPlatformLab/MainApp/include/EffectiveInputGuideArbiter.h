@@ -37,7 +37,8 @@ void InputGuideArbiter_StagePerSlotLogicalDryFanOut();
 void InputGuideArbiter_SyncSlot0StagedLogicalMirrorFromLivePrimary();
 
 // T77 step10/11: slot0 staged mirror (before merge) + per-slot dispatch getters (step11: slot1+ staged readable; live consume only slot0).
-// T77 step19: exactly one live consume slot per tick (GetSingleLiveConsumeSlotIndex: 0 default, 1 = kb trial).
+// T77 step19/20: exactly one live consume slot per tick (GetSingleLiveConsumeSlotIndex: 0 default, 1 = kb trial);
+// step20: Debug-only change logs (InputGuideArbiter_DebugLogSlot1TrialObsIfChanged) align lv=/tr=/dispatch.
 // TryGet merged: only after step8 in the same tick. Slot0 logical: fallback InputCore if unstaged. Slot1+ logical: nullptr if unstaged.
 bool InputGuideArbiter_CanSlotDispatchLiveConsume(PlayerInputSlotIndex slot);
 bool InputGuideArbiter_ShouldSlotDispatchDryRunConsume(PlayerInputSlotIndex slot);

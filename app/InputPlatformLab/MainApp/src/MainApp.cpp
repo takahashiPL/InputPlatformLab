@@ -7246,7 +7246,7 @@ static void Win32_UnifiedInputMenuTick_WhenMenuClosed(HWND hwndForPaint)
     }
 }
 
-// T77 step11/12/15/16/19: single live consume slot (GetSingleLiveConsumeSlotIndex); default 0; slot1 kb trial only when armed+eligible+Manual Live.
+// T77 step11/12/15/16/19/20: single live consume slot (GetSingleLiveConsumeSlotIndex); default 0; slot1 kb trial only when armed+eligible+Manual Live.
 static void Win32_DispatchVirtualMenuSampleLiveConsumeSlots(HWND hwndForPaint)
 {
     const UINT32 t = static_cast<UINT32>(GetTickCount());
