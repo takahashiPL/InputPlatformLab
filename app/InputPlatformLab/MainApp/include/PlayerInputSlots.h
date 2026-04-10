@@ -7,7 +7,8 @@
 // - No auto-assign: nothing in this module assigns devices to slots from the connection list.
 // - No rebind UI / persistence yet: bindings are runtime-only unless code calls the arbiter setters.
 // - Step3: binding policy can be set per slot (open / locked / none); input is still merged for 1P / T76 only.
-// - Step4: resolver compares policy + bound identity to T18/inventory view (no per-slot input routing yet).
+// - Step4: bindingResolution = inventory presence vs declared bind (still no routing).
+// - Step5: routeCandidate = adoptable source/device if routing were enabled (soft for ActiveOpen; firm when locked+present).
 #pragma once
 
 #include "GamepadTypes.h"
@@ -58,6 +59,17 @@ struct PlayerSlotBindingResolution
     UINT32 lastResolvedTick = 0;
 };
 
+// Step5: routing precursor — who this slot would read from next; does not move logical input yet.
+struct PlayerSlotRouteCandidate
+{
+    PlayerSlotRouteReadiness readiness = PlayerSlotRouteReadiness::None;
+    PlayerSlotRouteCandidateMode mode = PlayerSlotRouteCandidateMode::None;
+    InputGuideSourceKind candidateSourceKind = InputGuideSourceKind::Unknown;
+    PlayerBoundDeviceIdentity candidateDeviceIdentity;
+    GameControllerKind candidateResolvedFamily = GameControllerKind::Unknown;
+    UINT32 lastCandidateTick = 0;
+};
+
 // One local player slot: binding (T77 step2), effective owner/guide (T76 on slot 0), inventory mirror, debounce.
 struct PlayerSlotState
 {
@@ -71,6 +83,7 @@ struct PlayerSlotState
     GameControllerKind preferredGuideFamily = GameControllerKind::Unknown;
     PlayerSlotLastSeenSourceMeta lastSeenSourceMeta;
     PlayerSlotBindingResolution bindingResolution;
+    PlayerSlotRouteCandidate routeCandidate;
 
     // T76 effective state (maps to slot 0 / 1P).
     InputGuideSourceKind effectiveOwnerSource = InputGuideSourceKind::Unknown;

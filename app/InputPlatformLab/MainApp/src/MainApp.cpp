@@ -5681,6 +5681,15 @@ static void Win32_HudPaged_FillT18PageBody(wchar_t* buf, size_t bufCount)
     InputGuideArbiter_FormatSlotBindStatusForT18(2u, p2st, _countof(p2st));
     InputGuideArbiter_FormatSlotBindMatchForT18(2u, p2mt, _countof(p2mt));
 
+    wchar_t rc0[80] = {};
+    wchar_t rc1[80] = {};
+    wchar_t rc2[80] = {};
+    wchar_t rc3[80] = {};
+    InputGuideArbiter_FormatSlotRouteCandidateForT18(0u, rc0, _countof(rc0));
+    InputGuideArbiter_FormatSlotRouteCandidateForT18(1u, rc1, _countof(rc1));
+    InputGuideArbiter_FormatSlotRouteCandidateForT18(2u, rc2, _countof(rc2));
+    InputGuideArbiter_FormatSlotRouteCandidateForT18(3u, rc3, _countof(rc3));
+
     // T77: multi-player will use a slot table (default 4, cap 8). Input routing remains 1P; 2P/3P lines = policy only.
     swprintf_s(
         buf,
@@ -5702,6 +5711,10 @@ static void Win32_HudPaged_FillT18PageBody(wchar_t* buf, size_t bufCount)
         L"3P bind(policy)=%s | %s\r\n"
         L"3P bind status=%s\r\n"
         L"3P bind match=%s\r\n"
+        L"1P route candidate=%s\r\n"
+        L"2P route candidate=%s\r\n"
+        L"3P route candidate=%s\r\n"
+        L"4P route candidate=%s\r\n"
         L"1P input owner=%s\r\n"
         L"1P guide family=%s\r\n",
         slotStr,
@@ -5724,6 +5737,10 @@ static void Win32_HudPaged_FillT18PageBody(wchar_t* buf, size_t bufCount)
         s2dev,
         p2st,
         p2mt,
+        rc0,
+        rc1,
+        rc2,
+        rc3,
         Win32_InputGuideSourceKindUiLabel(InputGuideArbiter_GetEffectiveOwnerSourceKind()),
         Win32_T18_T76_OnePGuideFamilyLabel());
 }

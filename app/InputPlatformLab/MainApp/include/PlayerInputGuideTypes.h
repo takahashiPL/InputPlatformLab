@@ -47,3 +47,21 @@ enum class PlayerSlotBindingResolveStatus : UINT8
     LockedPresent,
     LockedAbsent,
 };
+
+// T77 step5: route readiness (candidate only; no per-slot input plumbing yet).
+enum class PlayerSlotRouteReadiness : UINT8
+{
+    None = 0, // no adoptable route (idle policy, locked-absent, or unresolved)
+    OpenReady, // ActiveOpen: soft inventory-aligned candidate; not committed to routing
+    Ready, // BoundLocked + present: candidate matches binding and inventory
+};
+
+// Why this candidate exists (for debug / future routing).
+enum class PlayerSlotRouteCandidateMode : UINT8
+{
+    None = 0,
+    OpenSoftInventory, // mirror primary inventory (pad if any, else keyboard)
+    LockedKeyboard,
+    LockedXInputUser,
+    LockedHidPath,
+};

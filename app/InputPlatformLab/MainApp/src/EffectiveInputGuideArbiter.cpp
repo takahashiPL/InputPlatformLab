@@ -140,6 +140,119 @@ void ResolveOnePlayerSlot(PlayerSlotState& s, const PlayerInputInventoryBindingV
     r.resolvedGuideFamilyCandidate = GameControllerKind::Unknown;
 }
 
+int FirstConnectedXInputUserIndex(const PlayerInputInventoryBindingView& inv)
+{
+    for (int i = 0; i < 4; ++i)
+    {
+        if (inv.xinputUserConnected[static_cast<size_t>(i)])
+        {
+            return i;
+        }
+    }
+    return -1;
+}
+
+void ComputeOneSlotRouteCandidate(PlayerSlotState& s, const PlayerInputInventoryBindingView& inv, UINT32 tick)
+{
+    PlayerSlotRouteCandidate& c = s.routeCandidate;
+    const PlayerSlotBindingResolution& r = s.bindingResolution;
+    c.lastCandidateTick = tick;
+    c.readiness = PlayerSlotRouteReadiness::None;
+    c.mode = PlayerSlotRouteCandidateMode::None;
+    c.candidateSourceKind = InputGuideSourceKind::Unknown;
+    c.candidateDeviceIdentity = PlayerBoundDeviceIdentity{};
+    c.candidateResolvedFamily = GameControllerKind::Unknown;
+
+    if (s.bindingAssignment == PlayerSlotBindingAssignment::None)
+    {
+        return;
+    }
+
+    if (r.status == PlayerSlotBindingResolveStatus::Unresolved)
+    {
+        return;
+    }
+
+    if (s.bindingAssignment == PlayerSlotBindingAssignment::ActiveOpen)
+    {
+        c.readiness = PlayerSlotRouteReadiness::OpenReady;
+        c.mode = PlayerSlotRouteCandidateMode::OpenSoftInventory;
+        const int xi = FirstConnectedXInputUserIndex(inv);
+        const bool padInventory = xi >= 0 || inv.inventoryHidRowPresent;
+        if (padInventory)
+        {
+            c.candidateSourceKind = InputGuideSourceKind::Gamepad;
+            c.candidateResolvedFamily = inv.inventoryPrimaryPadFamily;
+            if (xi >= 0)
+            {
+                c.candidateDeviceIdentity.kind = PlayerBoundDeviceIdentityKind::XInputUser;
+                c.candidateDeviceIdentity.xinputUserIndex = xi;
+            }
+            else
+            {
+                c.candidateDeviceIdentity.kind = PlayerBoundDeviceIdentityKind::HidPathHash;
+                c.candidateDeviceIdentity.hidInstancePathHash = inv.inventoryHidPathFnv1a;
+                c.candidateDeviceIdentity.hidPathShortToken = inv.inventoryHidPathToken16;
+                c.candidateDeviceIdentity.vendorId = inv.inventoryHidVendorId;
+                c.candidateDeviceIdentity.productId = inv.inventoryHidProductId;
+            }
+        }
+        else
+        {
+            c.candidateSourceKind = InputGuideSourceKind::Keyboard;
+            c.candidateDeviceIdentity.kind = PlayerBoundDeviceIdentityKind::Keyboard;
+        }
+        return;
+    }
+
+    if (r.status != PlayerSlotBindingResolveStatus::LockedPresent)
+    {
+        return;
+    }
+
+    c.readiness = PlayerSlotRouteReadiness::Ready;
+
+    if (s.boundSourceKind == InputGuideSourceKind::Keyboard ||
+        s.boundDeviceIdentity.kind == PlayerBoundDeviceIdentityKind::Keyboard)
+    {
+        c.mode = PlayerSlotRouteCandidateMode::LockedKeyboard;
+        c.candidateSourceKind = InputGuideSourceKind::Keyboard;
+        c.candidateDeviceIdentity.kind = PlayerBoundDeviceIdentityKind::Keyboard;
+        return;
+    }
+
+    if (s.boundDeviceIdentity.kind == PlayerBoundDeviceIdentityKind::XInputUser)
+    {
+        c.mode = PlayerSlotRouteCandidateMode::LockedXInputUser;
+        c.candidateSourceKind = InputGuideSourceKind::Gamepad;
+        c.candidateDeviceIdentity = s.boundDeviceIdentity;
+        c.candidateResolvedFamily = r.resolvedGuideFamilyCandidate;
+        return;
+    }
+
+    if (s.boundDeviceIdentity.kind == PlayerBoundDeviceIdentityKind::HidPathHash)
+    {
+        c.mode = PlayerSlotRouteCandidateMode::LockedHidPath;
+        c.candidateSourceKind = InputGuideSourceKind::Gamepad;
+        if (r.lastInventoryMatchIdentity.hidInstancePathHash != 0u ||
+            r.lastInventoryMatchIdentity.vendorId != 0u)
+        {
+            c.candidateDeviceIdentity = r.lastInventoryMatchIdentity;
+        }
+        else
+        {
+            c.candidateDeviceIdentity = s.boundDeviceIdentity;
+            c.candidateDeviceIdentity.hidInstancePathHash = inv.inventoryHidPathFnv1a;
+            c.candidateDeviceIdentity.hidPathShortToken = inv.inventoryHidPathToken16;
+        }
+        c.candidateResolvedFamily = r.resolvedGuideFamilyCandidate;
+        return;
+    }
+
+    c.readiness = PlayerSlotRouteReadiness::None;
+    c.mode = PlayerSlotRouteCandidateMode::None;
+}
+
 void ResolveAllSlotBindingsFromInventoryView(const PlayerInputInventoryBindingView& inv)
 {
     EnsurePrimaryPlayerSlotSeededForT76();
@@ -147,6 +260,7 @@ void ResolveAllSlotBindingsFromInventoryView(const PlayerInputInventoryBindingVi
     for (unsigned i = 0; i < kPlayerInputSlotCap; ++i)
     {
         ResolveOnePlayerSlot(g_playerSlots[i], inv, tick);
+        ComputeOneSlotRouteCandidate(g_playerSlots[i], inv, tick);
     }
 }
 
@@ -559,6 +673,56 @@ void FillSlotBindMatchLineForT18(const PlayerSlotState& s, wchar_t* buf, size_t 
         break;
     }
 }
+
+void FillSlotRouteCandidateLineForT18(const PlayerSlotState& s, wchar_t* buf, size_t bufCount)
+{
+    if (!buf || bufCount == 0)
+    {
+        return;
+    }
+    buf[0] = L'\0';
+    const PlayerSlotRouteCandidate& c = s.routeCandidate;
+    switch (c.readiness)
+    {
+    case PlayerSlotRouteReadiness::None:
+        wcscpy_s(buf, bufCount, L"none");
+        break;
+    case PlayerSlotRouteReadiness::OpenReady:
+        wcscpy_s(buf, bufCount, L"open-ready");
+        break;
+    case PlayerSlotRouteReadiness::Ready:
+        switch (c.mode)
+        {
+        case PlayerSlotRouteCandidateMode::LockedKeyboard:
+            wcscpy_s(buf, bufCount, L"keyboard-ready");
+            break;
+        case PlayerSlotRouteCandidateMode::LockedXInputUser:
+            if (c.candidateDeviceIdentity.xinputUserIndex >= 0)
+            {
+                swprintf_s(
+                    buf,
+                    bufCount,
+                    L"xinput%d-ready",
+                    c.candidateDeviceIdentity.xinputUserIndex);
+            }
+            else
+            {
+                wcscpy_s(buf, bufCount, L"xinput-ready");
+            }
+            break;
+        case PlayerSlotRouteCandidateMode::LockedHidPath:
+            wcscpy_s(buf, bufCount, L"hid-ready");
+            break;
+        default:
+            wcscpy_s(buf, bufCount, L"ready");
+            break;
+        }
+        break;
+    default:
+        wcscpy_s(buf, bufCount, L"none");
+        break;
+    }
+}
 } // namespace
 
 void InputGuideArbiter_OnDeviceInventoryRefreshed(
@@ -918,4 +1082,21 @@ void InputGuideArbiter_FormatSlotBindMatchForT18(PlayerInputSlotIndex slot, wcha
         return;
     }
     FillSlotBindMatchLineForT18(*s, buf, bufCount);
+}
+
+void InputGuideArbiter_FormatSlotRouteCandidateForT18(PlayerInputSlotIndex slot, wchar_t* buf, size_t bufCount)
+{
+    if (!buf || bufCount == 0)
+    {
+        return;
+    }
+    buf[0] = L'\0';
+    EnsurePrimaryPlayerSlotSeededForT76();
+    PlayerSlotState* s = TryMutableSlot(slot);
+    if (!s)
+    {
+        wcscpy_s(buf, bufCount, L"invalid slot");
+        return;
+    }
+    FillSlotRouteCandidateLineForT18(*s, buf, bufCount);
 }
