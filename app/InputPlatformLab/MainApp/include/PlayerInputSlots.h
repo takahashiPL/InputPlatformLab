@@ -86,7 +86,8 @@ struct PlayerSlotState
     PlayerSlotBindingResolution bindingResolution;
     PlayerSlotRouteCandidate routeCandidate;
 
-    // Step6: last slot-route decision (intended for slot0 only in this build).
+    // Step6/7: active route from routeCandidate. Slot0 also refreshed each unified tick; slot1+ updated on
+    // inventory resolve only — dry-run (no input fan-out / no T76 side-effects on non-primary slots).
     PlayerSlotActiveRouteMode activeRouteMode = PlayerSlotActiveRouteMode::NoRoute;
     InputGuideSourceKind activeRoutedSourceKind = InputGuideSourceKind::Unknown;
     UINT32 activeRouteLastTick = 0;

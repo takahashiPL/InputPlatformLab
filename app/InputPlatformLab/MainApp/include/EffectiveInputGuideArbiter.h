@@ -62,6 +62,8 @@ void InputGuideArbiter_FormatSlotBindMatchForT18(PlayerInputSlotIndex slot, wcha
 // T77 step5: compact route-candidate label (no routing).
 void InputGuideArbiter_FormatSlotRouteCandidateForT18(PlayerInputSlotIndex slot, wchar_t* buf, size_t bufCount);
 
-// T77 step6: slot0 active route (post-candidate branch; still 1P-only input).
+// T77 step6/7: active route labels. Slot index !=0 appends (dry-run) on mode line; input still slot0 only.
+void InputGuideArbiter_FormatSlotActiveRouteModeForT18(PlayerInputSlotIndex slot, wchar_t* buf, size_t bufCount);
+void InputGuideArbiter_FormatSlotRoutedSourceForT18(PlayerInputSlotIndex slot, wchar_t* buf, size_t bufCount);
 void InputGuideArbiter_FormatSlot0ActiveRouteModeForT18(wchar_t* buf, size_t bufCount);
 void InputGuideArbiter_FormatSlot0RoutedSourceForT18(wchar_t* buf, size_t bufCount);

@@ -253,6 +253,48 @@ void ComputeOneSlotRouteCandidate(PlayerSlotState& s, const PlayerInputInventory
     c.mode = PlayerSlotRouteCandidateMode::None;
 }
 
+PlayerSlotActiveRouteMode ComputeSlotActiveRouteMode(const PlayerSlotState& s)
+{
+    const PlayerSlotRouteCandidate& c = s.routeCandidate;
+    if (c.readiness == PlayerSlotRouteReadiness::OpenReady)
+    {
+        return PlayerSlotActiveRouteMode::OpenSoft;
+    }
+    if (c.readiness == PlayerSlotRouteReadiness::Ready)
+    {
+        switch (c.mode)
+        {
+        case PlayerSlotRouteCandidateMode::LockedKeyboard:
+            return PlayerSlotActiveRouteMode::LockedKeyboard;
+        case PlayerSlotRouteCandidateMode::LockedXInputUser:
+            return PlayerSlotActiveRouteMode::LockedXinput;
+        case PlayerSlotRouteCandidateMode::LockedHidPath:
+            return PlayerSlotActiveRouteMode::LockedHid;
+        default:
+            return PlayerSlotActiveRouteMode::NoRoute;
+        }
+    }
+    return PlayerSlotActiveRouteMode::NoRoute;
+}
+
+// Step7: same rules as slot0; slot1+ have no input fan-out (inventory refresh + optional slot0 tick for primary only).
+void ApplySlotActiveRouteDryRun(PlayerSlotState& s, UINT32 tick)
+{
+    const PlayerSlotRouteCandidate& c = s.routeCandidate;
+    if (c.readiness == PlayerSlotRouteReadiness::OpenReady ||
+        c.readiness == PlayerSlotRouteReadiness::Ready)
+    {
+        s.activeRouteMode = ComputeSlotActiveRouteMode(s);
+        s.activeRoutedSourceKind = c.candidateSourceKind;
+    }
+    else
+    {
+        s.activeRouteMode = PlayerSlotActiveRouteMode::NoRoute;
+        s.activeRoutedSourceKind = InputGuideSourceKind::Unknown;
+    }
+    s.activeRouteLastTick = tick;
+}
+
 void ResolveAllSlotBindingsFromInventoryView(const PlayerInputInventoryBindingView& inv)
 {
     EnsurePrimaryPlayerSlotSeededForT76();
@@ -261,6 +303,7 @@ void ResolveAllSlotBindingsFromInventoryView(const PlayerInputInventoryBindingVi
     {
         ResolveOnePlayerSlot(g_playerSlots[i], inv, tick);
         ComputeOneSlotRouteCandidate(g_playerSlots[i], inv, tick);
+        ApplySlotActiveRouteDryRun(g_playerSlots[i], tick);
     }
 }
 
@@ -842,52 +885,15 @@ void InputGuideArbiter_TickSinglePlayerFromConsumerFrames(
     }
 }
 
-static PlayerSlotActiveRouteMode ComputeSlot0ActiveRouteMode(const PlayerSlotState& s)
-{
-    const PlayerSlotRouteCandidate& c = s.routeCandidate;
-    if (c.readiness == PlayerSlotRouteReadiness::OpenReady)
-    {
-        return PlayerSlotActiveRouteMode::OpenSoft;
-    }
-    if (c.readiness == PlayerSlotRouteReadiness::Ready)
-    {
-        switch (c.mode)
-        {
-        case PlayerSlotRouteCandidateMode::LockedKeyboard:
-            return PlayerSlotActiveRouteMode::LockedKeyboard;
-        case PlayerSlotRouteCandidateMode::LockedXInputUser:
-            return PlayerSlotActiveRouteMode::LockedXinput;
-        case PlayerSlotRouteCandidateMode::LockedHidPath:
-            return PlayerSlotActiveRouteMode::LockedHid;
-        default:
-            return PlayerSlotActiveRouteMode::NoRoute;
-        }
-    }
-    return PlayerSlotActiveRouteMode::NoRoute;
-}
-
 void InputGuideArbiter_TickSlot0GenericRouteFromConsumerFrames(
     const VirtualInputConsumerFrame& keyboardFrame,
     const VirtualInputConsumerFrame& gamepadFrame,
     GameControllerKind gamepadGuideFamilyHintOnActivity)
 {
     EnsurePrimaryPlayerSlotSeededForT76();
-    PlayerSlotState& s = PrimarySlot();
-    const PlayerSlotRouteCandidate& c = s.routeCandidate;
     const UINT32 t = static_cast<UINT32>(GetTickCount());
-    // Slot0 only: branch label tracks routeCandidate; kb/pad frames stay merged for T76 (behavior parity).
-    if (c.readiness == PlayerSlotRouteReadiness::OpenReady ||
-        c.readiness == PlayerSlotRouteReadiness::Ready)
-    {
-        s.activeRouteMode = ComputeSlot0ActiveRouteMode(s);
-        s.activeRoutedSourceKind = c.candidateSourceKind;
-    }
-    else
-    {
-        s.activeRouteMode = PlayerSlotActiveRouteMode::NoRoute;
-        s.activeRoutedSourceKind = InputGuideSourceKind::Unknown;
-    }
-    s.activeRouteLastTick = t;
+    // Slot0 only (live): refresh active route each unified tick; kb/pad frames unchanged for T76.
+    ApplySlotActiveRouteDryRun(PrimarySlot(), t);
 
     InputGuideArbiter_TickSinglePlayerFromConsumerFrames(
         keyboardFrame,
@@ -1154,15 +1160,14 @@ void InputGuideArbiter_FormatSlotRouteCandidateForT18(PlayerInputSlotIndex slot,
     FillSlotRouteCandidateLineForT18(*s, buf, bufCount);
 }
 
-void InputGuideArbiter_FormatSlot0ActiveRouteModeForT18(wchar_t* buf, size_t bufCount)
+static void FormatSlotActiveRouteModeCoreLabel(PlayerSlotActiveRouteMode m, wchar_t* buf, size_t bufCount)
 {
     if (!buf || bufCount == 0)
     {
         return;
     }
     buf[0] = L'\0';
-    EnsurePrimaryPlayerSlotSeededForT76();
-    switch (PrimarySlot().activeRouteMode)
+    switch (m)
     {
     case PlayerSlotActiveRouteMode::NoRoute:
         wcscpy_s(buf, bufCount, L"no-route");
@@ -1185,7 +1190,7 @@ void InputGuideArbiter_FormatSlot0ActiveRouteModeForT18(wchar_t* buf, size_t buf
     }
 }
 
-void InputGuideArbiter_FormatSlot0RoutedSourceForT18(wchar_t* buf, size_t bufCount)
+void InputGuideArbiter_FormatSlotActiveRouteModeForT18(PlayerInputSlotIndex slot, wchar_t* buf, size_t bufCount)
 {
     if (!buf || bufCount == 0)
     {
@@ -1193,7 +1198,39 @@ void InputGuideArbiter_FormatSlot0RoutedSourceForT18(wchar_t* buf, size_t bufCou
     }
     buf[0] = L'\0';
     EnsurePrimaryPlayerSlotSeededForT76();
-    const InputGuideSourceKind k = PrimarySlot().activeRoutedSourceKind;
+    PlayerSlotState* p = TryMutableSlot(slot);
+    if (!p)
+    {
+        wcscpy_s(buf, bufCount, L"invalid slot");
+        return;
+    }
+    wchar_t core[48] = {};
+    FormatSlotActiveRouteModeCoreLabel(p->activeRouteMode, core, _countof(core));
+    if (slot != 0u)
+    {
+        swprintf_s(buf, bufCount, L"%s(dry-run)", core);
+    }
+    else
+    {
+        wcscpy_s(buf, bufCount, core);
+    }
+}
+
+void InputGuideArbiter_FormatSlotRoutedSourceForT18(PlayerInputSlotIndex slot, wchar_t* buf, size_t bufCount)
+{
+    if (!buf || bufCount == 0)
+    {
+        return;
+    }
+    buf[0] = L'\0';
+    EnsurePrimaryPlayerSlotSeededForT76();
+    PlayerSlotState* p = TryMutableSlot(slot);
+    if (!p)
+    {
+        wcscpy_s(buf, bufCount, L"invalid slot");
+        return;
+    }
+    const InputGuideSourceKind k = p->activeRoutedSourceKind;
     if (k == InputGuideSourceKind::Unknown)
     {
         wcscpy_s(buf, bufCount, L"none");
@@ -1211,4 +1248,14 @@ void InputGuideArbiter_FormatSlot0RoutedSourceForT18(wchar_t* buf, size_t bufCou
         wcscpy_s(buf, bufCount, L"Unknown");
         break;
     }
+}
+
+void InputGuideArbiter_FormatSlot0ActiveRouteModeForT18(wchar_t* buf, size_t bufCount)
+{
+    InputGuideArbiter_FormatSlotActiveRouteModeForT18(0u, buf, bufCount);
+}
+
+void InputGuideArbiter_FormatSlot0RoutedSourceForT18(wchar_t* buf, size_t bufCount)
+{
+    InputGuideArbiter_FormatSlotRoutedSourceForT18(0u, buf, bufCount);
 }
