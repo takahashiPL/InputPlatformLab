@@ -37,9 +37,14 @@ void InputGuideArbiter_StagePerSlotLogicalDryFanOut();
 void InputGuideArbiter_SyncSlot0StagedLogicalMirrorFromLivePrimary();
 
 // T77 step10/11: slot0 staged mirror (before merge) + per-slot dispatch getters (step11: slot1+ staged readable; live consume only slot0).
+// T77 step15: slot1 live menu path when ManualOverride Live + trial armed; default unchanged (slot0-only live).
 // TryGet merged: only after step8 in the same tick. Slot0 logical: fallback InputCore if unstaged. Slot1+ logical: nullptr if unstaged.
 bool InputGuideArbiter_CanSlotDispatchLiveConsume(PlayerInputSlotIndex slot);
 bool InputGuideArbiter_ShouldSlotDispatchDryRunConsume(PlayerInputSlotIndex slot);
+// Step15: default off. With Live+ManualOverride on slot1, arms real VirtualInputMenuSample_Apply (slot0 live paused while active).
+void InputGuideArbiter_SetSlot1LiveConsumeTrialArmed(bool armed);
+bool InputGuideArbiter_IsSlot1LiveConsumeTrialArmed();
+bool InputGuideArbiter_IsSlot1LiveConsumeTrialActive();
 // Resolved policy (default seed or manual override).
 PlayerSlotActualConsumePolicy InputGuideArbiter_GetSlotActualConsumePolicy(PlayerInputSlotIndex slot);
 // Seat/binding seed only (ignores ManualOverride).
@@ -114,3 +119,5 @@ void InputGuideArbiter_RecordSlotConsumeDispatchDryRun(
     const VirtualInputMenuSampleEvents& ev,
     UINT32 tick);
 void InputGuideArbiter_FormatSlotConsumeResultForT18(PlayerInputSlotIndex slot, wchar_t* buf, size_t bufCount);
+// Step15: compact suffix for 2P line when Live manual override (e.g. ·t1=rdy / ·t1=arm); empty otherwise.
+void InputGuideArbiter_FormatSlot1LiveTrialSuffixForT18(wchar_t* buf, size_t bufCount);

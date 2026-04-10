@@ -5703,8 +5703,8 @@ static void Win32_T18_FormatExtraPlayerOneLine(PlayerInputSlotIndex slot, wchar_
     wchar_t bdev[80] = {};
     wchar_t bst[80] = {};
     wchar_t rc[80] = {};
-    wchar_t cp[48] = {};
-    wchar_t cr[48] = {};
+    wchar_t cp[56] = {};
+    wchar_t cr[56] = {};
     InputGuideArbiter_FormatSlotBoundSourceForT18(slot, bsrc, _countof(bsrc));
     InputGuideArbiter_FormatSlotBoundDeviceIdentityForT18(slot, bdev, _countof(bdev));
     InputGuideArbiter_FormatSlotBindStatusForT18(slot, bst, _countof(bst));
@@ -5713,18 +5713,24 @@ static void Win32_T18_FormatExtraPlayerOneLine(PlayerInputSlotIndex slot, wchar_
     InputGuideArbiter_FormatSlotConsumeResultForT18(slot, cr, _countof(cr));
     wchar_t stc[16] = {};
     Win32_T18_CompactBindResolveStatus(bst, stc, _countof(stc));
+    wchar_t t1suf[16] = {};
+    if (slot == 1u)
+    {
+        InputGuideArbiter_FormatSlot1LiveTrialSuffixForT18(t1suf, _countof(t1suf));
+    }
     const unsigned pn = static_cast<unsigned>(slot) + 1u;
     swprintf_s(
         out,
         outCount,
-        L"%uP b=%ls·%ls st=%ls r=%ls c=%ls/%ls",
+        L"%uP b=%ls·%ls st=%ls r=%ls c=%ls/%ls%ls",
         pn,
         bsrc,
         bdev,
         stc,
         rc,
         cp,
-        cr);
+        cr,
+        t1suf);
 }
 
 // T18 page body: no full device path here. Compact fit for paged HUD; full path → [T18] debug output.
@@ -5788,7 +5794,7 @@ static void Win32_HudPaged_FillT18PageBody(wchar_t* buf, size_t bufCount)
     InputGuideArbiter_FormatSlotConsumePolicyForT18(0u, cd0, _countof(cd0));
     InputGuideArbiter_FormatSlotConsumeResultForT18(0u, cr0, _countof(cr0));
 
-    wchar_t line2p[192] = {};
+    wchar_t line2p[224] = {};
     wchar_t line3p[192] = {};
     wchar_t line4p[192] = {};
     Win32_T18_FormatExtraPlayerOneLine(1u, line2p, _countof(line2p));
@@ -7203,7 +7209,7 @@ static void Win32_UnifiedInputMenuTick_WhenMenuClosed(HWND hwndForPaint)
     }
 }
 
-// T77 step11/12: per-slot consume dispatch — slot0 live; slot1+ VirtualInputMenuSample_Apply on scratch only (recorded, no app state).
+// T77 step11/12/15: per-slot consume — default slot0 live; slot1+ dry-run/disabled unless step15 Live override + trial armed (then slot1 live, slot0 hold).
 static void Win32_DispatchVirtualMenuSampleLiveConsumeSlots(HWND hwndForPaint)
 {
     const UINT32 t = static_cast<UINT32>(GetTickCount());

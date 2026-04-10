@@ -5,6 +5,9 @@
 #include <Windows.h>
 #include <cstdio>
 
+// T77 step15: default off — slot1 real menu consume requires ManualOverride Live + this flag.
+static bool g_slot1LiveConsumeTrialArmed = false;
+
 namespace
 {
 #if defined(_DEBUG)
@@ -80,6 +83,12 @@ PlayerSlotState* TryMutableSlot(PlayerInputSlotIndex slot)
         return nullptr;
     }
     return &g_playerSlots[slot];
+}
+
+bool Slot1LiveManualLiveReady(const PlayerSlotState* s)
+{
+    return s && s->consumePolicySource == PlayerSlotConsumePolicySource::ManualOverride &&
+           s->actualConsumePolicy == PlayerSlotActualConsumePolicy::Live;
 }
 
 void ResolveOnePlayerSlot(PlayerSlotState& s, const PlayerInputInventoryBindingView& inv, UINT32 tick)
@@ -1103,8 +1112,21 @@ bool InputGuideArbiter_CanSlotDispatchLiveConsume(PlayerInputSlotIndex slot)
     {
         return false;
     }
-    // App menu sample is still single-stream: only primary slot may live-dispatch until multi consume.
-    return slot == 0u;
+    if (slot == 0u)
+    {
+        // Step15: while slot1 live trial owns the menu stream, pause slot0 live dispatch.
+        if (g_slot1LiveConsumeTrialArmed && Slot1LiveManualLiveReady(TryMutableSlot(1u)))
+        {
+            return false;
+        }
+        return true;
+    }
+    // Step15: only slot1 may join live path, and only with explicit override + trial gate (not default seed).
+    if (slot == 1u)
+    {
+        return Slot1LiveManualLiveReady(s) && g_slot1LiveConsumeTrialArmed;
+    }
+    return false;
 }
 
 bool InputGuideArbiter_ShouldSlotDispatchDryRunConsume(PlayerInputSlotIndex slot)
@@ -1115,7 +1137,40 @@ bool InputGuideArbiter_ShouldSlotDispatchDryRunConsume(PlayerInputSlotIndex slot
     }
     EnsurePrimaryPlayerSlotSeededForT76();
     const PlayerSlotState* s = TryMutableSlot(slot);
-    return s && s->actualConsumePolicy == PlayerSlotActualConsumePolicy::DryRun;
+    if (!s)
+    {
+        return false;
+    }
+    if (s->actualConsumePolicy == PlayerSlotActualConsumePolicy::DryRun)
+    {
+        return true;
+    }
+    // Live manual policy on slot1 without trial gate: keep scratch path (no real menu mutation).
+    if (slot == 1u && Slot1LiveManualLiveReady(s) && !g_slot1LiveConsumeTrialArmed)
+    {
+        return true;
+    }
+    return false;
+}
+
+void InputGuideArbiter_SetSlot1LiveConsumeTrialArmed(bool armed)
+{
+    g_slot1LiveConsumeTrialArmed = armed;
+}
+
+bool InputGuideArbiter_IsSlot1LiveConsumeTrialArmed()
+{
+    return g_slot1LiveConsumeTrialArmed;
+}
+
+bool InputGuideArbiter_IsSlot1LiveConsumeTrialActive()
+{
+    if (!g_slot1LiveConsumeTrialArmed)
+    {
+        return false;
+    }
+    EnsurePrimaryPlayerSlotSeededForT76();
+    return Slot1LiveManualLiveReady(TryMutableSlot(1u));
 }
 
 PlayerSlotActualConsumePolicy InputGuideArbiter_GetSlotActualConsumePolicy(PlayerInputSlotIndex slot)
@@ -1802,10 +1857,47 @@ void InputGuideArbiter_FormatSlotConsumeResultForT18(PlayerInputSlotIndex slot, 
         wcscpy_s(buf, bufCount, L"live");
         break;
     case PlayerSlotConsumeDispatchResultKind::DryRunApplied:
-        wcscpy_s(buf, bufCount, L"dry-run");
+        if (slot == 1u && Slot1LiveManualLiveReady(p) && !g_slot1LiveConsumeTrialArmed)
+        {
+            wcscpy_s(buf, bufCount, L"live-ready");
+        }
+        else
+        {
+            wcscpy_s(buf, bufCount, L"dry-run");
+        }
         break;
     default:
-        wcscpy_s(buf, bufCount, L"disabled");
+        if (slot == 0u && g_slot1LiveConsumeTrialArmed && Slot1LiveManualLiveReady(TryMutableSlot(1u)))
+        {
+            wcscpy_s(buf, bufCount, L"hold(L1)");
+        }
+        else
+        {
+            wcscpy_s(buf, bufCount, L"disabled");
+        }
         break;
+    }
+}
+
+void InputGuideArbiter_FormatSlot1LiveTrialSuffixForT18(wchar_t* buf, size_t bufCount)
+{
+    if (!buf || bufCount == 0)
+    {
+        return;
+    }
+    buf[0] = L'\0';
+    EnsurePrimaryPlayerSlotSeededForT76();
+    const PlayerSlotState* s = TryMutableSlot(1u);
+    if (!Slot1LiveManualLiveReady(s))
+    {
+        return;
+    }
+    if (g_slot1LiveConsumeTrialArmed)
+    {
+        wcscpy_s(buf, bufCount, L"·t1=arm");
+    }
+    else
+    {
+        wcscpy_s(buf, bufCount, L"·t1=rdy");
     }
 }
