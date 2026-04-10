@@ -5730,10 +5730,10 @@ static void Win32_HudPaged_FillT18PageBody(wchar_t* buf, size_t bufCount)
     wchar_t cd1[48] = {};
     wchar_t cd2[48] = {};
     wchar_t cd3[48] = {};
-    InputGuideArbiter_FormatSlotConsumeDispatchForT18(0u, cd0, _countof(cd0));
-    InputGuideArbiter_FormatSlotConsumeDispatchForT18(1u, cd1, _countof(cd1));
-    InputGuideArbiter_FormatSlotConsumeDispatchForT18(2u, cd2, _countof(cd2));
-    InputGuideArbiter_FormatSlotConsumeDispatchForT18(3u, cd3, _countof(cd3));
+    InputGuideArbiter_FormatSlotConsumePolicyForT18(0u, cd0, _countof(cd0));
+    InputGuideArbiter_FormatSlotConsumePolicyForT18(1u, cd1, _countof(cd1));
+    InputGuideArbiter_FormatSlotConsumePolicyForT18(2u, cd2, _countof(cd2));
+    InputGuideArbiter_FormatSlotConsumePolicyForT18(3u, cd3, _countof(cd3));
 
     wchar_t cr0[48] = {};
     wchar_t cr1[48] = {};
@@ -5786,10 +5786,10 @@ static void Win32_HudPaged_FillT18PageBody(wchar_t* buf, size_t bufCount)
         L"3P staged logical=%s\r\n"
         L"4P staged logical=%s\r\n"
         L"1P consume source=slot0-staged-logical\r\n"
-        L"1P consume dispatch=%s\r\n"
-        L"2P consume dispatch=%s\r\n"
-        L"3P consume dispatch=%s\r\n"
-        L"4P consume dispatch=%s\r\n"
+        L"1P consume policy=%s\r\n"
+        L"2P consume policy=%s\r\n"
+        L"3P consume policy=%s\r\n"
+        L"4P consume policy=%s\r\n"
         L"1P consume result=%s\r\n"
         L"2P consume result=%s\r\n"
         L"3P consume result=%s\r\n"
@@ -7234,11 +7234,15 @@ static void Win32_DispatchVirtualMenuSampleLiveConsumeSlots(HWND hwndForPaint)
             Win32_LogVirtualInputMenuSampleIfChanged(*m, hwndForPaint);
             InputGuideArbiter_RecordSlotConsumeDispatchLive(si, t);
         }
-        else
+        else if (InputGuideArbiter_ShouldSlotDispatchDryRunConsume(si))
         {
             VirtualInputMenuSampleState scratch = s_virtualInputMenuSampleState;
             const VirtualInputMenuSampleEvents dryEv = VirtualInputMenuSample_Apply(scratch, *m);
             InputGuideArbiter_RecordSlotConsumeDispatchDryRun(si, dryEv, t);
+        }
+        else
+        {
+            InputGuideArbiter_RecordSlotConsumeDispatchSkipped(si, t);
         }
     }
 }

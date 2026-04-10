@@ -15,6 +15,7 @@
 // - Step10: live app consume (menu/HUD/T19) reads slot0 staged logical + staged merged frame; slot1+ still not consumed.
 // - Step11: generic per-slot consume dispatch loop/eligibility; only slot0 live-enabled, slot1+ skipped (dry-run staging only).
 // - Step12: slot1+ runs VirtualInputMenuSample_Apply on a scratch copy only; consumeDispatchLast records outcome (no app state).
+// - Step13: actualConsumePolicy + refresh from seat/binding (default: slot0 Live, assigned slot1+ DryRun, unassigned Disabled).
 #pragma once
 
 #include "GamepadTypes.h"
@@ -173,6 +174,8 @@ struct PlayerSlotState
     PlayerSlotStagedInputFrames stagedInput;
     PlayerSlotStagedLogicalBlock stagedLogical;
     PlayerSlotConsumeDispatchRecord consumeDispatchLast;
+    PlayerSlotActualConsumePolicy actualConsumePolicy = PlayerSlotActualConsumePolicy::Disabled;
+    PlayerSlotConsumePolicySource consumePolicySource = PlayerSlotConsumePolicySource::DefaultStep13Seed;
 
     // T76 effective state (maps to slot 0 / 1P).
     InputGuideSourceKind effectiveOwnerSource = InputGuideSourceKind::Unknown;

@@ -20,24 +20,49 @@ constexpr PlayerInputSlotIndex kT76PrimaryPlayerSlotIndex = 0u;
 
 PlayerSlotState g_playerSlots[kPlayerInputSlotCap];
 
+void RefreshDefaultConsumePolicyFromSeatFlags()
+{
+    for (unsigned i = 0; i < kPlayerInputSlotCap; ++i)
+    {
+        PlayerSlotState& s = g_playerSlots[i];
+        if (s.consumePolicySource != PlayerSlotConsumePolicySource::DefaultStep13Seed)
+        {
+            continue;
+        }
+        if (i == 0u)
+        {
+            s.actualConsumePolicy = PlayerSlotActualConsumePolicy::Live;
+            continue;
+        }
+        if (s.slotAssigned || s.bindingAssignment != PlayerSlotBindingAssignment::None)
+        {
+            s.actualConsumePolicy = PlayerSlotActualConsumePolicy::DryRun;
+        }
+        else
+        {
+            s.actualConsumePolicy = PlayerSlotActualConsumePolicy::Disabled;
+        }
+    }
+}
+
 void EnsurePrimaryPlayerSlotSeededForT76()
 {
     static bool s_once = false;
-    if (s_once)
+    if (!s_once)
     {
-        return;
+        s_once = true;
+        PlayerSlotState& s = g_playerSlots[kT76PrimaryPlayerSlotIndex];
+        s.slotAssigned = true;
+        s.slotActive = true;
+        // T77 step2: 1P seat is active; device instance stays unbound until explicit bind / routing.
+        s.bindingAssignment = PlayerSlotBindingAssignment::ActiveOpen;
+        s.boundSourceKind = InputGuideSourceKind::Unknown;
+        s.boundDeviceIdentity = PlayerBoundDeviceIdentity{};
+        s.boundDeviceIdentity.kind = PlayerBoundDeviceIdentityKind::Unbound;
+        s.preferredGuideFamily = GameControllerKind::Unknown;
+        s.lastSeenSourceMeta = PlayerSlotLastSeenSourceMeta{};
     }
-    s_once = true;
-    PlayerSlotState& s = g_playerSlots[kT76PrimaryPlayerSlotIndex];
-    s.slotAssigned = true;
-    s.slotActive = true;
-    // T77 step2: 1P seat is active; device instance stays unbound until explicit bind / routing.
-    s.bindingAssignment = PlayerSlotBindingAssignment::ActiveOpen;
-    s.boundSourceKind = InputGuideSourceKind::Unknown;
-    s.boundDeviceIdentity = PlayerBoundDeviceIdentity{};
-    s.boundDeviceIdentity.kind = PlayerBoundDeviceIdentityKind::Unbound;
-    s.preferredGuideFamily = GameControllerKind::Unknown;
-    s.lastSeenSourceMeta = PlayerSlotLastSeenSourceMeta{};
+    RefreshDefaultConsumePolicyFromSeatFlags();
 }
 
 PlayerSlotState& PrimarySlot()
@@ -416,6 +441,7 @@ void ResolveAllSlotBindingsFromInventoryView(const PlayerInputInventoryBindingVi
         ComputeOneSlotRouteCandidate(g_playerSlots[i], inv, tick);
         ApplySlotActiveRouteDryRun(g_playerSlots[i], tick);
     }
+    RefreshDefaultConsumePolicyFromSeatFlags();
 }
 
 bool ConsumerFrameHasMeaningfulAction(const VirtualInputConsumerFrame& f)
@@ -1064,7 +1090,44 @@ void InputGuideArbiter_SyncSlot0StagedLogicalMirrorFromLivePrimary()
 
 bool InputGuideArbiter_CanSlotDispatchLiveConsume(PlayerInputSlotIndex slot)
 {
-    return static_cast<unsigned>(slot) < kPlayerInputSlotCap && slot == 0u;
+    if (static_cast<unsigned>(slot) >= kPlayerInputSlotCap)
+    {
+        return false;
+    }
+    EnsurePrimaryPlayerSlotSeededForT76();
+    const PlayerSlotState* s = TryMutableSlot(slot);
+    if (!s || s->actualConsumePolicy != PlayerSlotActualConsumePolicy::Live)
+    {
+        return false;
+    }
+    // App menu sample is still single-stream: only primary slot may live-dispatch until multi consume.
+    return slot == 0u;
+}
+
+bool InputGuideArbiter_ShouldSlotDispatchDryRunConsume(PlayerInputSlotIndex slot)
+{
+    if (static_cast<unsigned>(slot) >= kPlayerInputSlotCap)
+    {
+        return false;
+    }
+    EnsurePrimaryPlayerSlotSeededForT76();
+    const PlayerSlotState* s = TryMutableSlot(slot);
+    return s && s->actualConsumePolicy == PlayerSlotActualConsumePolicy::DryRun;
+}
+
+PlayerSlotActualConsumePolicy InputGuideArbiter_GetSlotActualConsumePolicy(PlayerInputSlotIndex slot)
+{
+    if (static_cast<unsigned>(slot) >= kPlayerInputSlotCap)
+    {
+        return PlayerSlotActualConsumePolicy::Disabled;
+    }
+    EnsurePrimaryPlayerSlotSeededForT76();
+    const PlayerSlotState* s = TryMutableSlot(slot);
+    if (!s)
+    {
+        return PlayerSlotActualConsumePolicy::Disabled;
+    }
+    return s->actualConsumePolicy;
 }
 
 const LogicalInputState* InputGuideArbiter_GetSlotStagedLogicalForDispatch(PlayerInputSlotIndex slot)
@@ -1240,6 +1303,7 @@ void InputGuideArbiter_SetSlotPartySeatFlags(PlayerInputSlotIndex slot, bool ass
     }
     s->slotAssigned = assigned;
     s->slotActive = active;
+    RefreshDefaultConsumePolicyFromSeatFlags();
 }
 
 void InputGuideArbiter_ClearSlotBindingPolicy(PlayerInputSlotIndex slot)
@@ -1256,6 +1320,7 @@ void InputGuideArbiter_ClearSlotBindingPolicy(PlayerInputSlotIndex slot)
         s->boundDeviceIdentity = PlayerBoundDeviceIdentity{};
         s->boundDeviceIdentity.kind = PlayerBoundDeviceIdentityKind::Unbound;
         s->preferredGuideFamily = GameControllerKind::Unknown;
+        RefreshDefaultConsumePolicyFromSeatFlags();
         return;
     }
     s->bindingAssignment = PlayerSlotBindingAssignment::None;
@@ -1264,6 +1329,7 @@ void InputGuideArbiter_ClearSlotBindingPolicy(PlayerInputSlotIndex slot)
     s->preferredGuideFamily = GameControllerKind::Unknown;
     s->slotAssigned = false;
     s->slotActive = false;
+    RefreshDefaultConsumePolicyFromSeatFlags();
 }
 
 void InputGuideArbiter_BindSlotToKeyboard(PlayerInputSlotIndex slot)
@@ -1329,6 +1395,7 @@ void InputGuideArbiter_ApplyStep3DemoReservationBindings()
     InputGuideArbiter_BindSlotToKeyboard(1u);
     InputGuideArbiter_SetSlotPartySeatFlags(2u, true, false);
     InputGuideArbiter_BindSlotToXInputUser(2u, 0);
+    RefreshDefaultConsumePolicyFromSeatFlags();
 }
 
 void InputGuideArbiter_FormatSlotBoundSourceForT18(PlayerInputSlotIndex slot, wchar_t* buf, size_t bufCount)
@@ -1618,7 +1685,7 @@ void InputGuideArbiter_FormatSlotStagedLogicalSummaryForT18(PlayerInputSlotIndex
     }
 }
 
-void InputGuideArbiter_FormatSlotConsumeDispatchForT18(PlayerInputSlotIndex slot, wchar_t* buf, size_t bufCount)
+void InputGuideArbiter_FormatSlotConsumePolicyForT18(PlayerInputSlotIndex slot, wchar_t* buf, size_t bufCount)
 {
     if (!buf || bufCount == 0)
     {
@@ -1630,13 +1697,18 @@ void InputGuideArbiter_FormatSlotConsumeDispatchForT18(PlayerInputSlotIndex slot
         wcscpy_s(buf, bufCount, L"invalid");
         return;
     }
-    if (InputGuideArbiter_CanSlotDispatchLiveConsume(slot))
+    EnsurePrimaryPlayerSlotSeededForT76();
+    switch (InputGuideArbiter_GetSlotActualConsumePolicy(slot))
     {
-        wcscpy_s(buf, bufCount, L"enabled");
-    }
-    else
-    {
+    case PlayerSlotActualConsumePolicy::Live:
+        wcscpy_s(buf, bufCount, L"live");
+        break;
+    case PlayerSlotActualConsumePolicy::DryRun:
+        wcscpy_s(buf, bufCount, L"dry-run");
+        break;
+    default:
         wcscpy_s(buf, bufCount, L"disabled");
+        break;
     }
 }
 

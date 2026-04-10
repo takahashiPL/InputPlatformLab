@@ -39,6 +39,8 @@ void InputGuideArbiter_SyncSlot0StagedLogicalMirrorFromLivePrimary();
 // T77 step10/11: slot0 staged mirror (before merge) + per-slot dispatch getters (step11: slot1+ staged readable; live consume only slot0).
 // TryGet merged: only after step8 in the same tick. Slot0 logical: fallback InputCore if unstaged. Slot1+ logical: nullptr if unstaged.
 bool InputGuideArbiter_CanSlotDispatchLiveConsume(PlayerInputSlotIndex slot);
+bool InputGuideArbiter_ShouldSlotDispatchDryRunConsume(PlayerInputSlotIndex slot);
+PlayerSlotActualConsumePolicy InputGuideArbiter_GetSlotActualConsumePolicy(PlayerInputSlotIndex slot);
 const LogicalInputState* InputGuideArbiter_GetSlotStagedLogicalForDispatch(PlayerInputSlotIndex slot);
 const VirtualInputConsumerFrame* InputGuideArbiter_TryGetSlotStagedMergedForDispatch(PlayerInputSlotIndex slot);
 const PlayerSlotStagedActionSnapshot* InputGuideArbiter_TryGetSlotStagedActionForDispatch(PlayerInputSlotIndex slot);
@@ -93,8 +95,8 @@ void InputGuideArbiter_FormatSlotStagedInputSummaryForT18(PlayerInputSlotIndex s
 // T77 step9: compact staged-logical label (after staged input in T18).
 void InputGuideArbiter_FormatSlotStagedLogicalSummaryForT18(PlayerInputSlotIndex slot, wchar_t* buf, size_t bufCount);
 
-// T77 step11: live consume dispatch eligibility for T18 (enabled = slot0 only).
-void InputGuideArbiter_FormatSlotConsumeDispatchForT18(PlayerInputSlotIndex slot, wchar_t* buf, size_t bufCount);
+// T77 step13: seeded consume policy label (replaces step11 dispatch line).
+void InputGuideArbiter_FormatSlotConsumePolicyForT18(PlayerInputSlotIndex slot, wchar_t* buf, size_t bufCount);
 
 // T77 step12: record last consume outcome (MainApp dispatch loop). Dry-run does not mutate app menu state.
 void InputGuideArbiter_RecordSlotConsumeDispatchSkipped(PlayerInputSlotIndex slot, UINT32 tick);

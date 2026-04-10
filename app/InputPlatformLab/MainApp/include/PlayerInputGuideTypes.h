@@ -38,6 +38,20 @@ enum class PlayerSlotBindingAssignment : UINT8
     BoundLocked, // future: locked to a specific source instance (rebind UI)
 };
 
+// T77 step13: whether this slot may drive app menu/HUD (v1: only slot0 may be Live; slot1+ DryRun/Disabled).
+enum class PlayerSlotActualConsumePolicy : UINT8
+{
+    Disabled = 0,
+    DryRun,
+    Live,
+};
+
+enum class PlayerSlotConsumePolicySource : UINT8
+{
+    DefaultStep13Seed = 0,
+    ManualOverride, // not used by Refresh; reserved for experiments
+};
+
 // T77 step4: binding policy vs current inventory (T18) — display / future routing only.
 enum class PlayerSlotBindingResolveStatus : UINT8
 {
