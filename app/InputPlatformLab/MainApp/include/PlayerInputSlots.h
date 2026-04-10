@@ -12,6 +12,7 @@
 // - Step6: activeRoute = slot0 branch label wired each tick before T76; consumer frames unchanged (multi-slot later).
 // - Step8: stagedInput = consumer frames implied by activeRoute (dry-fan-out); slot0 mirrors live 1P merge; slot1+ generate only.
 // - Step9: stagedLogical = logical/action snapshot from stagedInput (slot0 mirrors live app logical; slot1+ dry-run only).
+// - Step10: live app consume (menu/HUD/T19) reads slot0 staged logical + staged merged frame; slot1+ still not consumed.
 #pragma once
 
 #include "GamepadTypes.h"

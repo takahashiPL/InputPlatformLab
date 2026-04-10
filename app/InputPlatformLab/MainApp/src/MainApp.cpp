@@ -5767,6 +5767,7 @@ static void Win32_HudPaged_FillT18PageBody(wchar_t* buf, size_t bufCount)
         L"2P staged logical=%s\r\n"
         L"3P staged logical=%s\r\n"
         L"4P staged logical=%s\r\n"
+        L"1P consume source=slot0-staged-logical\r\n"
         L"1P input owner=%s\r\n"
         L"1P guide family=%s\r\n",
         slotStr,
@@ -6082,7 +6083,7 @@ static void Win32_HudPaged_AppendBodyLine(wchar_t* buf, size_t bufCount, const w
 static void Win32_HudPaged_FillT19LogicalSection(wchar_t* buf, size_t bufCount)
 {
     buf[0] = L'\0';
-    const LogicalInputState* li = InputCore_LogicalInputState();
+    const LogicalInputState* li = InputGuideArbiter_GetSlot0StagedLogicalForLiveConsume();
     if (!li)
     {
         wcscpy_s(buf, bufCount, L"(LogicalInputState unavailable)\r\n");
@@ -6156,7 +6157,7 @@ static void Win32_HudPaged_FillT19PadExtrasSection(wchar_t* buf, size_t bufCount
     {
         return;
     }
-    const LogicalInputState* li = InputCore_LogicalInputState();
+    const LogicalInputState* li = InputGuideArbiter_GetSlot0StagedLogicalForLiveConsume();
     if (!li)
     {
         return;
@@ -6234,7 +6235,7 @@ static void Win32_HudPaged_FillT19AnalogSectionInto(wchar_t* buf, size_t bufCoun
     {
         return;
     }
-    const LogicalInputState* li = InputCore_LogicalInputState();
+    const LogicalInputState* li = InputGuideArbiter_GetSlot0StagedLogicalForLiveConsume();
     if (!li)
     {
         return;
@@ -6292,7 +6293,7 @@ static void Win32_HudPaged_FillT19AnalogSectionInto(wchar_t* buf, size_t bufCoun
 static void Win32_HudPaged_FillT19PageBody(wchar_t* buf, size_t bufCount)
 {
     buf[0] = L'\0';
-    const LogicalInputState* li = InputCore_LogicalInputState();
+    const LogicalInputState* li = InputGuideArbiter_GetSlot0StagedLogicalForLiveConsume();
     if (!li)
     {
         wcscpy_s(buf, bufCount, L"(LogicalInputState unavailable)\r\n");
@@ -7233,7 +7234,9 @@ static void Win32_UnifiedInputMenuTick_MergeAndApply(HWND hwndForPaint)
         VirtualInputConsumer_MergeKeyboardController(kbForMerge, ctrlFrame);
     InputGuideArbiter_StagePerSlotInputFramesDryFanOut(kbFrame, ctrlFrame, unified);
     InputGuideArbiter_StagePerSlotLogicalDryFanOut();
-    Win32_LogVirtualInputMenuSampleIfChanged(unified, hwndForPaint);
+    Win32_LogVirtualInputMenuSampleIfChanged(
+        InputGuideArbiter_GetSlot0StagedMergedForLiveConsume(),
+        hwndForPaint);
     s_keyboardActionStateAtLastTimer = s_keyboardActionState;
 }
 
@@ -7395,6 +7398,7 @@ static void Win32_LogicalInputTick_AfterPadAndKeyboardCurrent()
     bool logicalDown[static_cast<size_t>(LogicalButtonId::Count)]{};
     LogicalInput_FillCurrentDownFromSources(logicalDown, s_keyboardActionState, s_virtualInputCurr);
     LogicalInputState_Update(s_logicalInputState, logicalDown);
+    InputGuideArbiter_SyncSlot0StagedLogicalMirrorFromLivePrimary();
 #if WIN32_LOGICAL_INPUT_DEBUG_PAD_TRANSITION
     Win32_LogicalInputDebugPadTransitionIfAny();
 #endif
@@ -9067,7 +9071,7 @@ static void Win32_WndProc_OnXInputPollTimer(HWND hWnd)
         wchar_t analogNow[16384] = {};
         Win32_HudPaged_T19LogicalButtonDisplaySnap logicalSnapNow[kT19LogicalDisplayRowCount] = {};
         Win32_HudPaged_T19PadExtrasDisplaySnap padExtrasNow = {};
-        const LogicalInputState* liTimer = InputCore_LogicalInputState();
+        const LogicalInputState* liTimer = InputGuideArbiter_GetSlot0StagedLogicalForLiveConsume();
         if (liTimer)
         {
             Win32_HudPaged_T19FillLogicalDisplaySnapshot(*liTimer, logicalSnapNow, _countof(logicalSnapNow));

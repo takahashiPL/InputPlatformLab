@@ -1042,6 +1042,54 @@ void InputGuideArbiter_StagePerSlotLogicalDryFanOut()
     }
 }
 
+void InputGuideArbiter_SyncSlot0StagedLogicalMirrorFromLivePrimary()
+{
+    EnsurePrimaryPlayerSlotSeededForT76();
+    PlayerSlotState& s = PrimarySlot();
+    PlayerSlotStagedLogicalBlock& lg = s.stagedLogical;
+    const LogicalInputState* live = InputCore_LogicalInputState();
+    if (live)
+    {
+        lg.logical = *live;
+    }
+    else
+    {
+        LogicalInputState_Reset(lg.logical);
+    }
+    lg.source = PlayerSlotStagedLogicalSource::LivePrimaryMirror;
+    lg.valid = true;
+    lg.lastStagedTick = static_cast<UINT32>(GetTickCount());
+    lg.action = {};
+}
+
+const LogicalInputState* InputGuideArbiter_GetSlot0StagedLogicalForLiveConsume()
+{
+    EnsurePrimaryPlayerSlotSeededForT76();
+    const PlayerSlotState& s = PrimarySlot();
+    if (!s.stagedLogical.valid)
+    {
+        return InputCore_LogicalInputState();
+    }
+    return &s.stagedLogical.logical;
+}
+
+const VirtualInputConsumerFrame& InputGuideArbiter_GetSlot0StagedMergedForLiveConsume()
+{
+    EnsurePrimaryPlayerSlotSeededForT76();
+    return PrimarySlot().stagedInput.merged;
+}
+
+const PlayerSlotStagedActionSnapshot* InputGuideArbiter_GetSlot0StagedActionForLiveConsume()
+{
+    EnsurePrimaryPlayerSlotSeededForT76();
+    const PlayerSlotState& s = PrimarySlot();
+    if (!s.stagedLogical.valid)
+    {
+        return nullptr;
+    }
+    return &s.stagedLogical.action;
+}
+
 InputGuideSourceKind InputGuideArbiter_GetEffectiveOwnerSourceKind()
 {
     EnsurePrimaryPlayerSlotSeededForT76();

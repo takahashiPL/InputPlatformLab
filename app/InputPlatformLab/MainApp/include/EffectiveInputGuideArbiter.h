@@ -33,6 +33,14 @@ void InputGuideArbiter_StagePerSlotInputFramesDryFanOut(
 // T77 step9: after step8, stage per-slot logical + action snapshot (slot0 = live mirror; slot1+ from staged consumer only).
 void InputGuideArbiter_StagePerSlotLogicalDryFanOut();
 
+// T77 step10: after app LogicalInputState_Update, mirror live into slot0 staged (T19/timer reads consume path). Idempotent with step9 slot0 copy.
+void InputGuideArbiter_SyncSlot0StagedLogicalMirrorFromLivePrimary();
+
+// T77 step10: live consume reads slot0 staged (fallback InputCore if unstaged). Call GetSlot0StagedMerged only after step8 in the same tick.
+const LogicalInputState* InputGuideArbiter_GetSlot0StagedLogicalForLiveConsume();
+const VirtualInputConsumerFrame& InputGuideArbiter_GetSlot0StagedMergedForLiveConsume();
+const PlayerSlotStagedActionSnapshot* InputGuideArbiter_GetSlot0StagedActionForLiveConsume();
+
 InputGuideSourceKind InputGuideArbiter_GetEffectiveOwnerSourceKind();
 // Keyboard owner: Unknown. Gamepad owner: latched activity family if set, else inventory fallback.
 GameControllerKind InputGuideArbiter_GetEffectiveGuideFamilyForUi();
