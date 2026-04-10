@@ -5825,10 +5825,10 @@ static void Win32_HudPaged_FillT18PageBody(wchar_t* buf, size_t bufCount)
 
     wchar_t cd0[48] = {};
     wchar_t cr0[48] = {};
-    wchar_t p0hold[12] = {};
+    wchar_t lvTag[8] = {};
     InputGuideArbiter_FormatSlotConsumePolicyForT18(0u, cd0, _countof(cd0));
     InputGuideArbiter_FormatSlotConsumeResultForT18(0u, cr0, _countof(cr0));
-    InputGuideArbiter_FormatSlot0HoldObsTokenForT18(p0hold, _countof(p0hold));
+    InputGuideArbiter_FormatSingleLiveConsumeSlotTagForT18(lvTag, _countof(lvTag));
 
     wchar_t line2p[256] = {};
     wchar_t line3p[192] = {};
@@ -5846,7 +5846,7 @@ static void Win32_HudPaged_FillT18PageBody(wchar_t* buf, size_t bufCount)
         L"1P bind st=%ls mt=%ls\r\n"
         L"1P route cand=%ls | act=%ls | src=%ls\r\n"
         L"1P owner=%ls guide=%ls\r\n"
-        L"1P consume pol=%ls res=%ls hold=%ls src=stg0\r\n"
+        L"1P consume pol=%ls res=%ls lv=%ls src=stg0\r\n"
         L"1P staged in=%ls log=%ls\r\n"
         L"%ls\r\n"
         L"%ls\r\n"
@@ -5870,7 +5870,7 @@ static void Win32_HudPaged_FillT18PageBody(wchar_t* buf, size_t bufCount)
         Win32_T18_T76_OnePGuideFamilyLabel(),
         cd0,
         cr0,
-        p0hold,
+        lvTag,
         stg0,
         sl0,
         line2p,
@@ -7246,7 +7246,7 @@ static void Win32_UnifiedInputMenuTick_WhenMenuClosed(HWND hwndForPaint)
     }
 }
 
-// T77 step11/12/15/16: default slot0 live; slot1+ dry/disabled; slot1 actual live only Live override + trial + BoundLocked keyboard route (else scratch; slot0 hold only for kb trial).
+// T77 step11/12/15/16/19: single live consume slot (GetSingleLiveConsumeSlotIndex); default 0; slot1 kb trial only when armed+eligible+Manual Live.
 static void Win32_DispatchVirtualMenuSampleLiveConsumeSlots(HWND hwndForPaint)
 {
     const UINT32 t = static_cast<UINT32>(GetTickCount());

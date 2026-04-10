@@ -20,6 +20,7 @@
 // - Step15: slot1 live menu trial gate (ManualOverride Live + explicit flag).
 // - Step16: actual Apply only for BoundLocked keyboard + LockedKeyboard route; pad/HID stays dry-run; slot0 pauses only when slot1 kb trial consumes.
 // - Step17: T18 + Debug trial observability (phase/hold; diff logs only).
+// - Step19: single live consume slot (default 0; slot1 only when kb trial armed+eligible+Manual Live).
 #pragma once
 
 #include "GamepadTypes.h"
