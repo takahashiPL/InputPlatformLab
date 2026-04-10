@@ -491,7 +491,7 @@ static DWORD Win32_GetFirstConnectedXInputSlotOrMax();
 static void Win32_XInputPollDigitalEdgesOnTimer(HWND hwnd);
 
 // WndProc から切り出した薄いハンドラ（挙動は元 case と同一）
-static void Win32_WndProc_OnRawInput(LPARAM lParam);
+static void Win32_WndProc_OnRawInput(HWND hWnd, LPARAM lParam);
 static void Win32_WndProc_OnXInputPollTimer(HWND hWnd);
 static void Win32_WndProc_OnClientSize(HWND hWnd);
 static bool Win32_WndProc_OnVScroll(HWND hWnd, WPARAM wParam, LPARAM lParam, UINT message, LRESULT* outDefResult);
@@ -9019,7 +9019,66 @@ static void PhysicalKey_FormatDebugLine(const PhysicalKeyEvent& ev, const wchar_
         displayLabel ? displayLabel : L"");
 }
 
-static void Win32_WndProc_OnRawInput(LPARAM lParam)
+#if defined(_DEBUG)
+// T77 step18: T18 実機確認用（Debug のみ）。F9=slot1 consume Live override トグル、F10=trial armed トグル。
+static void Win32_DebugTryApplyT77Slot1TrialHotkeys(HWND hWnd, const PhysicalKeyEvent& ev)
+{
+    const UINT vk = static_cast<UINT>(ev.native_key_code);
+    if (vk != VK_F9 && vk != VK_F10)
+    {
+        return;
+    }
+    if (ev.is_key_up)
+    {
+        if (vk < 256)
+        {
+            s_rawKeyboardKeyDown[vk] = false;
+        }
+        return;
+    }
+    if (vk >= 256)
+    {
+        return;
+    }
+    if (s_rawKeyboardKeyDown[vk])
+    {
+        return;
+    }
+    s_rawKeyboardKeyDown[vk] = true;
+
+    if (vk == VK_F9)
+    {
+        const bool clearing =
+            InputGuideArbiter_GetSlotConsumePolicySource(1u) ==
+                PlayerSlotConsumePolicySource::ManualOverride &&
+            InputGuideArbiter_GetSlotActualConsumePolicy(1u) == PlayerSlotActualConsumePolicy::Live;
+        if (clearing)
+        {
+            InputGuideArbiter_ClearSlotActualConsumePolicyOverride(1u);
+            OutputDebugStringW(L"[T77 dbg] F9: slot1 consume override cleared\r\n");
+        }
+        else
+        {
+            InputGuideArbiter_SetSlotActualConsumePolicyOverride(1u, PlayerSlotActualConsumePolicy::Live);
+            OutputDebugStringW(L"[T77 dbg] F9: slot1 consume override Live\r\n");
+        }
+    }
+    else
+    {
+        const bool was = InputGuideArbiter_IsSlot1LiveConsumeTrialArmed();
+        InputGuideArbiter_SetSlot1LiveConsumeTrialArmed(!was);
+        OutputDebugStringW(
+            was ? L"[T77 dbg] F10: slot1 trial armed off\r\n" : L"[T77 dbg] F10: slot1 trial armed on\r\n");
+    }
+
+    if (hWnd)
+    {
+        InvalidateRect(hWnd, nullptr, FALSE);
+    }
+}
+#endif
+
+static void Win32_WndProc_OnRawInput(HWND hWnd, LPARAM lParam)
 {
     UINT dwSize = 0;
     if (GetRawInputData(
@@ -9055,6 +9114,9 @@ static void Win32_WndProc_OnRawInput(LPARAM lParam)
     {
         PhysicalKeyEvent ev{};
         Win32_FillPhysicalKeyFromRawKeyboard(raw->data.keyboard, ev);
+#if defined(_DEBUG)
+        Win32_DebugTryApplyT77Slot1TrialHotkeys(hWnd, ev);
+#endif
         const UINT vk = static_cast<UINT>(ev.native_key_code);
         const bool isArrowVk =
             (vk == VK_UP || vk == VK_DOWN || vk == VK_LEFT || vk == VK_RIGHT);
@@ -9635,7 +9697,7 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam)
         break;
     // Raw Input: ゲームパッド HID は即時、キーは KeyboardActionState 更新。Enter make は menu 閉じ時のみ T17 適用をラッチ。
     case WM_INPUT:
-        Win32_WndProc_OnRawInput(lParam);
+        Win32_WndProc_OnRawInput(hWnd, lParam);
         return 0;
     // 約 33ms: XInput 更新のあと、キーとパッドをマージして VirtualInputMenuSample などを進める。
     case WM_TIMER:
