@@ -30,6 +30,9 @@ void InputGuideArbiter_StagePerSlotInputFramesDryFanOut(
     const VirtualInputConsumerFrame& gamepadFrame,
     const VirtualInputConsumerFrame& mergedUnifiedLive);
 
+// T77 step9: after step8, stage per-slot logical + action snapshot (slot0 = live mirror; slot1+ from staged consumer only).
+void InputGuideArbiter_StagePerSlotLogicalDryFanOut();
+
 InputGuideSourceKind InputGuideArbiter_GetEffectiveOwnerSourceKind();
 // Keyboard owner: Unknown. Gamepad owner: latched activity family if set, else inventory fallback.
 GameControllerKind InputGuideArbiter_GetEffectiveGuideFamilyForUi();
@@ -76,3 +79,6 @@ void InputGuideArbiter_FormatSlot0RoutedSourceForT18(wchar_t* buf, size_t bufCou
 
 // T77 step8: compact staged-input label (follows activeRoute; slot0 = live unified).
 void InputGuideArbiter_FormatSlotStagedInputSummaryForT18(PlayerInputSlotIndex slot, wchar_t* buf, size_t bufCount);
+
+// T77 step9: compact staged-logical label (after staged input in T18).
+void InputGuideArbiter_FormatSlotStagedLogicalSummaryForT18(PlayerInputSlotIndex slot, wchar_t* buf, size_t bufCount);

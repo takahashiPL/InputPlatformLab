@@ -81,6 +81,11 @@ void LogicalInput_FillCurrentDownFromSources(
     const KeyboardActionState& kb,
     const VirtualInputSnapshot& pad);
 
+// T77 step9: map menu consumer frame to logical down[] for one timer tick (dry-run / staging; not full device map).
+void LogicalInput_FillCurrentDownFromConsumerFrame(
+    bool outDown[static_cast<size_t>(LogicalButtonId::Count)],
+    const VirtualInputConsumerFrame& f);
+
 inline const LogicalButtonFrameState& LogicalInputState_Frame(
     const LogicalInputState& st,
     LogicalButtonId id)

@@ -11,9 +11,11 @@
 // - Step5: routeCandidate = adoptable source/device if routing were enabled (soft for ActiveOpen; firm when locked+present).
 // - Step6: activeRoute = slot0 branch label wired each tick before T76; consumer frames unchanged (multi-slot later).
 // - Step8: stagedInput = consumer frames implied by activeRoute (dry-fan-out); slot0 mirrors live 1P merge; slot1+ generate only.
+// - Step9: stagedLogical = logical/action snapshot from stagedInput (slot0 mirrors live app logical; slot1+ dry-run only).
 #pragma once
 
 #include "GamepadTypes.h"
+#include "LogicalInputState.h"
 #include "PlayerInputGuideTypes.h"
 #include "VirtualInputMenuSample.h"
 
@@ -87,6 +89,33 @@ struct PlayerSlotStagedInputFrames
     UINT32 lastStagedTick = 0;
 };
 
+// Step9: how staged logical was produced (T18 / debug).
+enum class PlayerSlotStagedLogicalSource : UINT8
+{
+    None = 0,
+    LivePrimaryMirror, // slot0: copy of app InputCore_LogicalInputState this tick
+    FromStagedConsumer, // slot1+: LogicalInputState_Update from stagedInput.merged → consumer mapping
+};
+
+// Step9: navigation / menu-edge flags derived from staged consumer (companion to LogicalInputState frames).
+struct PlayerSlotStagedActionSnapshot
+{
+    bool navigate = false;
+    bool confirm = false;
+    bool cancel = false;
+    bool menu = false;
+};
+
+// Step9: per-slot logical machine + action summary (not wired to HUD/menu consume except slot0 uses live mirror only).
+struct PlayerSlotStagedLogicalBlock
+{
+    LogicalInputState logical{};
+    PlayerSlotStagedActionSnapshot action{};
+    bool valid = false;
+    PlayerSlotStagedLogicalSource source = PlayerSlotStagedLogicalSource::None;
+    UINT32 lastStagedTick = 0;
+};
+
 // Step5: routing precursor — who this slot would read from next; does not move logical input yet.
 struct PlayerSlotRouteCandidate
 {
@@ -120,6 +149,7 @@ struct PlayerSlotState
     UINT32 activeRouteLastTick = 0;
 
     PlayerSlotStagedInputFrames stagedInput;
+    PlayerSlotStagedLogicalBlock stagedLogical;
 
     // T76 effective state (maps to slot 0 / 1P).
     InputGuideSourceKind effectiveOwnerSource = InputGuideSourceKind::Unknown;

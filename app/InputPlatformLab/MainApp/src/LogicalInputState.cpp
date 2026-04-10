@@ -41,6 +41,36 @@ void LogicalInput_FillCurrentDownFromSources(
     outDown[static_cast<size_t>(LogicalButtonId::DPadRight)] |= kb.right;
 }
 
+void LogicalInput_FillCurrentDownFromConsumerFrame(
+    bool outDown[static_cast<size_t>(LogicalButtonId::Count)],
+    const VirtualInputConsumerFrame& f)
+{
+    const size_t n = static_cast<size_t>(LogicalButtonId::Count);
+    for (size_t i = 0; i < n; ++i)
+    {
+        outDown[i] = false;
+    }
+    if (f.moveX < 0)
+    {
+        outDown[static_cast<size_t>(LogicalButtonId::DPadLeft)] = true;
+    }
+    else if (f.moveX > 0)
+    {
+        outDown[static_cast<size_t>(LogicalButtonId::DPadRight)] = true;
+    }
+    if (f.moveY > 0)
+    {
+        outDown[static_cast<size_t>(LogicalButtonId::DPadUp)] = true;
+    }
+    else if (f.moveY < 0)
+    {
+        outDown[static_cast<size_t>(LogicalButtonId::DPadDown)] = true;
+    }
+    outDown[static_cast<size_t>(LogicalButtonId::South)] = f.confirmPressed;
+    outDown[static_cast<size_t>(LogicalButtonId::East)] = f.cancelPressed;
+    outDown[static_cast<size_t>(LogicalButtonId::Start)] = f.menuPressed;
+}
+
 void LogicalInputState_Update(
     LogicalInputState& st,
     const bool currentDown[static_cast<size_t>(LogicalButtonId::Count)])

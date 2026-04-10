@@ -358,6 +358,54 @@ void StageOneSlotInputFramesDryFanOut(
     }
 }
 
+void FillStagedActionFromConsumer(PlayerSlotStagedActionSnapshot& a, const VirtualInputConsumerFrame& f)
+{
+    a.navigate = (f.moveX != 0 || f.moveY != 0);
+    a.confirm = f.confirmPressed;
+    a.cancel = f.cancelPressed;
+    a.menu = f.menuPressed;
+}
+
+void StageOneSlotLogicalDryFanOut(PlayerSlotState& s, PlayerInputSlotIndex slotIndex, UINT32 tick)
+{
+    PlayerSlotStagedLogicalBlock& lg = s.stagedLogical;
+    if (slotIndex == kT76PrimaryPlayerSlotIndex)
+    {
+        const LogicalInputState* live = InputCore_LogicalInputState();
+        if (live)
+        {
+            lg.logical = *live;
+        }
+        else
+        {
+            LogicalInputState_Reset(lg.logical);
+        }
+        FillStagedActionFromConsumer(lg.action, s.stagedInput.merged);
+        lg.source = PlayerSlotStagedLogicalSource::LivePrimaryMirror;
+        lg.valid = true;
+        lg.lastStagedTick = tick;
+        return;
+    }
+
+    if (!s.stagedInput.mergedValid || s.activeRouteMode == PlayerSlotActiveRouteMode::NoRoute)
+    {
+        LogicalInputState_Reset(lg.logical);
+        lg.action = {};
+        lg.valid = false;
+        lg.source = PlayerSlotStagedLogicalSource::None;
+        lg.lastStagedTick = tick;
+        return;
+    }
+
+    bool logicalDown[static_cast<size_t>(LogicalButtonId::Count)]{};
+    LogicalInput_FillCurrentDownFromConsumerFrame(logicalDown, s.stagedInput.merged);
+    LogicalInputState_Update(lg.logical, logicalDown);
+    FillStagedActionFromConsumer(lg.action, s.stagedInput.merged);
+    lg.source = PlayerSlotStagedLogicalSource::FromStagedConsumer;
+    lg.valid = true;
+    lg.lastStagedTick = tick;
+}
+
 void ResolveAllSlotBindingsFromInventoryView(const PlayerInputInventoryBindingView& inv)
 {
     EnsurePrimaryPlayerSlotSeededForT76();
@@ -983,6 +1031,17 @@ void InputGuideArbiter_StagePerSlotInputFramesDryFanOut(
     }
 }
 
+void InputGuideArbiter_StagePerSlotLogicalDryFanOut()
+{
+    EnsurePrimaryPlayerSlotSeededForT76();
+    const UINT32 t = static_cast<UINT32>(GetTickCount());
+    for (unsigned i = 0; i < kPlayerInputSlotCap; ++i)
+    {
+        StageOneSlotLogicalDryFanOut(
+            g_playerSlots[i], static_cast<PlayerInputSlotIndex>(i), t);
+    }
+}
+
 InputGuideSourceKind InputGuideArbiter_GetEffectiveOwnerSourceKind()
 {
     EnsurePrimaryPlayerSlotSeededForT76();
@@ -1375,6 +1434,63 @@ void InputGuideArbiter_FormatSlotStagedInputSummaryForT18(PlayerInputSlotIndex s
     case PlayerSlotActiveRouteMode::LockedXinput:
     case PlayerSlotActiveRouteMode::LockedHid:
         wcscpy_s(buf, bufCount, L"gamepad-frame");
+        break;
+    default:
+        wcscpy_s(buf, bufCount, L"none");
+        break;
+    }
+}
+
+void InputGuideArbiter_FormatSlotStagedLogicalSummaryForT18(PlayerInputSlotIndex slot, wchar_t* buf, size_t bufCount)
+{
+    if (!buf || bufCount == 0)
+    {
+        return;
+    }
+    buf[0] = L'\0';
+    EnsurePrimaryPlayerSlotSeededForT76();
+    PlayerSlotState* p = TryMutableSlot(slot);
+    if (!p)
+    {
+        wcscpy_s(buf, bufCount, L"invalid slot");
+        return;
+    }
+    const PlayerSlotStagedLogicalBlock& lg = p->stagedLogical;
+    if (!lg.valid)
+    {
+        wcscpy_s(buf, bufCount, L"none");
+        return;
+    }
+    if (slot == 0u)
+    {
+        const PlayerSlotStagedActionSnapshot& a = lg.action;
+        if (a.navigate && !a.confirm && !a.cancel && !a.menu)
+        {
+            wcscpy_s(buf, bufCount, L"navigate");
+            return;
+        }
+        if (a.confirm || a.cancel || a.menu)
+        {
+            wcscpy_s(buf, bufCount, L"action");
+            return;
+        }
+        wcscpy_s(buf, bufCount, L"idle");
+        return;
+    }
+    switch (p->activeRouteMode)
+    {
+    case PlayerSlotActiveRouteMode::NoRoute:
+        wcscpy_s(buf, bufCount, L"none");
+        break;
+    case PlayerSlotActiveRouteMode::OpenSoft:
+        wcscpy_s(buf, bufCount, L"unified-nav");
+        break;
+    case PlayerSlotActiveRouteMode::LockedKeyboard:
+        wcscpy_s(buf, bufCount, L"keyboard-nav");
+        break;
+    case PlayerSlotActiveRouteMode::LockedXinput:
+    case PlayerSlotActiveRouteMode::LockedHid:
+        wcscpy_s(buf, bufCount, L"gamepad-nav");
         break;
     default:
         wcscpy_s(buf, bufCount, L"none");

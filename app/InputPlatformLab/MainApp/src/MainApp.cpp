@@ -5717,6 +5717,15 @@ static void Win32_HudPaged_FillT18PageBody(wchar_t* buf, size_t bufCount)
     InputGuideArbiter_FormatSlotStagedInputSummaryForT18(2u, stg2, _countof(stg2));
     InputGuideArbiter_FormatSlotStagedInputSummaryForT18(3u, stg3, _countof(stg3));
 
+    wchar_t sl0[48] = {};
+    wchar_t sl1[48] = {};
+    wchar_t sl2[48] = {};
+    wchar_t sl3[48] = {};
+    InputGuideArbiter_FormatSlotStagedLogicalSummaryForT18(0u, sl0, _countof(sl0));
+    InputGuideArbiter_FormatSlotStagedLogicalSummaryForT18(1u, sl1, _countof(sl1));
+    InputGuideArbiter_FormatSlotStagedLogicalSummaryForT18(2u, sl2, _countof(sl2));
+    InputGuideArbiter_FormatSlotStagedLogicalSummaryForT18(3u, sl3, _countof(sl3));
+
     // T77: multi-player will use a slot table (default 4, cap 8). Input routing remains 1P; 2P/3P lines = policy only.
     swprintf_s(
         buf,
@@ -5754,6 +5763,10 @@ static void Win32_HudPaged_FillT18PageBody(wchar_t* buf, size_t bufCount)
         L"2P staged input=%s\r\n"
         L"3P staged input=%s\r\n"
         L"4P staged input=%s\r\n"
+        L"1P staged logical=%s\r\n"
+        L"2P staged logical=%s\r\n"
+        L"3P staged logical=%s\r\n"
+        L"4P staged logical=%s\r\n"
         L"1P input owner=%s\r\n"
         L"1P guide family=%s\r\n",
         slotStr,
@@ -5792,6 +5805,10 @@ static void Win32_HudPaged_FillT18PageBody(wchar_t* buf, size_t bufCount)
         stg1,
         stg2,
         stg3,
+        sl0,
+        sl1,
+        sl2,
+        sl3,
         Win32_InputGuideSourceKindUiLabel(InputGuideArbiter_GetEffectiveOwnerSourceKind()),
         Win32_T18_T76_OnePGuideFamilyLabel());
 }
@@ -7215,6 +7232,7 @@ static void Win32_UnifiedInputMenuTick_MergeAndApply(HWND hwndForPaint)
     const VirtualInputConsumerFrame unified =
         VirtualInputConsumer_MergeKeyboardController(kbForMerge, ctrlFrame);
     InputGuideArbiter_StagePerSlotInputFramesDryFanOut(kbFrame, ctrlFrame, unified);
+    InputGuideArbiter_StagePerSlotLogicalDryFanOut();
     Win32_LogVirtualInputMenuSampleIfChanged(unified, hwndForPaint);
     s_keyboardActionStateAtLastTimer = s_keyboardActionState;
 }
