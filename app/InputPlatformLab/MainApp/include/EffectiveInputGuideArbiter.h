@@ -24,6 +24,12 @@ void InputGuideArbiter_TickSlot0GenericRouteFromConsumerFrames(
     const VirtualInputConsumerFrame& gamepadFrame,
     GameControllerKind gamepadGuideFamilyHintOnActivity);
 
+// T77 step8: after unified merge, stage per-slot consumer frames from activeRoute (dry-run for slot1+; slot0 = live triple).
+void InputGuideArbiter_StagePerSlotInputFramesDryFanOut(
+    const VirtualInputConsumerFrame& keyboardFrame,
+    const VirtualInputConsumerFrame& gamepadFrame,
+    const VirtualInputConsumerFrame& mergedUnifiedLive);
+
 InputGuideSourceKind InputGuideArbiter_GetEffectiveOwnerSourceKind();
 // Keyboard owner: Unknown. Gamepad owner: latched activity family if set, else inventory fallback.
 GameControllerKind InputGuideArbiter_GetEffectiveGuideFamilyForUi();
@@ -67,3 +73,6 @@ void InputGuideArbiter_FormatSlotActiveRouteModeForT18(PlayerInputSlotIndex slot
 void InputGuideArbiter_FormatSlotRoutedSourceForT18(PlayerInputSlotIndex slot, wchar_t* buf, size_t bufCount);
 void InputGuideArbiter_FormatSlot0ActiveRouteModeForT18(wchar_t* buf, size_t bufCount);
 void InputGuideArbiter_FormatSlot0RoutedSourceForT18(wchar_t* buf, size_t bufCount);
+
+// T77 step8: compact staged-input label (follows activeRoute; slot0 = live unified).
+void InputGuideArbiter_FormatSlotStagedInputSummaryForT18(PlayerInputSlotIndex slot, wchar_t* buf, size_t bufCount);

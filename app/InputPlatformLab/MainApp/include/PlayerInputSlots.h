@@ -10,10 +10,12 @@
 // - Step4: bindingResolution = inventory presence vs declared bind (still no routing).
 // - Step5: routeCandidate = adoptable source/device if routing were enabled (soft for ActiveOpen; firm when locked+present).
 // - Step6: activeRoute = slot0 branch label wired each tick before T76; consumer frames unchanged (multi-slot later).
+// - Step8: stagedInput = consumer frames implied by activeRoute (dry-fan-out); slot0 mirrors live 1P merge; slot1+ generate only.
 #pragma once
 
 #include "GamepadTypes.h"
 #include "PlayerInputGuideTypes.h"
+#include "VirtualInputMenuSample.h"
 
 // Instance key for a bound device (step2: placeholder fields; step3+ fills from backends).
 struct PlayerBoundDeviceIdentity
@@ -60,6 +62,31 @@ struct PlayerSlotBindingResolution
     UINT32 lastResolvedTick = 0;
 };
 
+// Step8: which global stream populated a staged channel (metadata only; no per-device split yet).
+enum class PlayerSlotStagedChannelSource : UINT8
+{
+    None = 0,
+    GlobalKeyboardStream,
+    GlobalGamepadStream,
+    GlobalMergedUnified,
+};
+
+// Step8: per-slot consumer frames for the current activeRoute (resolution=inventory; candidate=adoptable;
+// activeRoute=branch; staged*=dry fan-out — not consumed by menu/HUD except existing slot0 path).
+struct PlayerSlotStagedInputFrames
+{
+    VirtualInputConsumerFrame keyboard{};
+    VirtualInputConsumerFrame gamepad{};
+    VirtualInputConsumerFrame merged{};
+    bool keyboardValid = false;
+    bool gamepadValid = false;
+    bool mergedValid = false;
+    PlayerSlotStagedChannelSource keyboardSource = PlayerSlotStagedChannelSource::None;
+    PlayerSlotStagedChannelSource gamepadSource = PlayerSlotStagedChannelSource::None;
+    PlayerSlotStagedChannelSource mergedSource = PlayerSlotStagedChannelSource::None;
+    UINT32 lastStagedTick = 0;
+};
+
 // Step5: routing precursor — who this slot would read from next; does not move logical input yet.
 struct PlayerSlotRouteCandidate
 {
@@ -91,6 +118,8 @@ struct PlayerSlotState
     PlayerSlotActiveRouteMode activeRouteMode = PlayerSlotActiveRouteMode::NoRoute;
     InputGuideSourceKind activeRoutedSourceKind = InputGuideSourceKind::Unknown;
     UINT32 activeRouteLastTick = 0;
+
+    PlayerSlotStagedInputFrames stagedInput;
 
     // T76 effective state (maps to slot 0 / 1P).
     InputGuideSourceKind effectiveOwnerSource = InputGuideSourceKind::Unknown;

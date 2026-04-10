@@ -295,6 +295,69 @@ void ApplySlotActiveRouteDryRun(PlayerSlotState& s, UINT32 tick)
     s.activeRouteLastTick = tick;
 }
 
+void StageOneSlotInputFramesDryFanOut(
+    PlayerSlotState& s,
+    PlayerInputSlotIndex slotIndex,
+    UINT32 tick,
+    const VirtualInputConsumerFrame& kb,
+    const VirtualInputConsumerFrame& pad,
+    const VirtualInputConsumerFrame& unified)
+{
+    PlayerSlotStagedInputFrames& st = s.stagedInput;
+    st = PlayerSlotStagedInputFrames{};
+    st.lastStagedTick = tick;
+
+    if (slotIndex == kT76PrimaryPlayerSlotIndex)
+    {
+        st.keyboard = kb;
+        st.gamepad = pad;
+        st.merged = unified;
+        st.keyboardValid = true;
+        st.gamepadValid = true;
+        st.mergedValid = true;
+        st.keyboardSource = PlayerSlotStagedChannelSource::GlobalKeyboardStream;
+        st.gamepadSource = PlayerSlotStagedChannelSource::GlobalGamepadStream;
+        st.mergedSource = PlayerSlotStagedChannelSource::GlobalMergedUnified;
+        return;
+    }
+
+    switch (s.activeRouteMode)
+    {
+    case PlayerSlotActiveRouteMode::NoRoute:
+        break;
+    case PlayerSlotActiveRouteMode::OpenSoft:
+        st.keyboard = kb;
+        st.gamepad = pad;
+        st.merged = unified;
+        st.keyboardValid = true;
+        st.gamepadValid = true;
+        st.mergedValid = true;
+        st.keyboardSource = PlayerSlotStagedChannelSource::GlobalKeyboardStream;
+        st.gamepadSource = PlayerSlotStagedChannelSource::GlobalGamepadStream;
+        st.mergedSource = PlayerSlotStagedChannelSource::GlobalMergedUnified;
+        break;
+    case PlayerSlotActiveRouteMode::LockedKeyboard:
+        st.keyboard = kb;
+        st.merged = kb;
+        st.keyboardValid = true;
+        st.mergedValid = true;
+        st.keyboardSource = PlayerSlotStagedChannelSource::GlobalKeyboardStream;
+        st.mergedSource = PlayerSlotStagedChannelSource::GlobalKeyboardStream;
+        break;
+    case PlayerSlotActiveRouteMode::LockedXinput:
+    case PlayerSlotActiveRouteMode::LockedHid:
+        st.gamepad = pad;
+        st.merged = pad;
+        st.gamepadValid = true;
+        st.mergedValid = true;
+        st.gamepadSource = PlayerSlotStagedChannelSource::GlobalGamepadStream;
+        st.mergedSource = PlayerSlotStagedChannelSource::GlobalGamepadStream;
+        break;
+    default:
+        break;
+    }
+}
+
 void ResolveAllSlotBindingsFromInventoryView(const PlayerInputInventoryBindingView& inv)
 {
     EnsurePrimaryPlayerSlotSeededForT76();
@@ -901,6 +964,25 @@ void InputGuideArbiter_TickSlot0GenericRouteFromConsumerFrames(
         gamepadGuideFamilyHintOnActivity);
 }
 
+void InputGuideArbiter_StagePerSlotInputFramesDryFanOut(
+    const VirtualInputConsumerFrame& keyboardFrame,
+    const VirtualInputConsumerFrame& gamepadFrame,
+    const VirtualInputConsumerFrame& mergedUnifiedLive)
+{
+    EnsurePrimaryPlayerSlotSeededForT76();
+    const UINT32 t = static_cast<UINT32>(GetTickCount());
+    for (unsigned i = 0; i < kPlayerInputSlotCap; ++i)
+    {
+        StageOneSlotInputFramesDryFanOut(
+            g_playerSlots[i],
+            static_cast<PlayerInputSlotIndex>(i),
+            t,
+            keyboardFrame,
+            gamepadFrame,
+            mergedUnifiedLive);
+    }
+}
+
 InputGuideSourceKind InputGuideArbiter_GetEffectiveOwnerSourceKind()
 {
     EnsurePrimaryPlayerSlotSeededForT76();
@@ -1258,4 +1340,44 @@ void InputGuideArbiter_FormatSlot0ActiveRouteModeForT18(wchar_t* buf, size_t buf
 void InputGuideArbiter_FormatSlot0RoutedSourceForT18(wchar_t* buf, size_t bufCount)
 {
     InputGuideArbiter_FormatSlotRoutedSourceForT18(0u, buf, bufCount);
+}
+
+void InputGuideArbiter_FormatSlotStagedInputSummaryForT18(PlayerInputSlotIndex slot, wchar_t* buf, size_t bufCount)
+{
+    if (!buf || bufCount == 0)
+    {
+        return;
+    }
+    buf[0] = L'\0';
+    EnsurePrimaryPlayerSlotSeededForT76();
+    PlayerSlotState* p = TryMutableSlot(slot);
+    if (!p)
+    {
+        wcscpy_s(buf, bufCount, L"invalid slot");
+        return;
+    }
+    if (slot == 0u)
+    {
+        wcscpy_s(buf, bufCount, L"unified-live");
+        return;
+    }
+    switch (p->activeRouteMode)
+    {
+    case PlayerSlotActiveRouteMode::NoRoute:
+        wcscpy_s(buf, bufCount, L"none");
+        break;
+    case PlayerSlotActiveRouteMode::OpenSoft:
+        wcscpy_s(buf, bufCount, L"unified-frame");
+        break;
+    case PlayerSlotActiveRouteMode::LockedKeyboard:
+        wcscpy_s(buf, bufCount, L"keyboard-frame");
+        break;
+    case PlayerSlotActiveRouteMode::LockedXinput:
+    case PlayerSlotActiveRouteMode::LockedHid:
+        wcscpy_s(buf, bufCount, L"gamepad-frame");
+        break;
+    default:
+        wcscpy_s(buf, bufCount, L"none");
+        break;
+    }
 }

@@ -5708,6 +5708,15 @@ static void Win32_HudPaged_FillT18PageBody(wchar_t* buf, size_t bufCount)
     InputGuideArbiter_FormatSlotActiveRouteModeForT18(3u, arMode3, _countof(arMode3));
     InputGuideArbiter_FormatSlotRoutedSourceForT18(3u, arSrc3, _countof(arSrc3));
 
+    wchar_t stg0[48] = {};
+    wchar_t stg1[48] = {};
+    wchar_t stg2[48] = {};
+    wchar_t stg3[48] = {};
+    InputGuideArbiter_FormatSlotStagedInputSummaryForT18(0u, stg0, _countof(stg0));
+    InputGuideArbiter_FormatSlotStagedInputSummaryForT18(1u, stg1, _countof(stg1));
+    InputGuideArbiter_FormatSlotStagedInputSummaryForT18(2u, stg2, _countof(stg2));
+    InputGuideArbiter_FormatSlotStagedInputSummaryForT18(3u, stg3, _countof(stg3));
+
     // T77: multi-player will use a slot table (default 4, cap 8). Input routing remains 1P; 2P/3P lines = policy only.
     swprintf_s(
         buf,
@@ -5741,6 +5750,10 @@ static void Win32_HudPaged_FillT18PageBody(wchar_t* buf, size_t bufCount)
         L"3P route source=%s\r\n"
         L"4P active route=%s\r\n"
         L"4P route source=%s\r\n"
+        L"1P staged input=%s\r\n"
+        L"2P staged input=%s\r\n"
+        L"3P staged input=%s\r\n"
+        L"4P staged input=%s\r\n"
         L"1P input owner=%s\r\n"
         L"1P guide family=%s\r\n",
         slotStr,
@@ -5775,6 +5788,10 @@ static void Win32_HudPaged_FillT18PageBody(wchar_t* buf, size_t bufCount)
         arSrc2,
         arMode3,
         arSrc3,
+        stg0,
+        stg1,
+        stg2,
+        stg3,
         Win32_InputGuideSourceKindUiLabel(InputGuideArbiter_GetEffectiveOwnerSourceKind()),
         Win32_T18_T76_OnePGuideFamilyLabel());
 }
@@ -7197,6 +7214,7 @@ static void Win32_UnifiedInputMenuTick_MergeAndApply(HWND hwndForPaint)
     InputGuideArbiter_TickSlot0GenericRouteFromConsumerFrames(kbFrame, ctrlFrame, padGuideHint);
     const VirtualInputConsumerFrame unified =
         VirtualInputConsumer_MergeKeyboardController(kbForMerge, ctrlFrame);
+    InputGuideArbiter_StagePerSlotInputFramesDryFanOut(kbFrame, ctrlFrame, unified);
     Win32_LogVirtualInputMenuSampleIfChanged(unified, hwndForPaint);
     s_keyboardActionStateAtLastTimer = s_keyboardActionState;
 }
