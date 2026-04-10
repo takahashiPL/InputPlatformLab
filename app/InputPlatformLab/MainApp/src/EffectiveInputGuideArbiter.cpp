@@ -45,6 +45,15 @@ PlayerSlotState& PrimarySlot()
     return g_playerSlots[kT76PrimaryPlayerSlotIndex];
 }
 
+PlayerSlotState* TryMutableSlot(PlayerInputSlotIndex slot)
+{
+    if (static_cast<unsigned>(slot) >= kPlayerInputSlotCap)
+    {
+        return nullptr;
+    }
+    return &g_playerSlots[slot];
+}
+
 bool ConsumerFrameHasMeaningfulAction(const VirtualInputConsumerFrame& f)
 {
     return f.confirmPressed || f.cancelPressed || f.menuPressed || f.moveX != 0 || f.moveY != 0;
@@ -247,14 +256,13 @@ void MaybeLogInventoryVersusLatchedGuide(GameControllerKind prevInvFamily)
     OutputDebugStringW(line);
 }
 
-void FillPrimarySlotBoundSourceLineForT18(wchar_t* buf, size_t bufCount)
+void FillSlotBoundSourceLineForT18(const PlayerSlotState& s, wchar_t* buf, size_t bufCount)
 {
     if (!buf || bufCount == 0)
     {
         return;
     }
     buf[0] = L'\0';
-    const PlayerSlotState& s = PrimarySlot();
     switch (s.bindingAssignment)
     {
     case PlayerSlotBindingAssignment::None:
@@ -279,14 +287,13 @@ void FillPrimarySlotBoundSourceLineForT18(wchar_t* buf, size_t bufCount)
     }
 }
 
-void FillPrimarySlotBoundDeviceIdentityLineForT18(wchar_t* buf, size_t bufCount)
+void FillSlotBoundDeviceIdentityLineForT18(const PlayerBoundDeviceIdentity& id, wchar_t* buf, size_t bufCount)
 {
     if (!buf || bufCount == 0)
     {
         return;
     }
     buf[0] = L'\0';
-    const PlayerBoundDeviceIdentity& id = PrimarySlot().boundDeviceIdentity;
     switch (id.kind)
     {
     case PlayerBoundDeviceIdentityKind::Unbound:
@@ -328,6 +335,16 @@ void FillPrimarySlotBoundDeviceIdentityLineForT18(wchar_t* buf, size_t bufCount)
         wcscpy_s(buf, bufCount, L"unknown");
         break;
     }
+}
+
+void FillPrimarySlotBoundSourceLineForT18(wchar_t* buf, size_t bufCount)
+{
+    FillSlotBoundSourceLineForT18(PrimarySlot(), buf, bufCount);
+}
+
+void FillPrimarySlotBoundDeviceIdentityLineForT18(wchar_t* buf, size_t bufCount)
+{
+    FillSlotBoundDeviceIdentityLineForT18(PrimarySlot().boundDeviceIdentity, buf, bufCount);
 }
 } // namespace
 
@@ -470,4 +487,183 @@ void InputGuideArbiter_FormatPrimarySlotBoundDeviceIdentityForT18(wchar_t* buf, 
 {
     EnsurePrimaryPlayerSlotSeededForT76();
     FillPrimarySlotBoundDeviceIdentityLineForT18(buf, bufCount);
+}
+
+bool InputGuideArbiter_IsValidSlotIndex(PlayerInputSlotIndex slot)
+{
+    return static_cast<unsigned>(slot) < kPlayerInputSlotCap;
+}
+
+void InputGuideArbiter_SetSlotBindingAssignment(PlayerInputSlotIndex slot, PlayerSlotBindingAssignment assignment)
+{
+    PlayerSlotState* s = TryMutableSlot(slot);
+    if (!s)
+    {
+        return;
+    }
+    s->bindingAssignment = assignment;
+}
+
+void InputGuideArbiter_SetSlotBoundSourceKind(PlayerInputSlotIndex slot, InputGuideSourceKind kind)
+{
+    PlayerSlotState* s = TryMutableSlot(slot);
+    if (!s)
+    {
+        return;
+    }
+    s->boundSourceKind = kind;
+}
+
+void InputGuideArbiter_SetSlotBoundDeviceIdentity(PlayerInputSlotIndex slot, const PlayerBoundDeviceIdentity& identity)
+{
+    PlayerSlotState* s = TryMutableSlot(slot);
+    if (!s)
+    {
+        return;
+    }
+    s->boundDeviceIdentity = identity;
+}
+
+void InputGuideArbiter_SetSlotPreferredGuideFamily(PlayerInputSlotIndex slot, GameControllerKind family)
+{
+    PlayerSlotState* s = TryMutableSlot(slot);
+    if (!s)
+    {
+        return;
+    }
+    s->preferredGuideFamily = family;
+}
+
+void InputGuideArbiter_SetSlotPartySeatFlags(PlayerInputSlotIndex slot, bool assigned, bool active)
+{
+    PlayerSlotState* s = TryMutableSlot(slot);
+    if (!s)
+    {
+        return;
+    }
+    s->slotAssigned = assigned;
+    s->slotActive = active;
+}
+
+void InputGuideArbiter_ClearSlotBindingPolicy(PlayerInputSlotIndex slot)
+{
+    PlayerSlotState* s = TryMutableSlot(slot);
+    if (!s)
+    {
+        return;
+    }
+    if (slot == kT76PrimaryPlayerSlotIndex)
+    {
+        s->bindingAssignment = PlayerSlotBindingAssignment::ActiveOpen;
+        s->boundSourceKind = InputGuideSourceKind::Unknown;
+        s->boundDeviceIdentity = PlayerBoundDeviceIdentity{};
+        s->boundDeviceIdentity.kind = PlayerBoundDeviceIdentityKind::Unbound;
+        s->preferredGuideFamily = GameControllerKind::Unknown;
+        return;
+    }
+    s->bindingAssignment = PlayerSlotBindingAssignment::None;
+    s->boundSourceKind = InputGuideSourceKind::Unknown;
+    s->boundDeviceIdentity = PlayerBoundDeviceIdentity{};
+    s->preferredGuideFamily = GameControllerKind::Unknown;
+    s->slotAssigned = false;
+    s->slotActive = false;
+}
+
+void InputGuideArbiter_BindSlotToKeyboard(PlayerInputSlotIndex slot)
+{
+    PlayerSlotState* s = TryMutableSlot(slot);
+    if (!s)
+    {
+        return;
+    }
+    s->bindingAssignment = PlayerSlotBindingAssignment::BoundLocked;
+    s->boundSourceKind = InputGuideSourceKind::Keyboard;
+    s->boundDeviceIdentity = PlayerBoundDeviceIdentity{};
+    s->boundDeviceIdentity.kind = PlayerBoundDeviceIdentityKind::Keyboard;
+}
+
+void InputGuideArbiter_BindSlotToXInputUser(PlayerInputSlotIndex slot, INT32 xinputUserIndex)
+{
+    PlayerSlotState* s = TryMutableSlot(slot);
+    if (!s)
+    {
+        return;
+    }
+    s->bindingAssignment = PlayerSlotBindingAssignment::BoundLocked;
+    s->boundSourceKind = InputGuideSourceKind::Gamepad;
+    s->boundDeviceIdentity = PlayerBoundDeviceIdentity{};
+    s->boundDeviceIdentity.kind = PlayerBoundDeviceIdentityKind::XInputUser;
+    s->boundDeviceIdentity.xinputUserIndex = xinputUserIndex;
+}
+
+void InputGuideArbiter_BindSlotToHidPathHash(
+    PlayerInputSlotIndex slot,
+    UINT32 hidPathHash,
+    UINT16 hidPathShortToken,
+    UINT16 vendorId,
+    UINT16 productId)
+{
+    PlayerSlotState* s = TryMutableSlot(slot);
+    if (!s)
+    {
+        return;
+    }
+    s->bindingAssignment = PlayerSlotBindingAssignment::BoundLocked;
+    s->boundSourceKind = InputGuideSourceKind::Gamepad;
+    s->boundDeviceIdentity = PlayerBoundDeviceIdentity{};
+    s->boundDeviceIdentity.kind = PlayerBoundDeviceIdentityKind::HidPathHash;
+    s->boundDeviceIdentity.hidInstancePathHash = hidPathHash;
+    s->boundDeviceIdentity.hidPathShortToken = hidPathShortToken;
+    s->boundDeviceIdentity.vendorId = vendorId;
+    s->boundDeviceIdentity.productId = productId;
+}
+
+void InputGuideArbiter_ApplyStep3DemoReservationBindings()
+{
+    static bool s_done = false;
+    if (s_done)
+    {
+        return;
+    }
+    s_done = true;
+    EnsurePrimaryPlayerSlotSeededForT76();
+    // 2P / 3P policy placeholders: no input routing; T76 still uses merged 1P stream only.
+    InputGuideArbiter_SetSlotPartySeatFlags(1u, true, false);
+    InputGuideArbiter_BindSlotToKeyboard(1u);
+    InputGuideArbiter_SetSlotPartySeatFlags(2u, true, false);
+    InputGuideArbiter_BindSlotToXInputUser(2u, 0);
+}
+
+void InputGuideArbiter_FormatSlotBoundSourceForT18(PlayerInputSlotIndex slot, wchar_t* buf, size_t bufCount)
+{
+    if (!buf || bufCount == 0)
+    {
+        return;
+    }
+    buf[0] = L'\0';
+    EnsurePrimaryPlayerSlotSeededForT76();
+    PlayerSlotState* s = TryMutableSlot(slot);
+    if (!s)
+    {
+        wcscpy_s(buf, bufCount, L"invalid slot");
+        return;
+    }
+    FillSlotBoundSourceLineForT18(*s, buf, bufCount);
+}
+
+void InputGuideArbiter_FormatSlotBoundDeviceIdentityForT18(PlayerInputSlotIndex slot, wchar_t* buf, size_t bufCount)
+{
+    if (!buf || bufCount == 0)
+    {
+        return;
+    }
+    buf[0] = L'\0';
+    EnsurePrimaryPlayerSlotSeededForT76();
+    PlayerSlotState* s = TryMutableSlot(slot);
+    if (!s)
+    {
+        wcscpy_s(buf, bufCount, L"invalid slot");
+        return;
+    }
+    FillSlotBoundDeviceIdentityLineForT18(s->boundDeviceIdentity, buf, bufCount);
 }

@@ -1,12 +1,12 @@
-// T77: per-player slot state (vessel). Only slot 0 is driven by T76 today; slots 1.. remain default.
+// T77: per-player slot state (vessel). Only slot 0 is driven by T76 today; slots 1.. can carry binding policy only.
 //
-// --- T77 step2 assignment / binding policy (enforced by convention; no auto-assign in this build) ---
+// --- T77 step2/3 assignment / binding policy (convention; no auto-assign; no routing in step3) ---
 // - Device enumeration / connection list (T18) and per-slot binding are separate concerns.
 // - Hot-plug or replacing one physical device must not rewrite other slots' bindings (no cascade).
 // - Keyboard is a single logical source type: at most one "keyboard" bind target per slot when bound.
 // - No auto-assign: nothing in this module assigns devices to slots from the connection list.
-// - No rebind UI / persistence yet: bindings are runtime-only and seeded for slot0 only.
-// - Operational mode remains slot0 / 1P only until T77 step3+ routing.
+// - No rebind UI / persistence yet: bindings are runtime-only unless code calls the arbiter setters.
+// - Step3: binding policy can be set per slot (open / locked / none); input is still merged for 1P / T76 only.
 #pragma once
 
 #include "GamepadTypes.h"

@@ -3585,6 +3585,9 @@ BOOL InitInstance(HINSTANCE hInstance, int nCmdShow)
    // WM_INPUT の [HIDgen] より先に T18 スナップショットを埋め、同一 VID/PID のログを抑止できるようにする。
    Win32_T18_RefreshControllerIdentifySnapshot();
 
+   // T77 step3: binding policy demo (slot1=keyboard, slot2=XInput user0); input still 1P/T76 only.
+   InputGuideArbiter_ApplyStep3DemoReservationBindings();
+
    ShowWindow(hWnd, nCmdShow);
    UpdateWindow(hWnd);
 
@@ -5656,7 +5659,16 @@ static void Win32_HudPaged_FillT18PageBody(wchar_t* buf, size_t bufCount)
     InputGuideArbiter_FormatPrimarySlotBoundSourceForT18(boundSrcLine, _countof(boundSrcLine));
     InputGuideArbiter_FormatPrimarySlotBoundDeviceIdentityForT18(boundDevLine, _countof(boundDevLine));
 
-    // T77: multi-player will use a slot table (default 4, cap 8). Today only slot 0 / 1P is wired; 2P+ lines come later.
+    wchar_t s1src[80] = {};
+    wchar_t s1dev[80] = {};
+    wchar_t s2src[80] = {};
+    wchar_t s2dev[80] = {};
+    InputGuideArbiter_FormatSlotBoundSourceForT18(1u, s1src, _countof(s1src));
+    InputGuideArbiter_FormatSlotBoundDeviceIdentityForT18(1u, s1dev, _countof(s1dev));
+    InputGuideArbiter_FormatSlotBoundSourceForT18(2u, s2src, _countof(s2src));
+    InputGuideArbiter_FormatSlotBoundDeviceIdentityForT18(2u, s2dev, _countof(s2dev));
+
+    // T77: multi-player will use a slot table (default 4, cap 8). Input routing remains 1P; 2P/3P lines = policy only.
     swprintf_s(
         buf,
         bufCount,
@@ -5669,6 +5681,8 @@ static void Win32_HudPaged_FillT18PageBody(wchar_t* buf, size_t bufCount)
         L"path: (full in [T18] debug line)\r\n"
         L"1P bound source=%s\r\n"
         L"1P bound device=%s\r\n"
+        L"2P bind(policy)=%s | %s\r\n"
+        L"3P bind(policy)=%s | %s\r\n"
         L"1P input owner=%s\r\n"
         L"1P guide family=%s\r\n",
         slotStr,
@@ -5681,6 +5695,10 @@ static void Win32_HudPaged_FillT18PageBody(wchar_t* buf, size_t bufCount)
         (whyHud[0] != L'\0') ? whyHud : L"(none)",
         boundSrcLine,
         boundDevLine,
+        s1src,
+        s1dev,
+        s2src,
+        s2dev,
         Win32_InputGuideSourceKindUiLabel(InputGuideArbiter_GetEffectiveOwnerSourceKind()),
         Win32_T18_T76_OnePGuideFamilyLabel());
 }
