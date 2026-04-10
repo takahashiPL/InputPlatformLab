@@ -5623,13 +5623,117 @@ static void Win32_T76_ThrottledRefreshT18InventoryFromRawHid()
     Win32_T18_RefreshControllerIdentifySnapshot(false);
 }
 
-// T18 page body: no full device path here. 1P T76 lines are diagnostic only.
+// T18 HUD: shorten binding resolve status for compact multi-slot lines (+ = locked present, abs = absent).
+static void Win32_T18_CompactBindResolveStatus(const wchar_t* full, wchar_t* out, size_t outCount)
+{
+    if (!out || outCount == 0)
+    {
+        return;
+    }
+    out[0] = L'\0';
+    if (!full || full[0] == L'\0')
+    {
+        wcscpy_s(out, outCount, L"-");
+        return;
+    }
+    if (wcscmp(full, L"locked,present") == 0)
+    {
+        wcscpy_s(out, outCount, L"+");
+        return;
+    }
+    if (wcscmp(full, L"locked,absent") == 0)
+    {
+        wcscpy_s(out, outCount, L"abs");
+        return;
+    }
+    if (wcscmp(full, L"open") == 0)
+    {
+        wcscpy_s(out, outCount, L"op");
+        return;
+    }
+    if (wcscmp(full, L"none") == 0)
+    {
+        wcscpy_s(out, outCount, L"-");
+        return;
+    }
+    if (wcscmp(full, L"unresolved") == 0)
+    {
+        wcscpy_s(out, outCount, L"?");
+        return;
+    }
+    wcsncpy_s(out, outCount, full, _TRUNCATE);
+}
+
+// Single-line why for paged HUD (full rationale remains in [T18] logs).
+static void Win32_T18_FillWhyHudSingleLine(const T18ControllerIdentifySnapshot& s, wchar_t* buf, size_t bufCount)
+{
+    if (!buf || bufCount == 0)
+    {
+        return;
+    }
+    wchar_t tmp[384] = {};
+    Win32_T18_FillWhyHudShort(s, tmp, _countof(tmp));
+    for (wchar_t* p = tmp; *p != L'\0'; ++p)
+    {
+        if (*p == L'\r' || *p == L'\n')
+        {
+            *p = L'·';
+        }
+    }
+    Win32_T18_TruncateWideForPaint(tmp, buf, bufCount, 120);
+    if (buf[0] == L'\0')
+    {
+        wcscpy_s(buf, bufCount, L"(none)");
+    }
+}
+
+// 2P–4P: one line each (bind · device · resolve · route candidate · consume policy/result).
+static void Win32_T18_FormatExtraPlayerOneLine(PlayerInputSlotIndex slot, wchar_t* out, size_t outCount)
+{
+    if (!out || outCount == 0)
+    {
+        return;
+    }
+    out[0] = L'\0';
+    if (!InputGuideArbiter_IsValidSlotIndex(slot) || slot == 0u)
+    {
+        return;
+    }
+    wchar_t bsrc[80] = {};
+    wchar_t bdev[80] = {};
+    wchar_t bst[80] = {};
+    wchar_t rc[80] = {};
+    wchar_t cp[48] = {};
+    wchar_t cr[48] = {};
+    InputGuideArbiter_FormatSlotBoundSourceForT18(slot, bsrc, _countof(bsrc));
+    InputGuideArbiter_FormatSlotBoundDeviceIdentityForT18(slot, bdev, _countof(bdev));
+    InputGuideArbiter_FormatSlotBindStatusForT18(slot, bst, _countof(bst));
+    InputGuideArbiter_FormatSlotRouteCandidateForT18(slot, rc, _countof(rc));
+    InputGuideArbiter_FormatSlotConsumePolicyForT18(slot, cp, _countof(cp));
+    InputGuideArbiter_FormatSlotConsumeResultForT18(slot, cr, _countof(cr));
+    wchar_t stc[16] = {};
+    Win32_T18_CompactBindResolveStatus(bst, stc, _countof(stc));
+    const unsigned pn = static_cast<unsigned>(slot) + 1u;
+    swprintf_s(
+        out,
+        outCount,
+        L"%uP b=%ls·%ls st=%ls r=%ls c=%ls/%ls",
+        pn,
+        bsrc,
+        bdev,
+        stc,
+        rc,
+        cp,
+        cr);
+}
+
+// T18 page body: no full device path here. Compact fit for paged HUD; full path → [T18] debug output.
 static void Win32_HudPaged_FillT18PageBody(wchar_t* buf, size_t bufCount)
 {
     buf[0] = L'\0';
     Win32_T18_RefreshControllerIdentifySnapshot();
 
-    wchar_t slotStr[16] = L"-1";
+    wchar_t slotStr[16] = L"-";
     if (s_t18.xinput_slot >= 0)
     {
         swprintf_s(slotStr, _countof(slotStr), L"%d", s_t18.xinput_slot);
@@ -5639,213 +5743,96 @@ static void Win32_HudPaged_FillT18PageBody(wchar_t* buf, size_t bufCount)
     wchar_t vidPidLine[96] = {};
     if (s_t18.hid_found)
     {
-        swprintf_s(vidPidLine, _countof(vidPidLine), L"0x%04X/0x%04X", vid, pid);
+        swprintf_s(vidPidLine, _countof(vidPidLine), L"%04X/%04X", vid, pid);
     }
     else
     {
-        wcscpy_s(vidPidLine, L"n/a");
+        wcscpy_s(vidPidLine, L"--");
     }
 
-    wchar_t prodShort[80] = L"(none)";
+    wchar_t prodTiny[48] = L"(none)";
     if (s_t18.product_name[0] != L'\0')
     {
-        Win32_T18_TruncateWideForPaint(s_t18.product_name, prodShort, _countof(prodShort), 48);
+        Win32_T18_TruncateWideForPaint(s_t18.product_name, prodTiny, _countof(prodTiny), 28);
     }
-    wchar_t whyHud[384] = {};
-    Win32_T18_FillWhyHudShort(s_t18, whyHud, _countof(whyHud));
+    wchar_t whyOne[160] = {};
+    Win32_T18_FillWhyHudSingleLine(s_t18, whyOne, _countof(whyOne));
 
     wchar_t boundSrcLine[96] = {};
     wchar_t boundDevLine[96] = {};
     InputGuideArbiter_FormatPrimarySlotBoundSourceForT18(boundSrcLine, _countof(boundSrcLine));
     InputGuideArbiter_FormatPrimarySlotBoundDeviceIdentityForT18(boundDevLine, _countof(boundDevLine));
 
-    wchar_t s1src[80] = {};
-    wchar_t s1dev[80] = {};
-    wchar_t s2src[80] = {};
-    wchar_t s2dev[80] = {};
-    InputGuideArbiter_FormatSlotBoundSourceForT18(1u, s1src, _countof(s1src));
-    InputGuideArbiter_FormatSlotBoundDeviceIdentityForT18(1u, s1dev, _countof(s1dev));
-    InputGuideArbiter_FormatSlotBoundSourceForT18(2u, s2src, _countof(s2src));
-    InputGuideArbiter_FormatSlotBoundDeviceIdentityForT18(2u, s2dev, _countof(s2dev));
-
     wchar_t p0st[80] = {};
     wchar_t p0mt[80] = {};
-    wchar_t p1st[80] = {};
-    wchar_t p1mt[80] = {};
-    wchar_t p2st[80] = {};
-    wchar_t p2mt[80] = {};
     InputGuideArbiter_FormatSlotBindStatusForT18(0u, p0st, _countof(p0st));
     InputGuideArbiter_FormatSlotBindMatchForT18(0u, p0mt, _countof(p0mt));
-    InputGuideArbiter_FormatSlotBindStatusForT18(1u, p1st, _countof(p1st));
-    InputGuideArbiter_FormatSlotBindMatchForT18(1u, p1mt, _countof(p1mt));
-    InputGuideArbiter_FormatSlotBindStatusForT18(2u, p2st, _countof(p2st));
-    InputGuideArbiter_FormatSlotBindMatchForT18(2u, p2mt, _countof(p2mt));
+    wchar_t p0stc[16] = {};
+    Win32_T18_CompactBindResolveStatus(p0st, p0stc, _countof(p0stc));
 
     wchar_t rc0[80] = {};
-    wchar_t rc1[80] = {};
-    wchar_t rc2[80] = {};
-    wchar_t rc3[80] = {};
     InputGuideArbiter_FormatSlotRouteCandidateForT18(0u, rc0, _countof(rc0));
-    InputGuideArbiter_FormatSlotRouteCandidateForT18(1u, rc1, _countof(rc1));
-    InputGuideArbiter_FormatSlotRouteCandidateForT18(2u, rc2, _countof(rc2));
-    InputGuideArbiter_FormatSlotRouteCandidateForT18(3u, rc3, _countof(rc3));
 
     wchar_t arMode[80] = {};
     wchar_t arSrc[80] = {};
     InputGuideArbiter_FormatSlot0ActiveRouteModeForT18(arMode, _countof(arMode));
     InputGuideArbiter_FormatSlot0RoutedSourceForT18(arSrc, _countof(arSrc));
 
-    wchar_t arMode1[96] = {};
-    wchar_t arSrc1[80] = {};
-    wchar_t arMode2[96] = {};
-    wchar_t arSrc2[80] = {};
-    wchar_t arMode3[96] = {};
-    wchar_t arSrc3[80] = {};
-    InputGuideArbiter_FormatSlotActiveRouteModeForT18(1u, arMode1, _countof(arMode1));
-    InputGuideArbiter_FormatSlotRoutedSourceForT18(1u, arSrc1, _countof(arSrc1));
-    InputGuideArbiter_FormatSlotActiveRouteModeForT18(2u, arMode2, _countof(arMode2));
-    InputGuideArbiter_FormatSlotRoutedSourceForT18(2u, arSrc2, _countof(arSrc2));
-    InputGuideArbiter_FormatSlotActiveRouteModeForT18(3u, arMode3, _countof(arMode3));
-    InputGuideArbiter_FormatSlotRoutedSourceForT18(3u, arSrc3, _countof(arSrc3));
-
     wchar_t stg0[48] = {};
-    wchar_t stg1[48] = {};
-    wchar_t stg2[48] = {};
-    wchar_t stg3[48] = {};
-    InputGuideArbiter_FormatSlotStagedInputSummaryForT18(0u, stg0, _countof(stg0));
-    InputGuideArbiter_FormatSlotStagedInputSummaryForT18(1u, stg1, _countof(stg1));
-    InputGuideArbiter_FormatSlotStagedInputSummaryForT18(2u, stg2, _countof(stg2));
-    InputGuideArbiter_FormatSlotStagedInputSummaryForT18(3u, stg3, _countof(stg3));
-
     wchar_t sl0[48] = {};
-    wchar_t sl1[48] = {};
-    wchar_t sl2[48] = {};
-    wchar_t sl3[48] = {};
+    InputGuideArbiter_FormatSlotStagedInputSummaryForT18(0u, stg0, _countof(stg0));
     InputGuideArbiter_FormatSlotStagedLogicalSummaryForT18(0u, sl0, _countof(sl0));
-    InputGuideArbiter_FormatSlotStagedLogicalSummaryForT18(1u, sl1, _countof(sl1));
-    InputGuideArbiter_FormatSlotStagedLogicalSummaryForT18(2u, sl2, _countof(sl2));
-    InputGuideArbiter_FormatSlotStagedLogicalSummaryForT18(3u, sl3, _countof(sl3));
 
     wchar_t cd0[48] = {};
-    wchar_t cd1[48] = {};
-    wchar_t cd2[48] = {};
-    wchar_t cd3[48] = {};
-    InputGuideArbiter_FormatSlotConsumePolicyForT18(0u, cd0, _countof(cd0));
-    InputGuideArbiter_FormatSlotConsumePolicyForT18(1u, cd1, _countof(cd1));
-    InputGuideArbiter_FormatSlotConsumePolicyForT18(2u, cd2, _countof(cd2));
-    InputGuideArbiter_FormatSlotConsumePolicyForT18(3u, cd3, _countof(cd3));
-
     wchar_t cr0[48] = {};
-    wchar_t cr1[48] = {};
-    wchar_t cr2[48] = {};
-    wchar_t cr3[48] = {};
+    InputGuideArbiter_FormatSlotConsumePolicyForT18(0u, cd0, _countof(cd0));
     InputGuideArbiter_FormatSlotConsumeResultForT18(0u, cr0, _countof(cr0));
-    InputGuideArbiter_FormatSlotConsumeResultForT18(1u, cr1, _countof(cr1));
-    InputGuideArbiter_FormatSlotConsumeResultForT18(2u, cr2, _countof(cr2));
-    InputGuideArbiter_FormatSlotConsumeResultForT18(3u, cr3, _countof(cr3));
 
-    // T77: multi-player will use a slot table (default 4, cap 8). Input routing remains 1P; 2P/3P lines = policy only.
+    wchar_t line2p[192] = {};
+    wchar_t line3p[192] = {};
+    wchar_t line4p[192] = {};
+    Win32_T18_FormatExtraPlayerOneLine(1u, line2p, _countof(line2p));
+    Win32_T18_FormatExtraPlayerOneLine(2u, line3p, _countof(line3p));
+    Win32_T18_FormatExtraPlayerOneLine(3u, line4p, _countof(line4p));
+
     swprintf_s(
         buf,
         bufCount,
-        L"XInput slot=%s\r\n"
-        L"HID=%s  vid/pid=%s\r\n"
-        L"family=%s\r\n"
-        L"parser=%s  support=%s\r\n"
-        L"product=%s\r\n"
-        L"why:\r\n%s\r\n"
-        L"path: (full in [T18] debug line)\r\n"
-        L"1P bound source=%s\r\n"
-        L"1P bound device=%s\r\n"
-        L"1P bind status=%s\r\n"
-        L"1P bind match=%s\r\n"
-        L"2P bind(policy)=%s | %s\r\n"
-        L"2P bind status=%s\r\n"
-        L"2P bind match=%s\r\n"
-        L"3P bind(policy)=%s | %s\r\n"
-        L"3P bind status=%s\r\n"
-        L"3P bind match=%s\r\n"
-        L"1P route candidate=%s\r\n"
-        L"2P route candidate=%s\r\n"
-        L"3P route candidate=%s\r\n"
-        L"4P route candidate=%s\r\n"
-        L"1P active route=%s\r\n"
-        L"1P route source=%s\r\n"
-        L"2P active route=%s\r\n"
-        L"2P route source=%s\r\n"
-        L"3P active route=%s\r\n"
-        L"3P route source=%s\r\n"
-        L"4P active route=%s\r\n"
-        L"4P route source=%s\r\n"
-        L"1P staged input=%s\r\n"
-        L"2P staged input=%s\r\n"
-        L"3P staged input=%s\r\n"
-        L"4P staged input=%s\r\n"
-        L"1P staged logical=%s\r\n"
-        L"2P staged logical=%s\r\n"
-        L"3P staged logical=%s\r\n"
-        L"4P staged logical=%s\r\n"
-        L"1P consume source=slot0-staged-logical\r\n"
-        L"1P consume policy=%s\r\n"
-        L"2P consume policy=%s\r\n"
-        L"3P consume policy=%s\r\n"
-        L"4P consume policy=%s\r\n"
-        L"1P consume result=%s\r\n"
-        L"2P consume result=%s\r\n"
-        L"3P consume result=%s\r\n"
-        L"4P consume result=%s\r\n"
-        L"1P input owner=%s\r\n"
-        L"1P guide family=%s\r\n",
+        L"inv xi=%ls hid=%ls vp=%ls fam=%ls prod=%ls\r\n"
+        L"ctx %ls/%ls %ls\r\n"
+        L"1P bound %ls|%ls\r\n"
+        L"1P bind st=%ls mt=%ls\r\n"
+        L"1P route cand=%ls | act=%ls | src=%ls\r\n"
+        L"1P owner=%ls guide=%ls\r\n"
+        L"1P consume pol=%ls res=%ls src=stg0\r\n"
+        L"1P staged in=%ls log=%ls\r\n"
+        L"%ls\r\n"
+        L"%ls\r\n"
+        L"%ls\r\n",
         slotStr,
-        s_t18.hid_found ? L"yes" : L"no",
+        s_t18.hid_found ? L"y" : L"n",
         vidPidLine,
         Win32_GameControllerKindFamilyLabel(s_t18.inferred_kind),
+        prodTiny,
         Win32_ControllerParserKindLabel(s_t18.parser_kind),
         Win32_ControllerSupportLevelLabel(s_t18.support_level),
-        prodShort,
-        (whyHud[0] != L'\0') ? whyHud : L"(none)",
+        whyOne,
         boundSrcLine,
         boundDevLine,
-        p0st,
+        p0stc,
         p0mt,
-        s1src,
-        s1dev,
-        p1st,
-        p1mt,
-        s2src,
-        s2dev,
-        p2st,
-        p2mt,
         rc0,
-        rc1,
-        rc2,
-        rc3,
         arMode,
         arSrc,
-        arMode1,
-        arSrc1,
-        arMode2,
-        arSrc2,
-        arMode3,
-        arSrc3,
-        stg0,
-        stg1,
-        stg2,
-        stg3,
-        sl0,
-        sl1,
-        sl2,
-        sl3,
-        cd0,
-        cd1,
-        cd2,
-        cd3,
-        cr0,
-        cr1,
-        cr2,
-        cr3,
         Win32_InputGuideSourceKindUiLabel(InputGuideArbiter_GetEffectiveOwnerSourceKind()),
-        Win32_T18_T76_OnePGuideFamilyLabel());
+        Win32_T18_T76_OnePGuideFamilyLabel(),
+        cd0,
+        cr0,
+        stg0,
+        sl0,
+        line2p,
+        line3p,
+        line4p);
 }
 
 // T19 Input state — 受け入れ・全ページ一覧は docs/HUD_PAGED_ACCEPTANCE.md。論理は LogicalInput_FillCurrentDownFromSources / LogicalInputState。
