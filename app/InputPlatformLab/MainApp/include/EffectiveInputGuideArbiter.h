@@ -1,19 +1,8 @@
-// T76: single-player effective input owner / guide family vs device inventory (future: per PlayerSlot[i], T77).
+// T76: effective input owner / guide family vs device inventory. T77: state lives in PlayerSlotState[0] (1P only for now).
 #pragma once
 
-#include "GamepadTypes.h"
+#include "PlayerInputSlots.h"
 #include "VirtualInputMenuSample.h"
-
-// Design cap for a future PlayerSlot table (this build uses slot 0 only).
-constexpr unsigned kInputGuideArbiterMaxPlayerSlotsCap = 8u;
-
-// What the UI and guide labels treat as the active input source (not the device enumeration order).
-enum class InputGuideSourceKind : UINT8
-{
-    Unknown = 0,
-    Keyboard,
-    Gamepad,
-};
 
 // Called when T18 completes a device inventory refresh (enumeration). Does not change effective owner.
 void InputGuideArbiter_OnDeviceInventoryRefreshed(

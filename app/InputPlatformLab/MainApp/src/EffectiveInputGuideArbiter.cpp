@@ -1,4 +1,4 @@
-// T76: separates device inventory (T18) from UI guide family / effective owner (single-player; slot-ready naming).
+// T76: device inventory (T18) vs UI guide / effective owner. T77: primary state in g_playerSlots[0] (1P only).
 
 #include "EffectiveInputGuideArbiter.h"
 
@@ -15,6 +15,28 @@ constexpr bool kT76DebugLog = false;
 
 // ~33ms timer: 6 ticks ~= 200ms (within 150–300ms stabilization window).
 constexpr DWORD kOwnerIdealStableMs = 200u;
+
+constexpr PlayerInputSlotIndex kT76PrimaryPlayerSlotIndex = 0u;
+
+PlayerSlotState g_playerSlots[kPlayerInputSlotCap];
+
+void EnsurePrimaryPlayerSlotSeededForT76()
+{
+    static bool s_once = false;
+    if (s_once)
+    {
+        return;
+    }
+    s_once = true;
+    PlayerSlotState& s = g_playerSlots[kT76PrimaryPlayerSlotIndex];
+    s.slotAssigned = true;
+    s.slotActive = true;
+}
+
+PlayerSlotState& PrimarySlot()
+{
+    return g_playerSlots[kT76PrimaryPlayerSlotIndex];
+}
 
 bool ConsumerFrameHasMeaningfulAction(const VirtualInputConsumerFrame& f)
 {
@@ -82,34 +104,13 @@ const wchar_t* FamilyShortLabel(GameControllerKind k)
     }
 }
 
-struct SinglePlayerGuideArbiter
-{
-    InputGuideSourceKind ownerSource = InputGuideSourceKind::Unknown;
-    GameControllerKind inventoryPadFamily = GameControllerKind::Unknown;
-    bool inventoryPadPresent = false;
-
-    GameControllerKind latchedGamepadGuideFamily = GameControllerKind::Unknown;
-
-    InputGuideSourceKind pendingOwnerIdeal = InputGuideSourceKind::Unknown;
-    DWORD pendingOwnerSinceTick = 0;
-
-    InputGuideSourceKind logPrevOwner = InputGuideSourceKind::Unknown;
-    GameControllerKind logPrevGuide = GameControllerKind::Unknown;
-    GameControllerKind logPrevInventoryFamily = GameControllerKind::Unknown;
-    bool logPrevInventoryPresent = false;
-
-    DWORD lastInventoryGuideKeptLogTick = 0;
-};
-
-SinglePlayerGuideArbiter g_sp;
-
 void LogOwnerCommitIfChanged(InputGuideSourceKind prev, InputGuideSourceKind now)
 {
     if (!kT76DebugLog || prev == now)
     {
         return;
     }
-    g_sp.logPrevOwner = now;
+    PrimarySlot().logPrevOwner = now;
     wchar_t line[200] = {};
     swprintf_s(
         line,
@@ -122,11 +123,11 @@ void LogOwnerCommitIfChanged(InputGuideSourceKind prev, InputGuideSourceKind now
 
 void LogGuideFamilyIfChanged(GameControllerKind g)
 {
-    if (!kT76DebugLog || g == g_sp.logPrevGuide)
+    if (!kT76DebugLog || g == PrimarySlot().logPrevGuide)
     {
         return;
     }
-    g_sp.logPrevGuide = g;
+    PrimarySlot().logPrevGuide = g;
     wchar_t line[192] = {};
     swprintf_s(
         line,
@@ -142,52 +143,55 @@ void LogInventoryIfChanged()
     {
         return;
     }
-    const bool invSame = (g_sp.inventoryPadFamily == g_sp.logPrevInventoryFamily) &&
-        (g_sp.inventoryPadPresent == g_sp.logPrevInventoryPresent);
+    PlayerSlotState& s = PrimarySlot();
+    const bool invSame = (s.inventoryPadFamily == s.logPrevInventoryFamily) &&
+        (s.inventoryPadPresent == s.logPrevInventoryPresent);
     if (invSame)
     {
         return;
     }
-    g_sp.logPrevInventoryFamily = g_sp.inventoryPadFamily;
-    g_sp.logPrevInventoryPresent = g_sp.inventoryPadPresent;
+    s.logPrevInventoryFamily = s.inventoryPadFamily;
+    s.logPrevInventoryPresent = s.inventoryPadPresent;
     wchar_t line[224] = {};
     swprintf_s(
         line,
         _countof(line),
         L"[T76] inventory: pad_present=%d pad_family=%s\r\n",
-        g_sp.inventoryPadPresent ? 1 : 0,
-        FamilyShortLabel(g_sp.inventoryPadFamily));
+        s.inventoryPadPresent ? 1 : 0,
+        FamilyShortLabel(s.inventoryPadFamily));
     OutputDebugStringW(line);
 }
 
 GameControllerKind EffectiveGuideFromOwner()
 {
-    if (g_sp.ownerSource != InputGuideSourceKind::Gamepad)
+    PlayerSlotState& s = PrimarySlot();
+    if (s.effectiveOwnerSource != InputGuideSourceKind::Gamepad)
     {
         return GameControllerKind::Unknown;
     }
-    if (g_sp.latchedGamepadGuideFamily != GameControllerKind::Unknown)
+    if (s.latchedGamepadGuideFamily != GameControllerKind::Unknown)
     {
-        return g_sp.latchedGamepadGuideFamily;
+        return s.latchedGamepadGuideFamily;
     }
-    return g_sp.inventoryPadFamily;
+    return s.inventoryPadFamily;
 }
 
 void ReconcileOwnerWithInventoryPresence()
 {
-    if (g_sp.ownerSource != InputGuideSourceKind::Gamepad)
+    PlayerSlotState& s = PrimarySlot();
+    if (s.effectiveOwnerSource != InputGuideSourceKind::Gamepad)
     {
         return;
     }
-    if (g_sp.inventoryPadPresent)
+    if (s.inventoryPadPresent)
     {
         return;
     }
-    const InputGuideSourceKind prevOwner = g_sp.ownerSource;
-    g_sp.ownerSource = InputGuideSourceKind::Keyboard;
-    g_sp.pendingOwnerIdeal = InputGuideSourceKind::Unknown;
-    g_sp.pendingOwnerSinceTick = 0;
-    LogOwnerCommitIfChanged(prevOwner, g_sp.ownerSource);
+    const InputGuideSourceKind prevOwner = s.effectiveOwnerSource;
+    s.effectiveOwnerSource = InputGuideSourceKind::Keyboard;
+    s.pendingOwnerIdeal = InputGuideSourceKind::Unknown;
+    s.pendingOwnerSinceTick = 0;
+    LogOwnerCommitIfChanged(prevOwner, s.effectiveOwnerSource);
     const GameControllerKind g = EffectiveGuideFromOwner();
     LogGuideFamilyIfChanged(g);
 }
@@ -198,40 +202,41 @@ void MaybeLogInventoryVersusLatchedGuide(GameControllerKind prevInvFamily)
     {
         return;
     }
-    if (!g_sp.inventoryPadPresent)
+    PlayerSlotState& s = PrimarySlot();
+    if (!s.inventoryPadPresent)
     {
         return;
     }
-    if (prevInvFamily == g_sp.inventoryPadFamily)
+    if (prevInvFamily == s.inventoryPadFamily)
     {
         return;
     }
-    if (g_sp.ownerSource != InputGuideSourceKind::Gamepad)
+    if (s.effectiveOwnerSource != InputGuideSourceKind::Gamepad)
     {
         return;
     }
-    if (g_sp.latchedGamepadGuideFamily == GameControllerKind::Unknown)
+    if (s.latchedGamepadGuideFamily == GameControllerKind::Unknown)
     {
         return;
     }
-    if (g_sp.latchedGamepadGuideFamily == g_sp.inventoryPadFamily)
+    if (s.latchedGamepadGuideFamily == s.inventoryPadFamily)
     {
         return;
     }
     const DWORD now = GetTickCount();
-    if (g_sp.lastInventoryGuideKeptLogTick != 0u &&
-        ElapsedMs(now, g_sp.lastInventoryGuideKeptLogTick) < 2000u)
+    if (s.lastInventoryGuideKeptLogTick != 0u &&
+        ElapsedMs(now, s.lastInventoryGuideKeptLogTick) < 2000u)
     {
         return;
     }
-    g_sp.lastInventoryGuideKeptLogTick = now;
+    s.lastInventoryGuideKeptLogTick = now;
     wchar_t line[280] = {};
     swprintf_s(
         line,
         _countof(line),
         L"[T76] inventory family changed; guide latched kept (inv=%s latched=%s)\r\n",
-        FamilyShortLabel(g_sp.inventoryPadFamily),
-        FamilyShortLabel(g_sp.latchedGamepadGuideFamily));
+        FamilyShortLabel(s.inventoryPadFamily),
+        FamilyShortLabel(s.latchedGamepadGuideFamily));
     OutputDebugStringW(line);
 }
 } // namespace
@@ -241,14 +246,16 @@ void InputGuideArbiter_OnDeviceInventoryRefreshed(
     bool hidGamepadFound,
     int xinputSlot)
 {
-    const GameControllerKind prevInv = g_sp.inventoryPadFamily;
-    g_sp.inventoryPadFamily = inventoryGamepadFamily;
-    g_sp.inventoryPadPresent = hidGamepadFound || (xinputSlot >= 0);
+    EnsurePrimaryPlayerSlotSeededForT76();
+    PlayerSlotState& s = PrimarySlot();
+    const GameControllerKind prevInv = s.inventoryPadFamily;
+    s.inventoryPadFamily = inventoryGamepadFamily;
+    s.inventoryPadPresent = hidGamepadFound || (xinputSlot >= 0);
     LogInventoryIfChanged();
     MaybeLogInventoryVersusLatchedGuide(prevInv);
-    if (!g_sp.inventoryPadPresent)
+    if (!s.inventoryPadPresent)
     {
-        g_sp.latchedGamepadGuideFamily = GameControllerKind::Unknown;
+        s.latchedGamepadGuideFamily = GameControllerKind::Unknown;
     }
     ReconcileOwnerWithInventoryPresence();
     const GameControllerKind g = EffectiveGuideFromOwner();
@@ -260,26 +267,28 @@ void InputGuideArbiter_TickSinglePlayerFromConsumerFrames(
     const VirtualInputConsumerFrame& gamepadFrame,
     GameControllerKind gamepadGuideFamilyHintOnActivity)
 {
+    EnsurePrimaryPlayerSlotSeededForT76();
+    PlayerSlotState& s = PrimarySlot();
     const DWORD now = GetTickCount();
     const bool kb = ConsumerFrameHasMeaningfulAction(keyboardFrame);
     const bool pad = ConsumerFrameHasMeaningfulAction(gamepadFrame);
 
-    const InputGuideSourceKind rawIdeal = ComputeRawIdealOwner(kb, pad, g_sp.ownerSource);
+    const InputGuideSourceKind rawIdeal = ComputeRawIdealOwner(kb, pad, s.effectiveOwnerSource);
 
     bool shouldCommit = false;
-    if (g_sp.ownerSource == InputGuideSourceKind::Unknown &&
+    if (s.effectiveOwnerSource == InputGuideSourceKind::Unknown &&
         rawIdeal != InputGuideSourceKind::Unknown)
     {
         shouldCommit = true;
     }
-    else if (rawIdeal != g_sp.ownerSource)
+    else if (rawIdeal != s.effectiveOwnerSource)
     {
-        if (g_sp.pendingOwnerIdeal != rawIdeal)
+        if (s.pendingOwnerIdeal != rawIdeal)
         {
-            g_sp.pendingOwnerIdeal = rawIdeal;
-            g_sp.pendingOwnerSinceTick = now;
+            s.pendingOwnerIdeal = rawIdeal;
+            s.pendingOwnerSinceTick = now;
         }
-        else if (ElapsedMs(now, g_sp.pendingOwnerSinceTick) >= kOwnerIdealStableMs)
+        else if (ElapsedMs(now, s.pendingOwnerSinceTick) >= kOwnerIdealStableMs)
         {
             shouldCommit = true;
         }
@@ -288,45 +297,45 @@ void InputGuideArbiter_TickSinglePlayerFromConsumerFrames(
     {
         // rawIdeal == owner: idle. Keyboard consumer actions are often 1-tick edges; pad idle still
         // reads as Gamepad — do not clear a pending switch to the opposite source (T76 close).
-        if (g_sp.pendingOwnerIdeal == InputGuideSourceKind::Unknown ||
-            g_sp.pendingOwnerIdeal == g_sp.ownerSource)
+        if (s.pendingOwnerIdeal == InputGuideSourceKind::Unknown ||
+            s.pendingOwnerIdeal == s.effectiveOwnerSource)
         {
-            g_sp.pendingOwnerIdeal = InputGuideSourceKind::Unknown;
-            g_sp.pendingOwnerSinceTick = 0u;
+            s.pendingOwnerIdeal = InputGuideSourceKind::Unknown;
+            s.pendingOwnerSinceTick = 0u;
         }
     }
 
     if (shouldCommit)
     {
-        const InputGuideSourceKind prev = g_sp.ownerSource;
-        g_sp.ownerSource = rawIdeal;
-        g_sp.pendingOwnerIdeal = InputGuideSourceKind::Unknown;
-        g_sp.pendingOwnerSinceTick = 0u;
-        LogOwnerCommitIfChanged(prev, g_sp.ownerSource);
-        if (g_sp.ownerSource == InputGuideSourceKind::Keyboard)
+        const InputGuideSourceKind prev = s.effectiveOwnerSource;
+        s.effectiveOwnerSource = rawIdeal;
+        s.pendingOwnerIdeal = InputGuideSourceKind::Unknown;
+        s.pendingOwnerSinceTick = 0u;
+        LogOwnerCommitIfChanged(prev, s.effectiveOwnerSource);
+        if (s.effectiveOwnerSource == InputGuideSourceKind::Keyboard)
         {
-            g_sp.latchedGamepadGuideFamily = GameControllerKind::Unknown;
+            s.latchedGamepadGuideFamily = GameControllerKind::Unknown;
         }
-        if (g_sp.ownerSource == InputGuideSourceKind::Gamepad &&
-            g_sp.latchedGamepadGuideFamily == GameControllerKind::Unknown)
+        if (s.effectiveOwnerSource == InputGuideSourceKind::Gamepad &&
+            s.latchedGamepadGuideFamily == GameControllerKind::Unknown)
         {
             if (gamepadGuideFamilyHintOnActivity != GameControllerKind::Unknown)
             {
-                g_sp.latchedGamepadGuideFamily = gamepadGuideFamilyHintOnActivity;
+                s.latchedGamepadGuideFamily = gamepadGuideFamilyHintOnActivity;
             }
-            else if (g_sp.inventoryPadFamily != GameControllerKind::Unknown)
+            else if (s.inventoryPadFamily != GameControllerKind::Unknown)
             {
-                g_sp.latchedGamepadGuideFamily = g_sp.inventoryPadFamily;
+                s.latchedGamepadGuideFamily = s.inventoryPadFamily;
             }
         }
     }
 
-    if (g_sp.ownerSource == InputGuideSourceKind::Gamepad && pad &&
+    if (s.effectiveOwnerSource == InputGuideSourceKind::Gamepad && pad &&
         gamepadGuideFamilyHintOnActivity != GameControllerKind::Unknown)
     {
-        if (g_sp.latchedGamepadGuideFamily != gamepadGuideFamilyHintOnActivity)
+        if (s.latchedGamepadGuideFamily != gamepadGuideFamilyHintOnActivity)
         {
-            g_sp.latchedGamepadGuideFamily = gamepadGuideFamilyHintOnActivity;
+            s.latchedGamepadGuideFamily = gamepadGuideFamilyHintOnActivity;
         }
     }
 
@@ -336,10 +345,12 @@ void InputGuideArbiter_TickSinglePlayerFromConsumerFrames(
 
 InputGuideSourceKind InputGuideArbiter_GetEffectiveOwnerSourceKind()
 {
-    return g_sp.ownerSource;
+    EnsurePrimaryPlayerSlotSeededForT76();
+    return PrimarySlot().effectiveOwnerSource;
 }
 
 GameControllerKind InputGuideArbiter_GetEffectiveGuideFamilyForUi()
 {
+    EnsurePrimaryPlayerSlotSeededForT76();
     return EffectiveGuideFromOwner();
 }

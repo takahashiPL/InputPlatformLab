@@ -5651,6 +5651,7 @@ static void Win32_HudPaged_FillT18PageBody(wchar_t* buf, size_t bufCount)
     wchar_t whyHud[384] = {};
     Win32_T18_FillWhyHudShort(s_t18, whyHud, _countof(whyHud));
 
+    // T77: multi-player will use a slot table (default 4, cap 8). Today only slot 0 / 1P is wired; 2P+ lines come later.
     swprintf_s(
         buf,
         bufCount,
