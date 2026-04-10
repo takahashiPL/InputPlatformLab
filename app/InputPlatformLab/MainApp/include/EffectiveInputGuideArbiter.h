@@ -46,6 +46,9 @@ void InputGuideArbiter_SetSlot1LiveConsumeTrialArmed(bool armed);
 bool InputGuideArbiter_IsSlot1LiveConsumeTrialArmed();
 // Armed + Live override + keyboard-bound eligible (slot0 pauses live only in this case).
 bool InputGuideArbiter_IsSlot1LiveConsumeTrialActive();
+bool InputGuideArbiter_IsSlot0LiveConsumeHeldForSlot1KbTrial();
+// Debug: call once per consume pass; logs only on change (spam-safe).
+void InputGuideArbiter_DebugLogSlot1TrialObsIfChanged();
 // Resolved policy (default seed or manual override).
 PlayerSlotActualConsumePolicy InputGuideArbiter_GetSlotActualConsumePolicy(PlayerInputSlotIndex slot);
 // Seat/binding seed only (ignores ManualOverride).
@@ -120,5 +123,6 @@ void InputGuideArbiter_RecordSlotConsumeDispatchDryRun(
     const VirtualInputMenuSampleEvents& ev,
     UINT32 tick);
 void InputGuideArbiter_FormatSlotConsumeResultForT18(PlayerInputSlotIndex slot, wchar_t* buf, size_t bufCount);
-// Step15: compact suffix for 2P line when Live manual override (e.g. ·t1=rdy / ·t1=arm); empty otherwise.
-void InputGuideArbiter_FormatSlot1LiveTrialSuffixForT18(wchar_t* buf, size_t bufCount);
+// Step17: unified trial token for 2P line: ·tr=off|rdy|nkb|kArm|kOn
+void InputGuideArbiter_FormatSlot1TrialObsForT18(wchar_t* buf, size_t bufCount);
+void InputGuideArbiter_FormatSlot0HoldObsTokenForT18(wchar_t* buf, size_t bufCount);

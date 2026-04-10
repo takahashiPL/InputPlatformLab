@@ -120,6 +120,47 @@ bool Slot1KeyboardBoundLiveTrialEligible(const PlayerSlotState* s)
     return true;
 }
 
+// Step17: single trial phase for T18 + debug (0=off … 4=kOn).
+int Slot1TrialObsPhaseCode(const PlayerSlotState* s1)
+{
+    if (!Slot1LiveManualLiveReady(s1))
+    {
+        return 0;
+    }
+    if (!g_slot1LiveConsumeTrialArmed)
+    {
+        return 1;
+    }
+    if (!Slot1KeyboardBoundLiveTrialEligible(s1))
+    {
+        return 2;
+    }
+    if (s1->consumeDispatchLast.kind == PlayerSlotConsumeDispatchResultKind::LiveApplied)
+    {
+        return 4;
+    }
+    return 3;
+}
+
+const wchar_t* Slot1TrialObsPhaseLabel(int code)
+{
+    switch (code)
+    {
+    case 0:
+        return L"off";
+    case 1:
+        return L"rdy";
+    case 2:
+        return L"nkb";
+    case 3:
+        return L"kArm";
+    case 4:
+        return L"kOn";
+    default:
+        return L"?";
+    }
+}
+
 void ResolveOnePlayerSlot(PlayerSlotState& s, const PlayerInputInventoryBindingView& inv, UINT32 tick)
 {
     PlayerSlotBindingResolution& r = s.bindingResolution;
@@ -1210,7 +1251,16 @@ bool InputGuideArbiter_IsSlot1LiveConsumeTrialActive()
         return false;
     }
     EnsurePrimaryPlayerSlotSeededForT76();
-    return Slot1LiveManualLiveReady(TryMutableSlot(1u));
+    const PlayerSlotState* s = TryMutableSlot(1u);
+    return Slot1LiveManualLiveReady(s) && Slot1KeyboardBoundLiveTrialEligible(s);
+}
+
+bool InputGuideArbiter_IsSlot0LiveConsumeHeldForSlot1KbTrial()
+{
+    EnsurePrimaryPlayerSlotSeededForT76();
+    const PlayerSlotState* s1 = TryMutableSlot(1u);
+    return g_slot1LiveConsumeTrialArmed && Slot1LiveManualLiveReady(s1) &&
+           Slot1KeyboardBoundLiveTrialEligible(s1);
 }
 
 PlayerSlotActualConsumePolicy InputGuideArbiter_GetSlotActualConsumePolicy(PlayerInputSlotIndex slot)
@@ -1933,7 +1983,7 @@ void InputGuideArbiter_FormatSlotConsumeResultForT18(PlayerInputSlotIndex slot, 
     }
 }
 
-void InputGuideArbiter_FormatSlot1LiveTrialSuffixForT18(wchar_t* buf, size_t bufCount)
+void InputGuideArbiter_FormatSlot1TrialObsForT18(wchar_t* buf, size_t bufCount)
 {
     if (!buf || bufCount == 0)
     {
@@ -1942,24 +1992,77 @@ void InputGuideArbiter_FormatSlot1LiveTrialSuffixForT18(wchar_t* buf, size_t buf
     buf[0] = L'\0';
     EnsurePrimaryPlayerSlotSeededForT76();
     const PlayerSlotState* s = TryMutableSlot(1u);
-    if (!Slot1LiveManualLiveReady(s))
+    const int code = Slot1TrialObsPhaseCode(s);
+    swprintf_s(buf, bufCount, L"·tr=%ls", Slot1TrialObsPhaseLabel(code));
+}
+
+void InputGuideArbiter_FormatSlot0HoldObsTokenForT18(wchar_t* buf, size_t bufCount)
+{
+    if (!buf || bufCount == 0)
     {
         return;
     }
-    if (!g_slot1LiveConsumeTrialArmed)
+    if (InputGuideArbiter_IsSlot0LiveConsumeHeldForSlot1KbTrial())
     {
-        wcscpy_s(buf, bufCount, L"·t1=rdy");
+        wcscpy_s(buf, bufCount, L"L1");
+    }
+    else
+    {
+        wcscpy_s(buf, bufCount, L"off");
+    }
+}
+
+void InputGuideArbiter_DebugLogSlot1TrialObsIfChanged()
+{
+#if !defined(_DEBUG)
+    return;
+#else
+    EnsurePrimaryPlayerSlotSeededForT76();
+    const PlayerSlotState* s1 = TryMutableSlot(1u);
+    const int phase = Slot1TrialObsPhaseCode(s1);
+    const bool h0 = InputGuideArbiter_IsSlot0LiveConsumeHeldForSlot1KbTrial();
+    const UINT8 s1k = static_cast<UINT8>(s1->consumeDispatchLast.kind);
+
+    static bool s_haveBaseline = false;
+    static int s_prevPhase = 0;
+    static bool s_prevH0 = false;
+    static UINT8 s_prevKind = 0;
+
+    if (!s_haveBaseline)
+    {
+        s_haveBaseline = true;
+        s_prevPhase = phase;
+        s_prevH0 = h0;
+        s_prevKind = s1k;
         return;
     }
-    if (!Slot1KeyboardBoundLiveTrialEligible(s))
+
+    if (phase == s_prevPhase && h0 == s_prevH0 && s1k == s_prevKind)
     {
-        wcscpy_s(buf, bufCount, L"·t1=nkb");
         return;
     }
-    if (s->consumeDispatchLast.kind == PlayerSlotConsumeDispatchResultKind::LiveApplied)
+
+    wchar_t line[192] = {};
+    swprintf_s(
+        line,
+        _countof(line),
+        L"[T77] trial %ls->%ls hold0 %d->%d s1k %u->%u\r\n",
+        Slot1TrialObsPhaseLabel(s_prevPhase),
+        Slot1TrialObsPhaseLabel(phase),
+        s_prevH0 ? 1 : 0,
+        h0 ? 1 : 0,
+        static_cast<unsigned>(s_prevKind),
+        static_cast<unsigned>(s1k));
+
+    OutputDebugStringW(line);
+
+    if (phase == 2 && s_prevPhase != 2)
     {
-        wcscpy_s(buf, bufCount, L"·t1=kOn");
-        return;
+        OutputDebugStringW(L"[T77] slot1 live blocked (non-kb) -> dry-run\r\n");
     }
-    wcscpy_s(buf, bufCount, L"·t1=kArm");
+
+    s_prevPhase = phase;
+    s_prevH0 = h0;
+    s_prevKind = s1k;
+#endif
 }

@@ -5713,10 +5713,10 @@ static void Win32_T18_FormatExtraPlayerOneLine(PlayerInputSlotIndex slot, wchar_
     InputGuideArbiter_FormatSlotConsumeResultForT18(slot, cr, _countof(cr));
     wchar_t stc[16] = {};
     Win32_T18_CompactBindResolveStatus(bst, stc, _countof(stc));
-    wchar_t t1suf[16] = {};
+    wchar_t t1suf[20] = {};
     if (slot == 1u)
     {
-        InputGuideArbiter_FormatSlot1LiveTrialSuffixForT18(t1suf, _countof(t1suf));
+        InputGuideArbiter_FormatSlot1TrialObsForT18(t1suf, _countof(t1suf));
     }
     const unsigned pn = static_cast<unsigned>(slot) + 1u;
     swprintf_s(
@@ -5791,8 +5791,10 @@ static void Win32_HudPaged_FillT18PageBody(wchar_t* buf, size_t bufCount)
 
     wchar_t cd0[48] = {};
     wchar_t cr0[48] = {};
+    wchar_t p0hold[12] = {};
     InputGuideArbiter_FormatSlotConsumePolicyForT18(0u, cd0, _countof(cd0));
     InputGuideArbiter_FormatSlotConsumeResultForT18(0u, cr0, _countof(cr0));
+    InputGuideArbiter_FormatSlot0HoldObsTokenForT18(p0hold, _countof(p0hold));
 
     wchar_t line2p[224] = {};
     wchar_t line3p[192] = {};
@@ -5810,7 +5812,7 @@ static void Win32_HudPaged_FillT18PageBody(wchar_t* buf, size_t bufCount)
         L"1P bind st=%ls mt=%ls\r\n"
         L"1P route cand=%ls | act=%ls | src=%ls\r\n"
         L"1P owner=%ls guide=%ls\r\n"
-        L"1P consume pol=%ls res=%ls src=stg0\r\n"
+        L"1P consume pol=%ls res=%ls hold=%ls src=stg0\r\n"
         L"1P staged in=%ls log=%ls\r\n"
         L"%ls\r\n"
         L"%ls\r\n"
@@ -5834,6 +5836,7 @@ static void Win32_HudPaged_FillT18PageBody(wchar_t* buf, size_t bufCount)
         Win32_T18_T76_OnePGuideFamilyLabel(),
         cd0,
         cr0,
+        p0hold,
         stg0,
         sl0,
         line2p,
@@ -7238,6 +7241,7 @@ static void Win32_DispatchVirtualMenuSampleLiveConsumeSlots(HWND hwndForPaint)
             InputGuideArbiter_RecordSlotConsumeDispatchSkipped(si, t);
         }
     }
+    InputGuideArbiter_DebugLogSlot1TrialObsIfChanged();
 }
 
 // キーとパッドの ConsumerFrame をマージしメニュー試作へ。末尾でタイマー境界のキー状態を進める。

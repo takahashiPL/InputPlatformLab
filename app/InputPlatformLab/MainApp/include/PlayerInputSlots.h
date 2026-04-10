@@ -19,6 +19,7 @@
 // - Step14: optional ManualOverride on consumePolicySource; Refresh only updates DefaultStep13Seed slots.
 // - Step15: slot1 live menu trial gate (ManualOverride Live + explicit flag).
 // - Step16: actual Apply only for BoundLocked keyboard + LockedKeyboard route; pad/HID stays dry-run; slot0 pauses only when slot1 kb trial consumes.
+// - Step17: T18 + Debug trial observability (phase/hold; diff logs only).
 #pragma once
 
 #include "GamepadTypes.h"
