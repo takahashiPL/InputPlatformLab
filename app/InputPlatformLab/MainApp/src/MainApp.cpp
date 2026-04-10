@@ -1,4 +1,4 @@
-// MainApp.cpp : アプリケーションのエントリ ポイントを定義します。
+﻿// MainApp.cpp : アプリケーションのエントリ ポイントを定義します。
 //
 
 #include "framework.h"
@@ -7055,7 +7055,12 @@ static void Win32_UnifiedInputMenuTick_MergeAndApply(HWND hwndForPaint)
 
     const VirtualInputConsumerFrame ctrlFrame =
         VirtualInputConsumer_BuildFrame(s_virtualInputPrev, s_virtualInputCurr);
-    InputGuideArbiter_TickSinglePlayerFromConsumerFrames(kbFrame, ctrlFrame);
+    const bool padMeaning =
+        ctrlFrame.confirmPressed || ctrlFrame.cancelPressed || ctrlFrame.menuPressed ||
+        ctrlFrame.moveX != 0 || ctrlFrame.moveY != 0;
+    const GameControllerKind padGuideHint =
+        padMeaning ? s_virtualInputCurr.family : GameControllerKind::Unknown;
+    InputGuideArbiter_TickSinglePlayerFromConsumerFrames(kbFrame, ctrlFrame, padGuideHint);
     const VirtualInputConsumerFrame unified =
         VirtualInputConsumer_MergeKeyboardController(kbForMerge, ctrlFrame);
     Win32_LogVirtualInputMenuSampleIfChanged(unified, hwndForPaint);

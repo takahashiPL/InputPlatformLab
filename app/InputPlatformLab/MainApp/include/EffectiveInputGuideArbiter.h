@@ -22,10 +22,13 @@ void InputGuideArbiter_OnDeviceInventoryRefreshed(
     int xinputSlot);
 
 // Timer frame: keyboard vs pad consumer frames (pre-merge). Updates owner from meaningful activity only.
+// gamepadGuideFamilyHintOnActivity: VirtualInputSnapshot.family when the pad frame has meaningful activity;
+// otherwise Unknown (do not refresh latch from inventory-only paths).
 void InputGuideArbiter_TickSinglePlayerFromConsumerFrames(
     const VirtualInputConsumerFrame& keyboardFrame,
-    const VirtualInputConsumerFrame& gamepadFrame);
+    const VirtualInputConsumerFrame& gamepadFrame,
+    GameControllerKind gamepadGuideFamilyHintOnActivity);
 
 InputGuideSourceKind InputGuideArbiter_GetEffectiveOwnerSourceKind();
-// For Gamepad owner: follows refreshed inventory family. For Keyboard owner: Unknown (generic keyboard-oriented labels).
+// Keyboard owner: Unknown. Gamepad owner: latched activity family if set, else inventory fallback.
 GameControllerKind InputGuideArbiter_GetEffectiveGuideFamilyForUi();
