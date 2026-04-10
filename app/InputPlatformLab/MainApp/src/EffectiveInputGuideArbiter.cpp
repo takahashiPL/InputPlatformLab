@@ -1311,6 +1311,7 @@ PlayerInputSlotIndex InputGuideArbiter_GetLiveConsumeTrialHotkeySlot()
 #if defined(_DEBUG)
 void InputGuideArbiter_DebugCycleLiveConsumeTrialTargetSlot()
 {
+    const PlayerInputSlotIndex prev = g_liveConsumeTrialTargetSlot;
     switch (g_liveConsumeTrialTargetSlot)
     {
     case 1u:
@@ -1326,20 +1327,23 @@ void InputGuideArbiter_DebugCycleLiveConsumeTrialTargetSlot()
         g_liveConsumeTrialTargetSlot = 1u;
         break;
     }
-    wchar_t msg[112] = {};
-    if (g_liveConsumeTrialTargetSlot == kPlayerInputNoLiveConsumeTrialTarget)
-    {
-        swprintf_s(msg, _countof(msg), L"[T77 dbg] F11: trial target -> none\r\n");
-    }
-    else
-    {
-        swprintf_s(
-            msg,
-            _countof(msg),
-            L"[T77 dbg] F11: trial target -> %uP\r\n",
-            static_cast<unsigned>(g_liveConsumeTrialTargetSlot) + 1u);
-    }
-    OutputDebugStringW(msg);
+    auto trgTag = [](PlayerInputSlotIndex s, wchar_t* b, size_t n) {
+        if (s == kPlayerInputNoLiveConsumeTrialTarget)
+        {
+            wcscpy_s(b, n, L"--");
+        }
+        else
+        {
+            swprintf_s(b, n, L"%uP", static_cast<unsigned>(s) + 1u);
+        }
+    };
+    wchar_t fromS[12] = {};
+    wchar_t toS[12] = {};
+    trgTag(prev, fromS, _countof(fromS));
+    trgTag(g_liveConsumeTrialTargetSlot, toS, _countof(toS));
+    wchar_t line[80] = {};
+    swprintf_s(line, _countof(line), L"[T77] trg %ls->%ls\r\n", fromS, toS);
+    OutputDebugStringW(line);
 }
 #endif
 
@@ -2077,7 +2081,9 @@ void InputGuideArbiter_FormatLiveTrialObsForT18(PlayerInputSlotIndex lineSlot, w
         return;
     }
     buf[0] = L'\0';
-    if (lineSlot != TrialTargetOrLegacySlot1())
+    // T77 step22: ·tr= only on the configured trial target row (trg=-- → no tr= on any line).
+    const PlayerInputSlotIndex configured = g_liveConsumeTrialTargetSlot;
+    if (configured == kPlayerInputNoLiveConsumeTrialTarget || lineSlot != configured)
     {
         return;
     }

@@ -21,7 +21,8 @@
 // - Step16: actual Apply only for BoundLocked keyboard + LockedKeyboard route; pad/HID stays dry-run; slot0 pauses only when slot1 kb trial consumes.
 // - Step17: T18 + Debug trial observability (phase/hold; diff logs only).
 // - Step19: single live consume slot (default 0; trial target only when armed+eligible+Manual Live).
-// - Step21: live trial target is slot-indexed (default 2P); F11 Debug cycles trg; F8/F9 follow trg (none→2P legacy).
+// - Step21/22: live trial target is slot-indexed (default 2P); F11 Debug cycles trg; F8/F9 follow trg (none→2P legacy);
+//   T18 ·tr= only on configured trg row; trg=-- → resolver stays on slot0 only.
 #pragma once
 
 #include "GamepadTypes.h"

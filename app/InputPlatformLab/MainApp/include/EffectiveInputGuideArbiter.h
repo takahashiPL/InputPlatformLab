@@ -136,5 +136,5 @@ void InputGuideArbiter_RecordSlotConsumeDispatchDryRun(
     const VirtualInputMenuSampleEvents& ev,
     UINT32 tick);
 void InputGuideArbiter_FormatSlotConsumeResultForT18(PlayerInputSlotIndex slot, wchar_t* buf, size_t bufCount);
-// Step17/21: trial phase on the trial-target player line: ·tr=off|rdy|nkb|kArm|kOn (empty if not target line).
+// Step17/21/22: ·tr= only when lineSlot == configured trg (trg=-- → empty on all lines).
 void InputGuideArbiter_FormatLiveTrialObsForT18(PlayerInputSlotIndex lineSlot, wchar_t* buf, size_t bufCount);
