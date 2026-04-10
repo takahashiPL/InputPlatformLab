@@ -842,6 +842,59 @@ void InputGuideArbiter_TickSinglePlayerFromConsumerFrames(
     }
 }
 
+static PlayerSlotActiveRouteMode ComputeSlot0ActiveRouteMode(const PlayerSlotState& s)
+{
+    const PlayerSlotRouteCandidate& c = s.routeCandidate;
+    if (c.readiness == PlayerSlotRouteReadiness::OpenReady)
+    {
+        return PlayerSlotActiveRouteMode::OpenSoft;
+    }
+    if (c.readiness == PlayerSlotRouteReadiness::Ready)
+    {
+        switch (c.mode)
+        {
+        case PlayerSlotRouteCandidateMode::LockedKeyboard:
+            return PlayerSlotActiveRouteMode::LockedKeyboard;
+        case PlayerSlotRouteCandidateMode::LockedXInputUser:
+            return PlayerSlotActiveRouteMode::LockedXinput;
+        case PlayerSlotRouteCandidateMode::LockedHidPath:
+            return PlayerSlotActiveRouteMode::LockedHid;
+        default:
+            return PlayerSlotActiveRouteMode::NoRoute;
+        }
+    }
+    return PlayerSlotActiveRouteMode::NoRoute;
+}
+
+void InputGuideArbiter_TickSlot0GenericRouteFromConsumerFrames(
+    const VirtualInputConsumerFrame& keyboardFrame,
+    const VirtualInputConsumerFrame& gamepadFrame,
+    GameControllerKind gamepadGuideFamilyHintOnActivity)
+{
+    EnsurePrimaryPlayerSlotSeededForT76();
+    PlayerSlotState& s = PrimarySlot();
+    const PlayerSlotRouteCandidate& c = s.routeCandidate;
+    const UINT32 t = static_cast<UINT32>(GetTickCount());
+    // Slot0 only: branch label tracks routeCandidate; kb/pad frames stay merged for T76 (behavior parity).
+    if (c.readiness == PlayerSlotRouteReadiness::OpenReady ||
+        c.readiness == PlayerSlotRouteReadiness::Ready)
+    {
+        s.activeRouteMode = ComputeSlot0ActiveRouteMode(s);
+        s.activeRoutedSourceKind = c.candidateSourceKind;
+    }
+    else
+    {
+        s.activeRouteMode = PlayerSlotActiveRouteMode::NoRoute;
+        s.activeRoutedSourceKind = InputGuideSourceKind::Unknown;
+    }
+    s.activeRouteLastTick = t;
+
+    InputGuideArbiter_TickSinglePlayerFromConsumerFrames(
+        keyboardFrame,
+        gamepadFrame,
+        gamepadGuideFamilyHintOnActivity);
+}
+
 InputGuideSourceKind InputGuideArbiter_GetEffectiveOwnerSourceKind()
 {
     EnsurePrimaryPlayerSlotSeededForT76();
@@ -1099,4 +1152,63 @@ void InputGuideArbiter_FormatSlotRouteCandidateForT18(PlayerInputSlotIndex slot,
         return;
     }
     FillSlotRouteCandidateLineForT18(*s, buf, bufCount);
+}
+
+void InputGuideArbiter_FormatSlot0ActiveRouteModeForT18(wchar_t* buf, size_t bufCount)
+{
+    if (!buf || bufCount == 0)
+    {
+        return;
+    }
+    buf[0] = L'\0';
+    EnsurePrimaryPlayerSlotSeededForT76();
+    switch (PrimarySlot().activeRouteMode)
+    {
+    case PlayerSlotActiveRouteMode::NoRoute:
+        wcscpy_s(buf, bufCount, L"no-route");
+        break;
+    case PlayerSlotActiveRouteMode::OpenSoft:
+        wcscpy_s(buf, bufCount, L"open-soft");
+        break;
+    case PlayerSlotActiveRouteMode::LockedKeyboard:
+        wcscpy_s(buf, bufCount, L"locked-keyboard");
+        break;
+    case PlayerSlotActiveRouteMode::LockedXinput:
+        wcscpy_s(buf, bufCount, L"locked-xinput");
+        break;
+    case PlayerSlotActiveRouteMode::LockedHid:
+        wcscpy_s(buf, bufCount, L"locked-hid");
+        break;
+    default:
+        wcscpy_s(buf, bufCount, L"no-route");
+        break;
+    }
+}
+
+void InputGuideArbiter_FormatSlot0RoutedSourceForT18(wchar_t* buf, size_t bufCount)
+{
+    if (!buf || bufCount == 0)
+    {
+        return;
+    }
+    buf[0] = L'\0';
+    EnsurePrimaryPlayerSlotSeededForT76();
+    const InputGuideSourceKind k = PrimarySlot().activeRoutedSourceKind;
+    if (k == InputGuideSourceKind::Unknown)
+    {
+        wcscpy_s(buf, bufCount, L"none");
+        return;
+    }
+    switch (k)
+    {
+    case InputGuideSourceKind::Keyboard:
+        wcscpy_s(buf, bufCount, L"Keyboard");
+        break;
+    case InputGuideSourceKind::Gamepad:
+        wcscpy_s(buf, bufCount, L"Gamepad");
+        break;
+    default:
+        wcscpy_s(buf, bufCount, L"Unknown");
+        break;
+    }
 }

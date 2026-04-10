@@ -65,3 +65,13 @@ enum class PlayerSlotRouteCandidateMode : UINT8
     LockedXInputUser,
     LockedHidPath,
 };
+
+// T77 step6: active branch for slot route (slot0 only wired; same consumer merge as pre-step6 for 1P).
+enum class PlayerSlotActiveRouteMode : UINT8
+{
+    NoRoute = 0,
+    OpenSoft,
+    LockedKeyboard,
+    LockedXinput,
+    LockedHid,
+};

@@ -5690,6 +5690,11 @@ static void Win32_HudPaged_FillT18PageBody(wchar_t* buf, size_t bufCount)
     InputGuideArbiter_FormatSlotRouteCandidateForT18(2u, rc2, _countof(rc2));
     InputGuideArbiter_FormatSlotRouteCandidateForT18(3u, rc3, _countof(rc3));
 
+    wchar_t arMode[80] = {};
+    wchar_t arSrc[80] = {};
+    InputGuideArbiter_FormatSlot0ActiveRouteModeForT18(arMode, _countof(arMode));
+    InputGuideArbiter_FormatSlot0RoutedSourceForT18(arSrc, _countof(arSrc));
+
     // T77: multi-player will use a slot table (default 4, cap 8). Input routing remains 1P; 2P/3P lines = policy only.
     swprintf_s(
         buf,
@@ -5715,6 +5720,8 @@ static void Win32_HudPaged_FillT18PageBody(wchar_t* buf, size_t bufCount)
         L"2P route candidate=%s\r\n"
         L"3P route candidate=%s\r\n"
         L"4P route candidate=%s\r\n"
+        L"1P active route=%s\r\n"
+        L"1P route source=%s\r\n"
         L"1P input owner=%s\r\n"
         L"1P guide family=%s\r\n",
         slotStr,
@@ -5741,6 +5748,8 @@ static void Win32_HudPaged_FillT18PageBody(wchar_t* buf, size_t bufCount)
         rc1,
         rc2,
         rc3,
+        arMode,
+        arSrc,
         Win32_InputGuideSourceKindUiLabel(InputGuideArbiter_GetEffectiveOwnerSourceKind()),
         Win32_T18_T76_OnePGuideFamilyLabel());
 }
@@ -7160,7 +7169,7 @@ static void Win32_UnifiedInputMenuTick_MergeAndApply(HWND hwndForPaint)
         ctrlFrame.moveX != 0 || ctrlFrame.moveY != 0;
     const GameControllerKind padGuideHint =
         padMeaning ? s_virtualInputCurr.family : GameControllerKind::Unknown;
-    InputGuideArbiter_TickSinglePlayerFromConsumerFrames(kbFrame, ctrlFrame, padGuideHint);
+    InputGuideArbiter_TickSlot0GenericRouteFromConsumerFrames(kbFrame, ctrlFrame, padGuideHint);
     const VirtualInputConsumerFrame unified =
         VirtualInputConsumer_MergeKeyboardController(kbForMerge, ctrlFrame);
     Win32_LogVirtualInputMenuSampleIfChanged(unified, hwndForPaint);

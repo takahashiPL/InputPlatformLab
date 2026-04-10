@@ -18,6 +18,12 @@ void InputGuideArbiter_TickSinglePlayerFromConsumerFrames(
     const VirtualInputConsumerFrame& gamepadFrame,
     GameControllerKind gamepadGuideFamilyHintOnActivity);
 
+// T77 step6: slot0 generic route entry (updates activeRoute* then delegates to T76 tick; same kb/pad frames).
+void InputGuideArbiter_TickSlot0GenericRouteFromConsumerFrames(
+    const VirtualInputConsumerFrame& keyboardFrame,
+    const VirtualInputConsumerFrame& gamepadFrame,
+    GameControllerKind gamepadGuideFamilyHintOnActivity);
+
 InputGuideSourceKind InputGuideArbiter_GetEffectiveOwnerSourceKind();
 // Keyboard owner: Unknown. Gamepad owner: latched activity family if set, else inventory fallback.
 GameControllerKind InputGuideArbiter_GetEffectiveGuideFamilyForUi();
@@ -55,3 +61,7 @@ void InputGuideArbiter_FormatSlotBindMatchForT18(PlayerInputSlotIndex slot, wcha
 
 // T77 step5: compact route-candidate label (no routing).
 void InputGuideArbiter_FormatSlotRouteCandidateForT18(PlayerInputSlotIndex slot, wchar_t* buf, size_t bufCount);
+
+// T77 step6: slot0 active route (post-candidate branch; still 1P-only input).
+void InputGuideArbiter_FormatSlot0ActiveRouteModeForT18(wchar_t* buf, size_t bufCount);
+void InputGuideArbiter_FormatSlot0RoutedSourceForT18(wchar_t* buf, size_t bufCount);

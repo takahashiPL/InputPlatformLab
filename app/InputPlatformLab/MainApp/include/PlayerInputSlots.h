@@ -9,6 +9,7 @@
 // - Step3: binding policy can be set per slot (open / locked / none); input is still merged for 1P / T76 only.
 // - Step4: bindingResolution = inventory presence vs declared bind (still no routing).
 // - Step5: routeCandidate = adoptable source/device if routing were enabled (soft for ActiveOpen; firm when locked+present).
+// - Step6: activeRoute = slot0 branch label wired each tick before T76; consumer frames unchanged (multi-slot later).
 #pragma once
 
 #include "GamepadTypes.h"
@@ -84,6 +85,11 @@ struct PlayerSlotState
     PlayerSlotLastSeenSourceMeta lastSeenSourceMeta;
     PlayerSlotBindingResolution bindingResolution;
     PlayerSlotRouteCandidate routeCandidate;
+
+    // Step6: last slot-route decision (intended for slot0 only in this build).
+    PlayerSlotActiveRouteMode activeRouteMode = PlayerSlotActiveRouteMode::NoRoute;
+    InputGuideSourceKind activeRoutedSourceKind = InputGuideSourceKind::Unknown;
+    UINT32 activeRouteLastTick = 0;
 
     // T76 effective state (maps to slot 0 / 1P).
     InputGuideSourceKind effectiveOwnerSource = InputGuideSourceKind::Unknown;
