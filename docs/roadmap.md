@@ -37,3 +37,9 @@
 | **前提条件** | レガシー縦積み HUD 分離フェーズは closed。slot2+ 本番・rebind・保存は **別フェーズ / defer**。 |
 | **保留事項** | auto assign、keyboard 複数席分割、guide family 本番完成は **意図的に未着手**。 |
 
+---
+
+| **目的** | Win32 周辺の**小工事フェーズを一区切り**。**次の第一候補**は [T19_T20_MANUAL_VERIFICATION_GUIDE.md](T19_T20_MANUAL_VERIFICATION_GUIDE.md) に沿った T19/T20 の受け入れ確認・手動検証の運用（再開入口は [NEXT_THEME_RESTART_ENTRY.md](NEXT_THEME_RESTART_ENTRY.md)）。 |
+| **想定順序** | docs から再開できる確認運用を優先。**`WM_PAINT` / `InvalidateRect` 近傍の重いテーマ**は後回し。 |
+| **前提条件** | ページ式 HUD が通常運用の正。レガシー縦積み HUD 分離フェーズは closed。T19/T20 の受け入れ・T76 close・T77 foundation close の一次情報は変えない。 |
+| **保留事項** | レンダラ実験・描画パイプライン拡張は、上記の検証手順の共有が先。 |
