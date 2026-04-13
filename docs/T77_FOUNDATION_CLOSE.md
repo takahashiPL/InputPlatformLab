@@ -29,7 +29,29 @@
   1. Move the slot-indexed trial toward **production-like routing** (incremental; keep defaults unchanged).
   2. **Multi-player owner / binding** production design (fix arbiter contracts and UI assumptions first; large refactors stay a separate phase).
 
+## Pre-branch freeze check（readiness）
+
+**As of 2026-04-13** — no code or default-behavior changes in this step; documentation alignment only.
+
+| Check | Result |
+|-------|--------|
+| foundation docs vs each other | [architecture.md](architecture.md)（layer / Debug / Pack-out）と本ノートの **default slot0 live・Debug trial・defer** は矛盾なし。[roadmap.md](roadmap.md) は本ノートを正と明記。 |
+| Debug-only (F8–F11, trial logs, `·tr=`) | architecture §Debug-only：`_DEBUG` / 非本番 consume 経路と読める。 |
+| reusable / platform / app / generated | architecture §Pack-out と [.gitignore](../.gitignore) で区別可能。 |
+| T19/T20 / paged HUD | 本ノート・roadmap：ページ式が正、legacy 分離は closed。 |
+
+**Frozen baseline for branch/tag**: T76/T77 foundation as documented here + architecture layer/pack-out notes + worklog entries on 2026-04-13. **Out of scope** until a new branch: defer table above.
+
+**Suggested names** (team convention wins):
+
+| Kind | Example |
+|------|---------|
+| Tag (snapshot) | `t77-foundation-close-2026-04-13` |
+| Branch from freeze | `milestone/t77-foundation-close` or `main` にマージ後の `develop` |
+| Next work branch | `feature/post-t77-foundation` (first **Go** item in close note; rename to match scope) |
+
 ## References
 
+- Layers / reuse / Debug: [architecture.md](architecture.md)（入力 foundation の整理、Pack-out）
 - Code: `EffectiveInputGuideArbiter.*`, `PlayerInputSlots.h`, `PlayerInputGuideTypes.h`
 - Log: [worklog.md](worklog.md)

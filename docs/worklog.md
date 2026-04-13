@@ -20,6 +20,13 @@
 ---
 
 | **日付** | 2026-04-13 |
+| **実施内容** | pre-branch freeze / readiness: doc consistency; T77_FOUNDATION_CLOSE.md Pre-branch section + branch/tag examples; link from architecture.md. No code changes. |
+| **確認できたこと** | foundation / layer / pack-out / default / Debug-only aligned; OK to branch or tag. |
+| **未解決事項** | Run git tag / branch locally per team. |
+
+---
+
+| **日付** | 2026-04-13 |
 | **実施内容** | 整理フェーズ2（repo hygiene）: `architecture.md` に Pack-out / reuse boundary、`.gitignore` に `*.VC.db-shm` / `*.VC.db-wal`、`MainApp.cpp` と主要ヘッダに 補助コメント。挙動不変。 |
 | **確認できたこと** | 持ち出し候補・platform・app glue・生成物の分類が一文書にまとまった。 |
 | **未解決事項** | なし。 |
