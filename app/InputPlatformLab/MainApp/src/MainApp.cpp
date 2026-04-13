@@ -1,4 +1,4 @@
-﻿// MainApp.cpp : アプリケーションのエントリ ポイントを定義します。
+// MainApp.cpp : アプリケーションのエントリ ポイントを定義します。
 //
 // Pack-out: app-specific glue + Win32 verification shell (WndProc, T18–T20, HUD). Not portable as-is.
 // See docs/architecture.md「Pack-out / reuse boundary」. Prefer copying neutral headers/.cpp + platform/win for reuse.
@@ -12,6 +12,7 @@
 #include "WindowsRenderer.h"
 #include "Win32DebugOverlay.h"
 #include "Win32HudPaged.h"
+#include "Win32InputGlue.h"
 #include "EffectiveInputGuideArbiter.h"
 
 #include <windowsx.h>
@@ -126,16 +127,7 @@ struct PhysicalKeyEvent
 };
 
 // === T25 [2] Parser / Support / HID 分類（中立） — T21: ControllerClassification.h / ControllerClassification.cpp
-// === T25 [8] 型：XInput スロット列挙結果（中立） — 実装・ログは [8] ブロック側へ ===
-// XInput スロット列挙結果（将来 input/ 配下へ移設可能）
-struct ControllerSlotProbeResult
-{
-    UINT8 slot;        // 0..3
-    bool connected;
-    UINT8 type;        // XINPUT_CAPABILITIES::Type
-    UINT8 sub_type;    // XINPUT_CAPABILITIES::SubType
-    UINT16 flags;      // XINPUT_CAPABILITIES::Flags
-};
+// XInput slot probe + Raw register / device string: Win32InputGlue.h / Win32InputGlue.cpp
 
 // T20: VirtualInputSnapshot / policy / keyboard→consumer — VirtualInputNeutral.h / VirtualInputNeutral.cpp
 
@@ -446,21 +438,13 @@ LRESULT CALLBACK    WndProc(HWND, UINT, WPARAM, LPARAM);
 INT_PTR CALLBACK    About(HWND, UINT, WPARAM, LPARAM);
 
 // [1] Physical key / keyboard label
-static BOOL Win32_RegisterKeyboardRawInput(HWND hwnd);
 static bool Win32_TryFillPhysicalKeyFromRawInput(HRAWINPUT hRaw, PhysicalKeyEvent& out);
 static bool Win32_TryFillDisplayLabel(const PhysicalKeyEvent& ev, wchar_t* buffer, size_t bufferCount);
 static void Win32_FillLayoutTag(wchar_t* buffer, size_t bufferCount);
 static void PhysicalKey_FormatDebugLine(const PhysicalKeyEvent& ev, const wchar_t* displayLabel, const wchar_t* layoutTag, wchar_t* buffer, size_t bufferCount);
 
-// [8] XInput slot probe / startup
-static void Win32_FillControllerSlotProbe(UINT8 slot, ControllerSlotProbeResult& out);
-static void Win32_LogControllerSlotProbeLine(const ControllerSlotProbeResult& probe);
-static void Win32_LogXInputSlotsAtStartup();
-
 // [2] family classify + [8] Raw Input HID 列挙
-static bool Win32_QueryAnyXInputConnected();
 static const wchar_t* Win32_GameControllerKindLabel(GameControllerKind kind);
-static bool Win32_TryGetRawInputDeviceString(HANDLE hDevice, UINT infoType, wchar_t* buffer, size_t bufferCount);
 static void Win32_LogRawInputHidGameControllersClassified();
 
 static const wchar_t* Win32_GameControllerKindFamilyLabel(GameControllerKind kind);
@@ -2024,7 +2008,7 @@ static bool Win32_RecreateMainWindowFromConfig(HWND oldHwnd, const MainWindowCon
         (void)WindowsRenderer_Init(newHwnd, wrCfg, &s_windowsRendererState);
     }
 
-    if (!Win32_RegisterKeyboardRawInput(newHwnd))
+    if (!Win32InputGlue_RegisterKeyboardRawInput(newHwnd))
     {
         OutputDebugStringW(L"[T16] RegisterRawInputDevices failed\r\n");
     }
@@ -3593,14 +3577,14 @@ BOOL InitInstance(HINSTANCE hInstance, int nCmdShow)
       s_t16RecreateStatus = T16RecreateStatus::Ok;
    }
 
-   if (!Win32_RegisterKeyboardRawInput(hWnd))
+   if (!Win32InputGlue_RegisterKeyboardRawInput(hWnd))
    {
       OutputDebugStringW(L"RegisterRawInputDevices failed\r\n");
    }
 
    Win32_LogDisplayMonitors();
 
-   Win32_LogXInputSlotsAtStartup();
+   Win32InputGlue_LogXInputSlotsAtStartup();
    Win32_LogRawInputHidGameControllersClassified();
    GamepadButton_LogLabelTablesAtStartup();
 
@@ -3618,84 +3602,7 @@ BOOL InitInstance(HINSTANCE hInstance, int nCmdShow)
    return TRUE;
 }
 
-// === T25 [1] Win32: Raw Input キーボード + HID GamePad 登録（PS4 等は WM_INPUT / RIM_TYPEHID） ===
-static BOOL Win32_RegisterKeyboardRawInput(HWND hwnd)
-{
-    RAWINPUTDEVICE rids[2] = {};
-    rids[0].usUsagePage = 0x01;
-    rids[0].usUsage = 0x06; // keyboard
-    rids[0].dwFlags = 0;
-    rids[0].hwndTarget = hwnd;
-    rids[1].usUsagePage = 0x01;
-    rids[1].usUsage = 0x05; // game pad
-    rids[1].dwFlags = 0;
-    rids[1].hwndTarget = hwnd;
-    return RegisterRawInputDevices(rids, 2, sizeof(RAWINPUTDEVICE));
-}
-
-// === T25 [8] Win32: XInput スロット列挙・接続確認（先頭接続スロット前提の土台） ===
-static void Win32_FillControllerSlotProbe(UINT8 slot, ControllerSlotProbeResult& out)
-{
-    out.slot = slot;
-    out.connected = false;
-    out.type = 0;
-    out.sub_type = 0;
-    out.flags = 0;
-
-    XINPUT_CAPABILITIES caps = {};
-    const DWORD err = XInputGetCapabilities(slot, XINPUT_FLAG_GAMEPAD, &caps);
-    if (err == ERROR_SUCCESS)
-    {
-        out.connected = true;
-        out.type = caps.Type;
-        out.sub_type = caps.SubType;
-        out.flags = caps.Flags;
-    }
-}
-
-static void Win32_LogControllerSlotProbeLine(const ControllerSlotProbeResult& probe)
-{
-    wchar_t line[256];
-    if (probe.connected)
-    {
-        swprintf_s(line, _countof(line),
-            L"XInput: slot=%u connected=yes type=0x%02X subtype=0x%02X flags=0x%04X\r\n",
-            static_cast<unsigned int>(probe.slot),
-            static_cast<unsigned int>(probe.type),
-            static_cast<unsigned int>(probe.sub_type),
-            static_cast<unsigned int>(probe.flags));
-    }
-    else
-    {
-        swprintf_s(line, _countof(line),
-            L"XInput: slot=%u connected=no\r\n",
-            static_cast<unsigned int>(probe.slot));
-    }
-    OutputDebugStringW(line);
-}
-
-static void Win32_LogXInputSlotsAtStartup()
-{
-    for (UINT8 i = 0; i < XUSER_MAX_COUNT; ++i)
-    {
-        ControllerSlotProbeResult probe{};
-        Win32_FillControllerSlotProbe(i, probe);
-        Win32_LogControllerSlotProbeLine(probe);
-    }
-}
-
-static bool Win32_QueryAnyXInputConnected()
-{
-    for (DWORD i = 0; i < XUSER_MAX_COUNT; ++i)
-    {
-        XINPUT_CAPABILITIES caps = {};
-        if (XInputGetCapabilities(i, XINPUT_FLAG_GAMEPAD, &caps) == ERROR_SUCCESS)
-        {
-            return true;
-        }
-    }
-    return false;
-}
+// Raw keyboard + HID gamepad registration, XInput slot probe, Raw device strings: Win32InputGlue.cpp
 
 // === T25 [2] Gamepad: family ラベル・論理ボタン名・表示ラベル表（将来: GamepadLabels.cpp） ===
 static const wchar_t* Win32_GameControllerKindLabel(GameControllerKind kind)
@@ -7913,40 +7820,11 @@ static void Win32_XInputPollDigitalEdgesOnTimer(HWND hwnd)
 }
 
 // === T25 [8] Win32: Raw Input デバイス文字列取得 + HID ゲームパッド列挙ログ ===
-static bool Win32_TryGetRawInputDeviceString(HANDLE hDevice, UINT infoType, wchar_t* buffer, size_t bufferCount)
-{
-    if (bufferCount == 0)
-    {
-        return false;
-    }
-    buffer[0] = L'\0';
-    UINT cbSize = 0;
-    if (GetRawInputDeviceInfo(hDevice, infoType, nullptr, &cbSize) == static_cast<UINT>(-1))
-    {
-        return false;
-    }
-    if (cbSize < sizeof(wchar_t))
-    {
-        return false;
-    }
-    const size_t maxBytes = (bufferCount - 1) * sizeof(wchar_t);
-    if (cbSize > maxBytes)
-    {
-        cbSize = static_cast<UINT>(maxBytes);
-    }
-    if (GetRawInputDeviceInfo(hDevice, infoType, buffer, &cbSize) == static_cast<UINT>(-1))
-    {
-        return false;
-    }
-    buffer[bufferCount - 1] = L'\0';
-    return true;
-}
-
 static void Win32_LogRawInputHidGameControllersClassified()
 {
     OutputDebugStringW(L"--- HID gamepads (Raw Input + classify) ---\r\n");
 
-    const bool anyXInput = Win32_QueryAnyXInputConnected();
+    const bool anyXInput = Win32InputGlue_QueryAnyXInputConnected();
 
     UINT numDevices = 0;
     if (GetRawInputDeviceList(nullptr, &numDevices, sizeof(RAWINPUTDEVICELIST)) == static_cast<UINT>(-1))
@@ -8003,8 +7881,8 @@ static void Win32_LogRawInputHidGameControllersClassified()
 
         wchar_t pathBuf[512] = {};
         wchar_t productBuf[256] = {};
-        Win32_TryGetRawInputDeviceString(hDevice, RIDI_DEVICENAME, pathBuf, _countof(pathBuf));
-        Win32_TryGetRawInputDeviceString(hDevice, RIDI_PRODUCTNAME, productBuf, _countof(productBuf));
+        Win32InputGlue_TryGetRawInputDeviceString(hDevice, RIDI_DEVICENAME, pathBuf, _countof(pathBuf));
+        Win32InputGlue_TryGetRawInputDeviceString(hDevice, RIDI_PRODUCTNAME, productBuf, _countof(productBuf));
 
         const wchar_t* productPtr = (productBuf[0] != L'\0') ? productBuf : nullptr;
         const wchar_t* pathPtr = (pathBuf[0] != L'\0') ? pathBuf : nullptr;
@@ -8224,7 +8102,7 @@ static void Win32_T77_ResolvePlayerSlotBindingsAfterSnapshot(const T18Controller
     for (UINT8 i = 0; i < XUSER_MAX_COUNT; ++i)
     {
         ControllerSlotProbeResult probe{};
-        Win32_FillControllerSlotProbe(i, probe);
+        Win32InputGlue_FillControllerSlotProbe(i, probe);
         view.xinputUserConnected[i] = probe.connected;
     }
     view.inventoryHidRowPresent = snap.hid_found;
@@ -8255,7 +8133,7 @@ static void Win32_T18_RefreshControllerIdentifySnapshot(bool emitDiffLog)
         snap.xinput_slot = static_cast<int>(slotDw);
     }
 
-    const bool anyXInput = Win32_QueryAnyXInputConnected();
+    const bool anyXInput = Win32InputGlue_QueryAnyXInputConnected();
 
     UINT numDevices = 0;
     if (GetRawInputDeviceList(nullptr, &numDevices, sizeof(RAWINPUTDEVICELIST)) != static_cast<UINT>(-1) &&
@@ -8301,8 +8179,8 @@ static void Win32_T18_RefreshControllerIdentifySnapshot(bool emitDiffLog)
 
                 wchar_t pathBuf[512] = {};
                 wchar_t productBuf[256] = {};
-                Win32_TryGetRawInputDeviceString(hDevice, RIDI_DEVICENAME, pathBuf, _countof(pathBuf));
-                Win32_TryGetRawInputDeviceString(hDevice, RIDI_PRODUCTNAME, productBuf, _countof(productBuf));
+                Win32InputGlue_TryGetRawInputDeviceString(hDevice, RIDI_DEVICENAME, pathBuf, _countof(pathBuf));
+                Win32InputGlue_TryGetRawInputDeviceString(hDevice, RIDI_PRODUCTNAME, productBuf, _countof(productBuf));
 
                 const bool productUsable =
                     (productBuf[0] != L'\0') && !Win32_T18_RawInputProductLooksLikeDevicePath(productBuf);

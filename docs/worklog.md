@@ -20,6 +20,13 @@
 ---
 
 | **日付** | 2026-04-13 |
+| **実施内容** | post-foundation step1: `Win32InputGlue.h` / `Win32InputGlue.cpp` に Raw Input 登録・XInput スロット probe/ログ・`GetRawInputDeviceInfo` 文字列取得を切り出し（`MainApp.cpp` から移動、挙動不変）。`MainApp.vcxproj` に TU 追加。 |
+| **確認できたこと** | Debug\|x64 ビルド成功（既存 C4244 のみ）。 |
+| **未解決事項** | なし。 |
+
+---
+
+| **日付** | 2026-04-13 |
 | **実施内容** | pre-branch freeze / readiness: doc consistency; T77_FOUNDATION_CLOSE.md Pre-branch section + branch/tag examples; link from architecture.md. No code changes. |
 | **確認できたこと** | foundation / layer / pack-out / default / Debug-only aligned; OK to branch or tag. |
 | **未解決事項** | Run git tag / branch locally per team. |

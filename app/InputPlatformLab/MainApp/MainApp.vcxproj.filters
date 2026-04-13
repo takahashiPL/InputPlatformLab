@@ -78,6 +78,9 @@
     <ClInclude Include="include\platform\win\Win32MainAppPaintDbg_shared_link.h">
       <Filter>include\platform\win</Filter>
     </ClInclude>
+    <ClInclude Include="include\platform\win\Win32InputGlue.h">
+      <Filter>include\platform\win</Filter>
+    </ClInclude>
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="src\MainApp.cpp">
@@ -96,6 +99,9 @@
       <Filter>src\platform\win</Filter>
     </ClCompile>
     <ClCompile Include="src\platform\win\Win32DebugOverlayLegacyStacked.cpp">
+      <Filter>src\platform\win</Filter>
+    </ClCompile>
+    <ClCompile Include="src\platform\win\Win32InputGlue.cpp">
       <Filter>src\platform\win</Filter>
     </ClCompile>
   </ItemGroup>

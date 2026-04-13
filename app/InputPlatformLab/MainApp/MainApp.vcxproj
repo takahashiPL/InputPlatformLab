@@ -154,6 +154,7 @@
     <ClInclude Include="include\platform\win\Win32DebugOverlayLegacyStacked_internal.h" />
     <ClInclude Include="include\platform\win\Win32MainAppPaintDbg_shared_link.h" />
     <ClInclude Include="include\platform\win\Win32HudPaged.h" />
+    <ClInclude Include="include\platform\win\Win32InputGlue.h" />
     <ClInclude Include="include\VirtualInputMenuSample.h" />
     <ClInclude Include="include\VirtualInputNeutral.h" />
     <ClInclude Include="include\PlayerInputGuideTypes.h" />
@@ -166,6 +167,7 @@
     <ClCompile Include="src\platform\win\WindowsRenderer.cpp" />
     <ClCompile Include="src\platform\win\Win32DebugOverlay.cpp" />
     <ClCompile Include="src\platform\win\Win32DebugOverlayLegacyStacked.cpp" />
+    <ClCompile Include="src\platform\win\Win32InputGlue.cpp" />
     <ClCompile Include="src\MainApp.cpp" />
     <ClCompile Include="src\VirtualInputNeutral.cpp" />
     <ClCompile Include="src\EffectiveInputGuideArbiter.cpp" />
