@@ -30,3 +30,10 @@
 | **前提条件** | T17 ログは枠・クライアント、T34 committed はレンダラ解像度として **別軸**（[t34_t35_display_and_render.md](t34_t35_display_and_render.md)、[decisions.md](decisions.md)）。 |
 | **保留事項** | T17 と committed のログ上の揃え、Fullscreen での committed オフスクリーン、GDI の仮想解像度対応は **将来**（t35 §5）。 |
 
+---
+
+| **目的** | **入力 foundation（T76/T77）を一区切り**。[T77_FOUNDATION_CLOSE.md](T77_FOUNDATION_CLOSE.md) を正とする。ページ式 HUD・T19/T20 受け入れ・既定の 1P live を崩さない。 |
+| **想定順序** | foundation close（step24）→ **停止可**。続く場合は close note の **Go** から **1本だけ** 着手（trial の routing 近接化 **または** multi-player owner/binding 設計）。 |
+| **前提条件** | レガシー縦積み HUD 分離フェーズは closed。slot2+ 本番・rebind・保存は **別フェーズ / defer**。 |
+| **保留事項** | auto assign、keyboard 複数席分割、guide family 本番完成は **意図的に未着手**。 |
+

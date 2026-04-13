@@ -19,6 +19,13 @@
 
 ---
 
+| **日付** | 2026-04-13 |
+| **実施内容** | **T77 step24**: foundation の **stop-go 判断**。[T77_FOUNDATION_CLOSE.md](T77_FOUNDATION_CLOSE.md) を追記（確定・defer・Stop/Go・次候補は最大2件）。コードと既定の動作は不変。 |
+| **確認できたこと** | T76/T77 の到達点（単一 live consume、slot-indexed trial、Debug 検証）で foundation として **close 可能**と整理。slot2+ 本番・owner 完成・rebind 等は **意図的 defer** と明記。 |
+| **未解決事項** | 続行時は close note の **Go** にある1本目からスコープを切る（新機能の一括追加はしない）。 |
+
+---
+
 | **日付** | 2026-04-06 |
 | **実施内容** | **レガシー縦積み HUD TU 分離フェーズを close**（`HUD_LEGACY_STACKED_PHASE_CLOSE.md`）。**次の本題テーマ**を **T35 §5（観測性・ログ整合）の第 1 歩**に絞る（legacy 分離の続き・T45/T46 移設はしない）。`MainApp.cpp` T17 コメントに `t35_display_mode_policy.md` §5 参照を 1 行追加（挙動不変）。 |
 | **確認できたこと** | [roadmap.md](roadmap.md) / 本ファイルの未解決（t35 §5）と整合。ページ式 HUD は正のまま、**表示モード・レンダリングの観測**を次の実装スパインとする判断を記録。 |
@@ -44,4 +51,6 @@
 | **実施内容** | T34 を完了として `t34_t35_display_and_render.md` に根拠を明記。T35 を `t35_display_mode_policy.md` で **正式方針固定**（3 モード表・T17 別軸・Fullscreen/CDS）。`decisions.md` に判断を追記。`WindowsRenderer.cpp` / `MainApp.cpp` のヘッダコメントを T35 固定に合わせて更新。 |
 | **確認できたこと** | 方針は「Windowed/Fullscreen はオフスクリーンなし」「Borderless は committed 時 T34」「GDI は実クライアント」のまま文書化。 |
 | **未解決事項** | t35 §5 の将来項目（ログ整合・Fullscreen オフスクリーン・GDI スケール）は未実装。 |
+
+
 
