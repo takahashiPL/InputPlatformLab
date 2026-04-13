@@ -158,17 +158,12 @@ Win32InputGlue_RawInputDeviceListStatus Win32InputGlue_FetchRawInputDeviceList(
     return Win32InputGlue_RawInputDeviceListStatus::Ok;
 }
 
-bool Win32InputGlue_FillHidSummaryFromRawInput(const RAWINPUT* raw, GameControllerHidSummary& out)
+bool Win32InputGlue_TryFillHidSummaryFromRawInputHandle(HANDLE hDevice, GameControllerHidSummary& out)
 {
-    if (raw == nullptr || raw->header.dwType != RIM_TYPEHID)
-    {
-        return false;
-    }
-    const HANDLE hDev = raw->header.hDevice;
     RID_DEVICE_INFO info = {};
     info.cbSize = sizeof(info);
     UINT cb = sizeof(info);
-    if (GetRawInputDeviceInfo(hDev, RIDI_DEVICEINFO, &info, &cb) == static_cast<UINT>(-1))
+    if (GetRawInputDeviceInfo(hDevice, RIDI_DEVICEINFO, &info, &cb) == static_cast<UINT>(-1))
     {
         return false;
     }
@@ -183,6 +178,15 @@ bool Win32InputGlue_FillHidSummaryFromRawInput(const RAWINPUT* raw, GameControll
     out.usage_page = info.hid.usUsagePage;
     out.usage = info.hid.usUsage;
     return true;
+}
+
+bool Win32InputGlue_FillHidSummaryFromRawInput(const RAWINPUT* raw, GameControllerHidSummary& out)
+{
+    if (raw == nullptr || raw->header.dwType != RIM_TYPEHID)
+    {
+        return false;
+    }
+    return Win32InputGlue_TryFillHidSummaryFromRawInputHandle(raw->header.hDevice, out);
 }
 
 bool Win32InputGlue_ConsumeT76RawHidInventoryRefreshThrottle400ms()
@@ -238,24 +242,11 @@ void Win32InputGlue_SurveyForT18InventoryRefresh(Win32InputGlue_T18InventorySurv
 
         const HANDLE hDevice = devices[i].hDevice;
 
-        RID_DEVICE_INFO info = {};
-        info.cbSize = sizeof(info);
-        UINT cbInfo = sizeof(info);
-        if (GetRawInputDeviceInfo(hDevice, RIDI_DEVICEINFO, &info, &cbInfo) == static_cast<UINT>(-1))
-        {
-            continue;
-        }
-        if (info.dwType != RIM_TYPEHID)
-        {
-            continue;
-        }
-
         GameControllerHidSummary traits = {};
-        traits.device_info_valid = true;
-        traits.vendor_id = static_cast<UINT16>(info.hid.dwVendorId);
-        traits.product_id = static_cast<UINT16>(info.hid.dwProductId);
-        traits.usage_page = info.hid.usUsagePage;
-        traits.usage = info.hid.usUsage;
+        if (!Win32InputGlue_TryFillHidSummaryFromRawInputHandle(hDevice, traits))
+        {
+            continue;
+        }
 
         if (!Win32_HidTraitsLookLikeGamepad(traits))
         {

@@ -7423,24 +7423,11 @@ static void Win32_LogRawInputHidGameControllersClassified()
 
         const HANDLE hDevice = devices[i].hDevice;
 
-        RID_DEVICE_INFO info = {};
-        info.cbSize = sizeof(info);
-        UINT cbInfo = sizeof(info);
-        if (GetRawInputDeviceInfo(hDevice, RIDI_DEVICEINFO, &info, &cbInfo) == static_cast<UINT>(-1))
-        {
-            continue;
-        }
-        if (info.dwType != RIM_TYPEHID)
-        {
-            continue;
-        }
-
         GameControllerHidSummary traits = {};
-        traits.device_info_valid = true;
-        traits.vendor_id = static_cast<UINT16>(info.hid.dwVendorId);
-        traits.product_id = static_cast<UINT16>(info.hid.dwProductId);
-        traits.usage_page = info.hid.usUsagePage;
-        traits.usage = info.hid.usUsage;
+        if (!Win32InputGlue_TryFillHidSummaryFromRawInputHandle(hDevice, traits))
+        {
+            continue;
+        }
 
         if (!Win32_HidTraitsLookLikeGamepad(traits))
         {

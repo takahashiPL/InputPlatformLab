@@ -50,6 +50,9 @@ Win32InputGlue_RawInputDeviceListStatus Win32InputGlue_FetchRawInputDeviceList(
 // RIDI_DEVICEINFO from RAWINPUT (HID path). false if not HID or API failure.
 bool Win32InputGlue_FillHidSummaryFromRawInput(const RAWINPUT* raw, GameControllerHidSummary& out);
 
+// RIDI_DEVICEINFO from enumerated Raw Input device handle (not WM_INPUT packet). false if not HID or API failure.
+bool Win32InputGlue_TryFillHidSummaryFromRawInputHandle(HANDLE hDevice, GameControllerHidSummary& out);
+
 // T76: Raw HID traffic-driven T18 inventory refresh throttle (400 ms, GetTickCount).
 bool Win32InputGlue_ConsumeT76RawHidInventoryRefreshThrottle400ms();
 
