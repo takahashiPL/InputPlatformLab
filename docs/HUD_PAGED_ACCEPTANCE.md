@@ -226,6 +226,7 @@ windowed / borderless / fullscreen 等のプレゼンテーション状態と ca
 - (code) logical / pad L+R / analog の本文生成、論理+pad 即時 invalidation、analog のみ間引き、Clamp（40 行・96 文字）、標準サイズ向け**縦圧縮レイアウト**が `MainApp.cpp` に実装済み。  
 - **表示目標**: 標準 HUD サイズで **3 ブロック同時表示**まで調整済み（受け入れ候補版）。  
 - **2026-04-06**: 同一ビルド・起動スモーク成功（**入力デバイスを伴う目視は本セッション未実施**）。
+- **2026-04-13**: **Debug\|x64**、**5/7** の T19 で目視。**OK（注記あり）**。keyboard は **Backspace / Tab / Up / Down** で common logical の応答を確認（**Enter** は **T17 apply** と競合、**Left / Right** はページ送りと競合のため、今回の最小確認では主対象外）。**analog** は **LS** の値変化を確認。
 
 **条件付き確認済み**  
 - PS4 ブリッジ経路・pad L+R の開発時確認、keyboard/XInput の論理合成経路（**網羅テストは未記録**）。
@@ -251,7 +252,8 @@ windowed / borderless / fullscreen 等のプレゼンテーション状態と ca
 **確認済み**  
 - (code) `Win32_FormatBuildDebugManifest` が **T20 本文**と **`Win32_EmitBuildInfoLogOnce`（`[BUILDINFO]`）** の**両方**で呼ばれ、**同一のマニフェスト文字列**が生成される（`MainApp.cpp`）。  
 - **2026-04-09**: **Debug\|x64** で HUD 上に `config=Debug`、`platform=x64`、`pagedHUD=on`（表記は行幅で切れる場合あり）、`WIN32_HUD_USE_PAGED_HUD=1`、列挙 PS4/論理/T18 系マクロが **0**、`__DATE__` / `__TIME__` 行を目視。**BUILDINFO 対応**は **(code) 同一関数** + **本HUD の行が起動時ログと一致する前提**で受け入れ（同一バイナリでは本文の差は出ない）。  
-- **2026-04-10**: **Release\|x64** をビルドし、T20 で **`config=Release`**・`platform=x64`・同一マクロ列を目視（`__DATE__` / `__TIME__` はそのビルドの値）。
+- **2026-04-10**: **Release\|x64** をビルドし、T20 で **`config=Release`**・`platform=x64`・同一マクロ列を目視（`__DATE__` / `__TIME__` はそのビルドの値）。  
+- **2026-04-13**: **Debug\|x64**、**7/7** の T20。**OK**。HUD の `config=Debug` / `platform=x64` / `pagedHUD=on` 等が **`[BUILDINFO]`** と整合することを確認。
 
 **条件付き確認済み**  
 - （空）
@@ -291,3 +293,4 @@ windowed / borderless / fullscreen 等のプレゼンテーション状態と ca
 | **2026-04-09** | **T15/T16**: T15 の **↑↓** 追従と T16 本文を実確認。T15 プリセットと T16 target の**軸の違い**を文書化 |
 | **2026-04-09** | **T18/T20**: T18 の DS4 行を再目視。T20 と **`[BUILDINFO]`** の **同一関数**由来を明記（**Release\|x64** は **2026-04-10** に追記） |
 | **2026-04-10** | **残余**: T14 **↑↓**、T17 **Fullscreen** HUD、T20 **Release\|x64**。T18 抜き差し・T17 マルチモニタは未実施 |
+| **2026-04-13** | **T19/T20** 手動確認（**Debug\|x64**）: T19 **OK**（keyboard は Backspace/Tab/Up/Down 主、Enter は T17 apply・Left/Right はページ送りと競合の注記、analog **LS** 確認）、T20 **OK**（HUD と **`[BUILDINFO]`** 整合） |
