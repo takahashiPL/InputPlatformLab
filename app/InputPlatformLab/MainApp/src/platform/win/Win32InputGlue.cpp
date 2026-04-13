@@ -14,7 +14,11 @@ void Win32InputGlueInternal_TryFillHidDevicenameAndProductName(
     wchar_t* pathBuf,
     size_t pathCap,
     wchar_t* productBuf,
-    size_t productCap);
+    size_t productCap)
+{
+    Win32InputGlue_TryGetRawInputDeviceString(hDevice, RIDI_DEVICENAME, pathBuf, pathCap);
+    Win32InputGlue_TryGetRawInputDeviceString(hDevice, RIDI_PRODUCTNAME, productBuf, productCap);
+}
 }
 
 BOOL Win32InputGlue_RegisterKeyboardRawInput(HWND hwnd)
@@ -210,20 +214,6 @@ bool Win32InputGlue_TryGetRawInputDeviceString(
     }
     buffer[bufferCount - 1] = L'\0';
     return true;
-}
-
-namespace
-{
-void Win32InputGlueInternal_TryFillHidDevicenameAndProductName(
-    HANDLE hDevice,
-    wchar_t* pathBuf,
-    size_t pathCap,
-    wchar_t* productBuf,
-    size_t productCap)
-{
-    Win32InputGlue_TryGetRawInputDeviceString(hDevice, RIDI_DEVICENAME, pathBuf, pathCap);
-    Win32InputGlue_TryGetRawInputDeviceString(hDevice, RIDI_PRODUCTNAME, productBuf, productCap);
-}
 }
 
 DWORD Win32InputGlue_GetFirstConnectedXInputSlotOrMax()
