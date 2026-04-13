@@ -433,11 +433,6 @@ static void Win32_T18_LogCurrentSnapshotForced();
 static void Win32_T18_AppendPaintSection(
     wchar_t* buf, size_t bufCount, bool compactT59, bool ultraT60, bool compactT64Fullscreen);
 
-// [2] Gamepad button label tables
-static const wchar_t* GamepadButton_GetIdName(GamepadButtonId id);
-static const wchar_t* GamepadButton_GetDisplayLabel(GamepadButtonId id, GameControllerKind family);
-static void GamepadButton_LogLabelTablesAtStartup();
-
 // [8] bridge + [7] VirtualInput ログ群
 static void Win32_FillVirtualInputSnapshotFromXInputState(const XINPUT_STATE& st, VirtualInputSnapshot& out);
 static void Win32_LogVirtualInputSnapshotSummary(const VirtualInputSnapshot& snap, DWORD slot);
@@ -3442,7 +3437,7 @@ BOOL InitInstance(HINSTANCE hInstance, int nCmdShow)
 
    Win32InputGlue_LogXInputSlotsAtStartup();
    Win32InputGlue_LogRawInputHidGameControllersClassified();
-   GamepadButton_LogLabelTablesAtStartup();
+   Win32_GamepadButton_LogLabelTablesAtStartup();
 
    // WM_INPUT の [HIDgen] より先に T18 スナップショットを埋め、同一 VID/PID のログを抑止できるようにする。
    Win32_T18_RefreshControllerIdentifySnapshot();
@@ -3459,112 +3454,7 @@ BOOL InitInstance(HINSTANCE hInstance, int nCmdShow)
 }
 
 // Raw keyboard + HID gamepad registration, XInput slot probe, Raw device strings: Win32InputGlue.cpp
-
-// === T25 [2] Gamepad: family ラベル・論理ボタン名・表示ラベル表（将来: GamepadLabels.cpp） ===
-static const wchar_t* GamepadButton_GetIdName(GamepadButtonId id)
-{
-    switch (id)
-    {
-    case GamepadButtonId::South: return L"South";
-    case GamepadButtonId::East: return L"East";
-    case GamepadButtonId::West: return L"West";
-    case GamepadButtonId::North: return L"North";
-    case GamepadButtonId::L1: return L"L1";
-    case GamepadButtonId::R1: return L"R1";
-    case GamepadButtonId::L2: return L"L2";
-    case GamepadButtonId::R2: return L"R2";
-    case GamepadButtonId::L3: return L"L3";
-    case GamepadButtonId::R3: return L"R3";
-    case GamepadButtonId::Start: return L"Start";
-    case GamepadButtonId::Select: return L"Select";
-    case GamepadButtonId::DPadUp: return L"DPadUp";
-    case GamepadButtonId::DPadDown: return L"DPadDown";
-    case GamepadButtonId::DPadLeft: return L"DPadLeft";
-    case GamepadButtonId::DPadRight: return L"DPadRight";
-    default: return L"?";
-    }
-}
-
-static const wchar_t* GamepadButton_GetDisplayLabel(GamepadButtonId id, GameControllerKind family)
-{
-    const bool xboxLike =
-        (family == GameControllerKind::Xbox || family == GameControllerKind::XInputCompatible);
-    const bool ps = (family == GameControllerKind::PlayStation4 || family == GameControllerKind::PlayStation5);
-    const bool unknownFamily =
-        (family == GameControllerKind::Unknown || family == GameControllerKind::Nintendo);
-
-    switch (id)
-    {
-    case GamepadButtonId::South:
-        if (xboxLike) return L"A";
-        if (ps) return L"\u00D7";
-        return L"South";
-    case GamepadButtonId::East:
-        if (xboxLike) return L"B";
-        if (ps) return L"\u25CB";
-        return L"East";
-    case GamepadButtonId::West:
-        if (xboxLike) return L"X";
-        if (ps) return L"\u25A1";
-        return L"West";
-    case GamepadButtonId::North:
-        if (xboxLike) return L"Y";
-        if (ps) return L"\u25B3";
-        return L"North";
-    case GamepadButtonId::L1: return L"L1";
-    case GamepadButtonId::R1: return L"R1";
-    case GamepadButtonId::L2: return L"L2";
-    case GamepadButtonId::R2: return L"R2";
-    case GamepadButtonId::L3: return L"L3";
-    case GamepadButtonId::R3: return L"R3";
-    case GamepadButtonId::Start:
-        if (ps) return L"Options";
-        if (unknownFamily) return L"Start";
-        return L"Start";
-    case GamepadButtonId::Select:
-        if (ps) return L"Share";
-        if (xboxLike) return L"Back";
-        if (unknownFamily) return L"Select";
-        return L"View";
-    case GamepadButtonId::DPadUp: return L"DPadUp";
-    case GamepadButtonId::DPadDown: return L"DPadDown";
-    case GamepadButtonId::DPadLeft: return L"DPadLeft";
-    case GamepadButtonId::DPadRight: return L"DPadRight";
-    default: return L"?";
-    }
-}
-
-static void GamepadButton_LogLabelTablesAtStartup()
-{
-    OutputDebugStringW(L"--- Gamepad button labels (T10) ---\r\n");
-
-    static const GameControllerKind kFamilies[] = {
-        GameControllerKind::Xbox,
-        GameControllerKind::PlayStation4,
-        GameControllerKind::PlayStation5,
-        GameControllerKind::Nintendo,
-        GameControllerKind::XInputCompatible,
-        GameControllerKind::Unknown,
-    };
-
-    for (GameControllerKind family : kFamilies)
-    {
-        wchar_t header[96] = {};
-        swprintf_s(header, _countof(header), L"family=%s\r\n", Win32_GameControllerKindShortLabel(family));
-        OutputDebugStringW(header);
-
-        const auto count = static_cast<UINT8>(GamepadButtonId::Count);
-        for (UINT8 i = 0; i < count; ++i)
-        {
-            const GamepadButtonId bid = static_cast<GamepadButtonId>(i);
-            wchar_t line[192] = {};
-            swprintf_s(line, _countof(line), L"  id=%s label=\"%s\"\r\n",
-                GamepadButton_GetIdName(bid),
-                GamepadButton_GetDisplayLabel(bid, family));
-            OutputDebugStringW(line);
-        }
-    }
-}
+// Gamepad button id/display labels: ControllerClassification.cpp (Win32_GamepadButton*)
 
 // === T25 [8] XInput デジタルマスク → GamepadButtonId（ポーリング・エッジログと共有） ===
 struct XInputDigitalButtonMapEntry
@@ -7212,8 +7102,8 @@ static void Win32_XInputPollDigitalEdgesOnTimer(HWND hwnd)
             swprintf_s(line, _countof(line),
                 L"XInput[slot=%u] id=%s label=\"%s\" %s\r\n",
                 static_cast<unsigned int>(slot),
-                GamepadButton_GetIdName(e.id),
-                GamepadButton_GetDisplayLabel(e.id, kFamily),
+                Win32_GamepadButtonIdName(e.id),
+                Win32_GamepadButtonDisplayLabel(e.id, kFamily),
                 down ? L"down" : L"up");
             OutputDebugStringW(line);
         }
@@ -7233,8 +7123,8 @@ static void Win32_XInputPollDigitalEdgesOnTimer(HWND hwnd)
             swprintf_s(line, _countof(line),
                 L"XInput[slot=%u] id=%s label=\"%s\" %s value=%u\r\n",
                 static_cast<unsigned int>(slot),
-                GamepadButton_GetIdName(GamepadButtonId::L2),
-                GamepadButton_GetDisplayLabel(GamepadButtonId::L2, kFamily),
+                Win32_GamepadButtonIdName(GamepadButtonId::L2),
+                Win32_GamepadButtonDisplayLabel(GamepadButtonId::L2, kFamily),
                 l2Now ? L"down" : L"up",
                 static_cast<unsigned int>(lt));
             OutputDebugStringW(line);
@@ -7252,8 +7142,8 @@ static void Win32_XInputPollDigitalEdgesOnTimer(HWND hwnd)
             swprintf_s(line, _countof(line),
                 L"XInput[slot=%u] id=%s label=\"%s\" %s value=%u\r\n",
                 static_cast<unsigned int>(slot),
-                GamepadButton_GetIdName(GamepadButtonId::R2),
-                GamepadButton_GetDisplayLabel(GamepadButtonId::R2, kFamily),
+                Win32_GamepadButtonIdName(GamepadButtonId::R2),
+                Win32_GamepadButtonDisplayLabel(GamepadButtonId::R2, kFamily),
                 r2Now ? L"down" : L"up",
                 static_cast<unsigned int>(rt));
             OutputDebugStringW(line);

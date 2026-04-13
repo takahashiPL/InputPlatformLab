@@ -1,5 +1,8 @@
 #include "ControllerClassification.h"
 
+#include <Windows.h>
+
+#include <cstdio>
 #include <cwchar>
 
 // ---------------------------------------------------------------------------
@@ -127,6 +130,114 @@ const wchar_t* Win32_GameControllerKindShortLabel(GameControllerKind kind)
     case GameControllerKind::Nintendo: return L"Nintendo";
     case GameControllerKind::XInputCompatible: return L"XInputCompatible";
     default: return L"Unknown";
+    }
+}
+
+const wchar_t* Win32_GamepadButtonIdName(GamepadButtonId id)
+{
+    switch (id)
+    {
+    case GamepadButtonId::South: return L"South";
+    case GamepadButtonId::East: return L"East";
+    case GamepadButtonId::West: return L"West";
+    case GamepadButtonId::North: return L"North";
+    case GamepadButtonId::L1: return L"L1";
+    case GamepadButtonId::R1: return L"R1";
+    case GamepadButtonId::L2: return L"L2";
+    case GamepadButtonId::R2: return L"R2";
+    case GamepadButtonId::L3: return L"L3";
+    case GamepadButtonId::R3: return L"R3";
+    case GamepadButtonId::Start: return L"Start";
+    case GamepadButtonId::Select: return L"Select";
+    case GamepadButtonId::DPadUp: return L"DPadUp";
+    case GamepadButtonId::DPadDown: return L"DPadDown";
+    case GamepadButtonId::DPadLeft: return L"DPadLeft";
+    case GamepadButtonId::DPadRight: return L"DPadRight";
+    default: return L"?";
+    }
+}
+
+const wchar_t* Win32_GamepadButtonDisplayLabel(GamepadButtonId id, GameControllerKind family)
+{
+    const bool xboxLike =
+        (family == GameControllerKind::Xbox || family == GameControllerKind::XInputCompatible);
+    const bool ps = (family == GameControllerKind::PlayStation4 || family == GameControllerKind::PlayStation5);
+    const bool unknownFamily =
+        (family == GameControllerKind::Unknown || family == GameControllerKind::Nintendo);
+
+    switch (id)
+    {
+    case GamepadButtonId::South:
+        if (xboxLike) return L"A";
+        if (ps) return L"\u00D7";
+        return L"South";
+    case GamepadButtonId::East:
+        if (xboxLike) return L"B";
+        if (ps) return L"\u25CB";
+        return L"East";
+    case GamepadButtonId::West:
+        if (xboxLike) return L"X";
+        if (ps) return L"\u25A1";
+        return L"West";
+    case GamepadButtonId::North:
+        if (xboxLike) return L"Y";
+        if (ps) return L"\u25B3";
+        return L"North";
+    case GamepadButtonId::L1: return L"L1";
+    case GamepadButtonId::R1: return L"R1";
+    case GamepadButtonId::L2: return L"L2";
+    case GamepadButtonId::R2: return L"R2";
+    case GamepadButtonId::L3: return L"L3";
+    case GamepadButtonId::R3: return L"R3";
+    case GamepadButtonId::Start:
+        if (ps) return L"Options";
+        if (unknownFamily) return L"Start";
+        return L"Start";
+    case GamepadButtonId::Select:
+        if (ps) return L"Share";
+        if (xboxLike) return L"Back";
+        if (unknownFamily) return L"Select";
+        return L"View";
+    case GamepadButtonId::DPadUp: return L"DPadUp";
+    case GamepadButtonId::DPadDown: return L"DPadDown";
+    case GamepadButtonId::DPadLeft: return L"DPadLeft";
+    case GamepadButtonId::DPadRight: return L"DPadRight";
+    default: return L"?";
+    }
+}
+
+void Win32_GamepadButton_LogLabelTablesAtStartup()
+{
+    OutputDebugStringW(L"--- Gamepad button labels (T10) ---\r\n");
+
+    static const GameControllerKind kFamilies[] = {
+        GameControllerKind::Xbox,
+        GameControllerKind::PlayStation4,
+        GameControllerKind::PlayStation5,
+        GameControllerKind::Nintendo,
+        GameControllerKind::XInputCompatible,
+        GameControllerKind::Unknown,
+    };
+
+    for (GameControllerKind family : kFamilies)
+    {
+        wchar_t header[96] = {};
+        swprintf_s(header, sizeof(header) / sizeof(header[0]), L"family=%s\r\n", Win32_GameControllerKindShortLabel(family));
+        OutputDebugStringW(header);
+
+        const auto count = static_cast<UINT8>(GamepadButtonId::Count);
+        for (UINT8 i = 0; i < count; ++i)
+        {
+            const GamepadButtonId bid = static_cast<GamepadButtonId>(i);
+            wchar_t line[192] = {};
+            swprintf_s(
+                line,
+                sizeof(line) / sizeof(line[0]),
+                L"  id=%s label=\"%s\"\r\n",
+                Win32_GamepadButtonIdName(bid),
+                Win32_GamepadButtonDisplayLabel(bid, family));
+            OutputDebugStringW(line);
+        }
     }
 }
 
