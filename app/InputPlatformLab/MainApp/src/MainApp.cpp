@@ -434,7 +434,6 @@ static void Win32_FillLayoutTag(wchar_t* buffer, size_t bufferCount);
 static void PhysicalKey_FormatDebugLine(const PhysicalKeyEvent& ev, const wchar_t* displayLabel, const wchar_t* layoutTag, wchar_t* buffer, size_t bufferCount);
 
 // [2] family classify + [8] Raw Input HID 列挙
-static const wchar_t* Win32_GameControllerKindLabel(GameControllerKind kind);
 static void Win32_LogRawInputHidGameControllersClassified();
 
 static void Win32_T18_RefreshControllerIdentifySnapshot(bool emitDiffLog = true);
@@ -3470,19 +3469,6 @@ BOOL InitInstance(HINSTANCE hInstance, int nCmdShow)
 // Raw keyboard + HID gamepad registration, XInput slot probe, Raw device strings: Win32InputGlue.cpp
 
 // === T25 [2] Gamepad: family ラベル・論理ボタン名・表示ラベル表（将来: GamepadLabels.cpp） ===
-static const wchar_t* Win32_GameControllerKindLabel(GameControllerKind kind)
-{
-    switch (kind)
-    {
-    case GameControllerKind::Xbox: return L"Xbox";
-    case GameControllerKind::PlayStation4: return L"PS4";
-    case GameControllerKind::PlayStation5: return L"PS5";
-    case GameControllerKind::Nintendo: return L"Nintendo";
-    case GameControllerKind::XInputCompatible: return L"XInputCompatible";
-    default: return L"Unknown";
-    }
-}
-
 static const wchar_t* GamepadButton_GetIdName(GamepadButtonId id)
 {
     switch (id)
@@ -3572,7 +3558,7 @@ static void GamepadButton_LogLabelTablesAtStartup()
     for (GameControllerKind family : kFamilies)
     {
         wchar_t header[96] = {};
-        swprintf_s(header, _countof(header), L"family=%s\r\n", Win32_GameControllerKindLabel(family));
+        swprintf_s(header, _countof(header), L"family=%s\r\n", Win32_GameControllerKindShortLabel(family));
         OutputDebugStringW(header);
 
         const auto count = static_cast<UINT8>(GamepadButtonId::Count);
@@ -3970,7 +3956,7 @@ static void Win32_LogVirtualInputSnapshotSummary(const VirtualInputSnapshot& s, 
         L"Dpad=%d%d%d%d "
         L"L(%d,%d)z=%d Ldir=%s R(%d,%d)z=%d Rdir=%s\r\n",
         static_cast<unsigned int>(slot),
-        Win32_GameControllerKindLabel(s.family),
+        Win32_GameControllerKindShortLabel(s.family),
         s.connected ? 1 : 0,
         s.south ? 1 : 0,
         s.east ? 1 : 0,
@@ -4102,7 +4088,7 @@ static void Win32_LogVirtualInputPs4Slot99ShoulderGroupIfChanged(
         L"Dpad=%d%d%d%d "
         L"L(%d,%d)z=%d Ldir=%s R(%d,%d)z=%d Rdir=%s\r\n",
         static_cast<unsigned int>(slot),
-        Win32_GameControllerKindLabel(curr.family),
+        Win32_GameControllerKindShortLabel(curr.family),
         curr.connected ? 1 : 0,
         curr.south ? 1 : 0,
         curr.east ? 1 : 0,
@@ -7451,7 +7437,7 @@ static void Win32_LogRawInputHidGameControllersClassified()
         swprintf_s(line, _countof(line),
             L"Gamepad: kind=%s vid=0x%04X pid=0x%04X usage=0x%04X/0x%04X xinput_any=%d name=\"%s\" path=\"%s\" "
             L"parser=%s support=%s\r\n",
-            Win32_GameControllerKindLabel(kind),
+            Win32_GameControllerKindShortLabel(kind),
             static_cast<unsigned int>(traits.vendor_id),
             static_cast<unsigned int>(traits.product_id),
             static_cast<unsigned int>(traits.usage_page),
