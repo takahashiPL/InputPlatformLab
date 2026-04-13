@@ -62,7 +62,6 @@ const wchar_t* Win32_GameControllerKindShortLabel(GameControllerKind kind);
 // T10/T25: 論理ボタン ID名・ファミリ別の表示ラベル（HUD/ログ用。入力の解釈経路とは無関係）
 const wchar_t* Win32_GamepadButtonIdName(GamepadButtonId id);
 const wchar_t* Win32_GamepadButtonDisplayLabel(GamepadButtonId id, GameControllerKind family);
-void Win32_GamepadButton_LogLabelTablesAtStartup();
 
 // HID + 製品名 / デバイスパス文字列（任意）から family を推定。文字列は wchar_t（CRT の wcsstr のみ使用）
 GameControllerKind Win32_ClassifyGameControllerKind(

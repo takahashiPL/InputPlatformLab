@@ -3314,6 +3314,46 @@ static void Win32_T17_AppendPaintSection(
     wcscat_s(buf, bufCount, t17);
 }
 
+// T10: startup debug table only (OutputDebugStringW). Pure label lookups: ControllerClassification.
+static void Win32_LogGamepadButtonLabelTablesAtStartup()
+{
+    OutputDebugStringW(L"--- Gamepad button labels (T10) ---\r\n");
+
+    static const GameControllerKind kFamilies[] = {
+        GameControllerKind::Xbox,
+        GameControllerKind::PlayStation4,
+        GameControllerKind::PlayStation5,
+        GameControllerKind::Nintendo,
+        GameControllerKind::XInputCompatible,
+        GameControllerKind::Unknown,
+    };
+
+    for (GameControllerKind family : kFamilies)
+    {
+        wchar_t header[96] = {};
+        swprintf_s(
+            header,
+            _countof(header),
+            L"family=%s\r\n",
+            Win32_GameControllerKindShortLabel(family));
+        OutputDebugStringW(header);
+
+        const auto count = static_cast<UINT8>(GamepadButtonId::Count);
+        for (UINT8 i = 0; i < count; ++i)
+        {
+            const GamepadButtonId bid = static_cast<GamepadButtonId>(i);
+            wchar_t line[192] = {};
+            swprintf_s(
+                line,
+                _countof(line),
+                L"  id=%s label=\"%s\"\r\n",
+                Win32_GamepadButtonIdName(bid),
+                Win32_GamepadButtonDisplayLabel(bid, family));
+            OutputDebugStringW(line);
+        }
+    }
+}
+
 //
 //   関数: InitInstance(HINSTANCE, int)
 //
@@ -3437,7 +3477,7 @@ BOOL InitInstance(HINSTANCE hInstance, int nCmdShow)
 
    Win32InputGlue_LogXInputSlotsAtStartup();
    Win32InputGlue_LogRawInputHidGameControllersClassified();
-   Win32_GamepadButton_LogLabelTablesAtStartup();
+   Win32_LogGamepadButtonLabelTablesAtStartup();
 
    // WM_INPUT の [HIDgen] より先に T18 スナップショットを埋め、同一 VID/PID のログを抑止できるようにする。
    Win32_T18_RefreshControllerIdentifySnapshot();
@@ -3454,7 +3494,7 @@ BOOL InitInstance(HINSTANCE hInstance, int nCmdShow)
 }
 
 // Raw keyboard + HID gamepad registration, XInput slot probe, Raw device strings: Win32InputGlue.cpp
-// Gamepad button id/display labels: ControllerClassification.cpp (Win32_GamepadButton*)
+// Gamepad button id/display labels: ControllerClassification (Win32_GamepadButton*); startup table dump: MainApp (Win32_LogGamepadButtonLabelTablesAtStartup)
 
 // === T25 [8] XInput デジタルマスク → GamepadButtonId（ポーリング・エッジログと共有） ===
 struct XInputDigitalButtonMapEntry

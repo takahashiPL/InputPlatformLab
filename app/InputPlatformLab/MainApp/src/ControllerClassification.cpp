@@ -1,8 +1,5 @@
 #include "ControllerClassification.h"
 
-#include <Windows.h>
-
-#include <cstdio>
 #include <cwchar>
 
 // ---------------------------------------------------------------------------
@@ -203,41 +200,6 @@ const wchar_t* Win32_GamepadButtonDisplayLabel(GamepadButtonId id, GameControlle
     case GamepadButtonId::DPadLeft: return L"DPadLeft";
     case GamepadButtonId::DPadRight: return L"DPadRight";
     default: return L"?";
-    }
-}
-
-void Win32_GamepadButton_LogLabelTablesAtStartup()
-{
-    OutputDebugStringW(L"--- Gamepad button labels (T10) ---\r\n");
-
-    static const GameControllerKind kFamilies[] = {
-        GameControllerKind::Xbox,
-        GameControllerKind::PlayStation4,
-        GameControllerKind::PlayStation5,
-        GameControllerKind::Nintendo,
-        GameControllerKind::XInputCompatible,
-        GameControllerKind::Unknown,
-    };
-
-    for (GameControllerKind family : kFamilies)
-    {
-        wchar_t header[96] = {};
-        swprintf_s(header, sizeof(header) / sizeof(header[0]), L"family=%s\r\n", Win32_GameControllerKindShortLabel(family));
-        OutputDebugStringW(header);
-
-        const auto count = static_cast<UINT8>(GamepadButtonId::Count);
-        for (UINT8 i = 0; i < count; ++i)
-        {
-            const GamepadButtonId bid = static_cast<GamepadButtonId>(i);
-            wchar_t line[192] = {};
-            swprintf_s(
-                line,
-                sizeof(line) / sizeof(line[0]),
-                L"  id=%s label=\"%s\"\r\n",
-                Win32_GamepadButtonIdName(bid),
-                Win32_GamepadButtonDisplayLabel(bid, family));
-            OutputDebugStringW(line);
-        }
     }
 }
 
