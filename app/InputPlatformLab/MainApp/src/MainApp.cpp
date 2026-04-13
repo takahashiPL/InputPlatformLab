@@ -1,4 +1,4 @@
-// MainApp.cpp : アプリケーションのエントリ ポイントを定義します。
+﻿// MainApp.cpp : アプリケーションのエントリ ポイントを定義します。
 //
 // Pack-out: app-specific glue + Win32 verification shell (WndProc, T18–T20, HUD). Not portable as-is.
 // See docs/architecture.md「Pack-out / reuse boundary」. Prefer copying neutral headers/.cpp + platform/win for reuse.
@@ -493,7 +493,6 @@ static void Win32_LogVirtualInputMenuSample_StateDumpIfChanged(
     const VirtualInputMenuSampleState& s);
 
 // [8] タイマー XInput ポーリング（先頭スロット）
-static DWORD Win32_GetFirstConnectedXInputSlotOrMax();
 static void Win32_XInputPollDigitalEdgesOnTimer(HWND hwnd);
 
 // WndProc から切り出した薄いハンドラ（挙動は元 case と同一）
@@ -7441,19 +7440,7 @@ static void Win32_UnifiedInputConsumerMenuTick(HWND hwndForPaint)
 // タイマー: XInput ポーリング（先頭スロット）と、キー／パッドを統合したメニュー試作の 1 フレーム
 // ---------------------------------------------------------------------------
 
-// === T25 [8] Win32: 先頭接続スロット取得 + タイマーでの XInput 統合（VirtualInput 更新・エッジログ） ===
-static DWORD Win32_GetFirstConnectedXInputSlotOrMax()
-{
-    for (DWORD i = 0; i < XUSER_MAX_COUNT; ++i)
-    {
-        XINPUT_STATE state = {};
-        if (XInputGetState(i, &state) == ERROR_SUCCESS)
-        {
-            return i;
-        }
-    }
-    return XUSER_MAX_COUNT;
-}
+// 先頭接続 XInput スロット: Win32InputGlue_GetFirstConnectedXInputSlotOrMax
 
 static bool s_ps4DpadProbeHasPrev = false;
 static BYTE s_ps4DpadProbePrevB5Lo = 0;
@@ -7520,7 +7507,7 @@ static void Win32_XInputPollDigitalEdgesOnTimer(HWND hwnd)
 
     constexpr GameControllerKind kFamily = GameControllerKind::Xbox;
 
-    const DWORD slot = Win32_GetFirstConnectedXInputSlotOrMax();
+    const DWORD slot = Win32InputGlue_GetFirstConnectedXInputSlotOrMax();
     if (slot >= XUSER_MAX_COUNT)
     {
         // レイヤー 2: known DS4 HID が WM_INPUT で届いていれば VirtualInput を更新（DS4 verified マップ）
@@ -7826,27 +7813,25 @@ static void Win32_LogRawInputHidGameControllersClassified()
 
     const bool anyXInput = Win32InputGlue_QueryAnyXInputConnected();
 
-    UINT numDevices = 0;
-    if (GetRawInputDeviceList(nullptr, &numDevices, sizeof(RAWINPUTDEVICELIST)) == static_cast<UINT>(-1))
+    std::vector<RAWINPUTDEVICELIST> devices;
+    const auto listSt = Win32InputGlue_FetchRawInputDeviceList(devices);
+    if (listSt == Win32InputGlue_RawInputDeviceListStatus::CountQueryFailed)
     {
         OutputDebugStringW(L"GetRawInputDeviceList(count) failed\r\n");
         return;
     }
-    if (numDevices == 0)
+    if (listSt == Win32InputGlue_RawInputDeviceListStatus::DeviceListFailed)
+    {
+        OutputDebugStringW(L"GetRawInputDeviceList(list) failed\r\n");
+        return;
+    }
+    if (devices.empty())
     {
         OutputDebugStringW(L"(no Raw Input devices)\r\n");
         return;
     }
 
-    std::vector<RAWINPUTDEVICELIST> devices(numDevices);
-    UINT copyCount = numDevices;
-    if (GetRawInputDeviceList(devices.data(), &copyCount, sizeof(RAWINPUTDEVICELIST)) == static_cast<UINT>(-1))
-    {
-        OutputDebugStringW(L"GetRawInputDeviceList(list) failed\r\n");
-        return;
-    }
-
-    for (UINT i = 0; i < copyCount; ++i)
+    for (UINT i = 0; i < static_cast<UINT>(devices.size()); ++i)
     {
         if (devices[i].dwType != RIM_TYPEHID)
         {
@@ -8127,7 +8112,7 @@ static void Win32_T18_RefreshControllerIdentifySnapshot(bool emitDiffLog)
     snap.parser_kind = ControllerParserKind::None;
     snap.support_level = ControllerSupportLevel::Tentative;
 
-    const DWORD slotDw = Win32_GetFirstConnectedXInputSlotOrMax();
+    const DWORD slotDw = Win32InputGlue_GetFirstConnectedXInputSlotOrMax();
     if (slotDw < XUSER_MAX_COUNT)
     {
         snap.xinput_slot = static_cast<int>(slotDw);
@@ -8135,17 +8120,12 @@ static void Win32_T18_RefreshControllerIdentifySnapshot(bool emitDiffLog)
 
     const bool anyXInput = Win32InputGlue_QueryAnyXInputConnected();
 
-    UINT numDevices = 0;
-    if (GetRawInputDeviceList(nullptr, &numDevices, sizeof(RAWINPUTDEVICELIST)) != static_cast<UINT>(-1) &&
-        numDevices > 0)
+    std::vector<RAWINPUTDEVICELIST> devices;
+    const auto listStT18 = Win32InputGlue_FetchRawInputDeviceList(devices);
+    if (listStT18 == Win32InputGlue_RawInputDeviceListStatus::Ok && !devices.empty())
     {
-        std::vector<RAWINPUTDEVICELIST> devices(numDevices);
-        UINT copyCount = numDevices;
-        if (GetRawInputDeviceList(devices.data(), &copyCount, sizeof(RAWINPUTDEVICELIST)) !=
-            static_cast<UINT>(-1))
+        for (UINT i = 0; i < static_cast<UINT>(devices.size()) && !snap.hid_found; ++i)
         {
-            for (UINT i = 0; i < copyCount && !snap.hid_found; ++i)
-            {
                 if (devices[i].dwType != RIM_TYPEHID)
                 {
                     continue;
@@ -8236,7 +8216,6 @@ static void Win32_T18_RefreshControllerIdentifySnapshot(bool emitDiffLog)
                     snap.parser_kind,
                     snap.support_level);
                 break;
-            }
         }
     }
 

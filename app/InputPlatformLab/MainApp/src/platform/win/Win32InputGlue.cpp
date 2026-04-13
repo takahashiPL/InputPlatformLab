@@ -120,3 +120,40 @@ bool Win32InputGlue_TryGetRawInputDeviceString(
     buffer[bufferCount - 1] = L'\0';
     return true;
 }
+
+DWORD Win32InputGlue_GetFirstConnectedXInputSlotOrMax()
+{
+    for (DWORD i = 0; i < XUSER_MAX_COUNT; ++i)
+    {
+        XINPUT_STATE state = {};
+        if (XInputGetState(i, &state) == ERROR_SUCCESS)
+        {
+            return i;
+        }
+    }
+    return XUSER_MAX_COUNT;
+}
+
+Win32InputGlue_RawInputDeviceListStatus Win32InputGlue_FetchRawInputDeviceList(
+    std::vector<RAWINPUTDEVICELIST>& out)
+{
+    out.clear();
+    UINT numDevices = 0;
+    if (GetRawInputDeviceList(nullptr, &numDevices, sizeof(RAWINPUTDEVICELIST)) == static_cast<UINT>(-1))
+    {
+        return Win32InputGlue_RawInputDeviceListStatus::CountQueryFailed;
+    }
+    if (numDevices == 0)
+    {
+        return Win32InputGlue_RawInputDeviceListStatus::Ok;
+    }
+    out.resize(numDevices);
+    UINT copyCount = numDevices;
+    if (GetRawInputDeviceList(out.data(), &copyCount, sizeof(RAWINPUTDEVICELIST)) == static_cast<UINT>(-1))
+    {
+        out.clear();
+        return Win32InputGlue_RawInputDeviceListStatus::DeviceListFailed;
+    }
+    out.resize(copyCount);
+    return Win32InputGlue_RawInputDeviceListStatus::Ok;
+}

@@ -20,6 +20,13 @@
 ---
 
 | **日付** | 2026-04-13 |
+| **実施内容** | post-foundation step2: `Win32InputGlue.*` に先頭接続 XInput スロット取得（`XInputGetState`）と `GetRawInputDeviceList` 二段取得を追加。HID ログ・T18 スナップショットを glue 呼び出しに差し替え（挙動不変）。 |
+| **確認できたこと** | Debug\|x64 ビルド成功（既存 C4244 のみ）。 |
+| **未解決事項** | なし。 |
+
+---
+
+| **日付** | 2026-04-13 |
 | **実施内容** | post-foundation step1: `Win32InputGlue.h` / `Win32InputGlue.cpp` に Raw Input 登録・XInput スロット probe/ログ・`GetRawInputDeviceInfo` 文字列取得を切り出し（`MainApp.cpp` から移動、挙動不変）。`MainApp.vcxproj` に TU 追加。 |
 | **確認できたこと** | Debug\|x64 ビルド成功（既存 C4244 のみ）。 |
 | **未解決事項** | なし。 |

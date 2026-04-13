@@ -1,8 +1,11 @@
-// Pack-out: small Win32 input glue (Raw Input registration, XInput slot probe, device string read).
-// Post-foundation step1: split from MainApp.cpp; not input/core.
+// Pack-out: small Win32 input glue (Raw Input registration, device list fetch, first connected XInput slot,
+// XInput slot probe, device string read).
+// Post-foundation step1–2: split from MainApp.cpp; not input/core.
 #pragma once
 
 #include <Windows.h>
+
+#include <vector>
 
 // XInput slot probe result (moved from MainApp.cpp with probe helpers).
 struct ControllerSlotProbeResult
@@ -24,3 +27,16 @@ bool Win32InputGlue_TryGetRawInputDeviceString(
     UINT infoType,
     wchar_t* buffer,
     size_t bufferCount);
+
+// First connected XInput user index, or XUSER_MAX_COUNT if none (XInputGetState probe).
+DWORD Win32InputGlue_GetFirstConnectedXInputSlotOrMax();
+
+// Two-step GetRawInputDeviceList; out cleared on failure. Ok + empty == zero devices.
+enum class Win32InputGlue_RawInputDeviceListStatus
+{
+    Ok,
+    CountQueryFailed,
+    DeviceListFailed,
+};
+Win32InputGlue_RawInputDeviceListStatus Win32InputGlue_FetchRawInputDeviceList(
+    std::vector<RAWINPUTDEVICELIST>& out);
