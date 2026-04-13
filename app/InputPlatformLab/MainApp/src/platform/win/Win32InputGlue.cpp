@@ -7,6 +7,16 @@
 #include <xinput.h>
 #pragma comment(lib, "Xinput.lib")
 
+namespace
+{
+void Win32InputGlueInternal_TryFillHidDevicenameAndProductName(
+    HANDLE hDevice,
+    wchar_t* pathBuf,
+    size_t pathCap,
+    wchar_t* productBuf,
+    size_t productCap);
+}
+
 BOOL Win32InputGlue_RegisterKeyboardRawInput(HWND hwnd)
 {
     RAWINPUTDEVICE rids[2] = {};
@@ -121,8 +131,12 @@ void Win32InputGlue_LogRawInputHidGameControllersClassified()
 
         wchar_t pathBuf[512] = {};
         wchar_t productBuf[256] = {};
-        Win32InputGlue_TryGetRawInputDeviceString(hDevice, RIDI_DEVICENAME, pathBuf, _countof(pathBuf));
-        Win32InputGlue_TryGetRawInputDeviceString(hDevice, RIDI_PRODUCTNAME, productBuf, _countof(productBuf));
+        Win32InputGlueInternal_TryFillHidDevicenameAndProductName(
+            hDevice,
+            pathBuf,
+            _countof(pathBuf),
+            productBuf,
+            _countof(productBuf));
 
         const wchar_t* productPtr = (productBuf[0] != L'\0') ? productBuf : nullptr;
         const wchar_t* pathPtr = (pathBuf[0] != L'\0') ? pathBuf : nullptr;
@@ -196,6 +210,20 @@ bool Win32InputGlue_TryGetRawInputDeviceString(
     }
     buffer[bufferCount - 1] = L'\0';
     return true;
+}
+
+namespace
+{
+void Win32InputGlueInternal_TryFillHidDevicenameAndProductName(
+    HANDLE hDevice,
+    wchar_t* pathBuf,
+    size_t pathCap,
+    wchar_t* productBuf,
+    size_t productCap)
+{
+    Win32InputGlue_TryGetRawInputDeviceString(hDevice, RIDI_DEVICENAME, pathBuf, pathCap);
+    Win32InputGlue_TryGetRawInputDeviceString(hDevice, RIDI_PRODUCTNAME, productBuf, productCap);
+}
 }
 
 DWORD Win32InputGlue_GetFirstConnectedXInputSlotOrMax()
@@ -330,14 +358,10 @@ void Win32InputGlue_SurveyForT18InventoryRefresh(Win32InputGlue_T18InventorySurv
             continue;
         }
 
-        Win32InputGlue_TryGetRawInputDeviceString(
+        Win32InputGlueInternal_TryFillHidDevicenameAndProductName(
             hDevice,
-            RIDI_DEVICENAME,
             out.hid_device_path,
-            sizeof(out.hid_device_path) / sizeof(out.hid_device_path[0]));
-        Win32InputGlue_TryGetRawInputDeviceString(
-            hDevice,
-            RIDI_PRODUCTNAME,
+            sizeof(out.hid_device_path) / sizeof(out.hid_device_path[0]),
             out.hid_product_name_raw,
             sizeof(out.hid_product_name_raw) / sizeof(out.hid_product_name_raw[0]));
 
