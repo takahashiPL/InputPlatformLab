@@ -142,6 +142,25 @@ src/
 
 ---
 
+## Pack-out / reuse boundary（repo hygiene）
+
+zip や clone を見たときの**分類**。大規模移動はしない前提で、何を持ち出し候補にするかだけ固定する。
+
+| 区分 | 中身の例 |
+|------|-----------|
+| **reusable candidate（portable foundation）** | `PlayerInputGuideTypes.h`、`PlayerInputSlots.h`（データモデル）、`InputCore.h` が束ねる中立ヘッダ（`VirtualInputNeutral.*`、`LogicalInputState.*`、`GamepadTypes.h`、`ControllerClassification.*`、`VirtualInputMenuSample.*` など）、`EffectiveInputGuideArbiter.h` + 実装 `.cpp`（移植時は TU内の Win32 依存を別 OS へ差し替え） |
+| **platform/win specific** | `include/platform/win/*`、`src/platform/win/*`（レンダラ・オーバーレイ・Win32 HUD ページヘルパ等） |
+| **app-specific glue / verification** | `MainApp.cpp` / `MainApp.h`、`.rc` / `resources/`、InputPlatformLab 固有の T18/T19/T20 文言・検証フロー・`_DEBUG` ホットキー |
+| **generated / local-only** | `.vs/`、`Debug/` / `Release/` / `x64/` / `x86/`、`ipch/`、`*.obj` `*.pdb` `*.exe` など（ルート [`.gitignore`](../.gitignore) 参照）。**コピー対象にしない** |
+
+### 他プロジェクトへ持ち出す最小イメージ
+
+1. **Portable pack**: 上表の reusable candidate に対応する `include/*.h` と中立 `.cpp` をまとめ、ホスト側でビルドに追加する。  
+2. **Windows adapter pack**（PC ゲームが Win32 の場合）: `platform/win` + `VirtualInputSnapshot` を埋める既存ブリッジを参考に、自アプリのメインループから呼ぶ。  
+3. **持ち出し不要**: 生成物・`.vs`・ユーザー設定（`*.vcxproj.user`）。リポジトリを渡すなら `.gitignore` どおり除外されれば足りる。
+
+---
+
 ## 関連ドキュメント
 
 - [API リファレンス（ファイル別・実行フロー）](api_reference.md)

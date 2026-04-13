@@ -20,6 +20,13 @@
 ---
 
 | **日付** | 2026-04-13 |
+| **実施内容** | 整理フェーズ2（repo hygiene）: `architecture.md` に Pack-out / reuse boundary、`.gitignore` に `*.VC.db-shm` / `*.VC.db-wal`、`MainApp.cpp` と主要ヘッダに 補助コメント。挙動不変。 |
+| **確認できたこと** | 持ち出し候補・platform・app glue・生成物の分類が一文書にまとまった。 |
+| **未解決事項** | なし。 |
+
+---
+
+| **日付** | 2026-04-13 |
 | **実施内容** | foundation 後の整理（挙動不変）: `PlayerInputGuideTypes.h` に値・意味・粒度の注釈、`architecture.md` にレイヤ・reusable/app-specific・Debug・`#ifdef` 方針、`EffectiveInputGuideArbiter` / `MainApp` に Debug 境界コメント。 |
 | **確認できたこと** | 型定義と層の読み口が文書化された。 |
 | **未解決事項** | なし（コード移動・機能追加なし）。 |

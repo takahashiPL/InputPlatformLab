@@ -2,6 +2,9 @@
 .vs/
 *.aps
 *.vcxproj.user
+# DB sidecars (Browse DB / IntelliSense); keep repo clean if .vs leaks locally
+*.VC.db-shm
+*.VC.db-wal
 *.VC.db
 *.VC.opendb
 *.suo

@@ -1,4 +1,5 @@
 // T77: shared guide / owner enums and player-slot sizing (portable). Layer map: docs/architecture.md「入力 foundation の整理」.
+// Pack-out: reusable candidate (no HWND).
 // T76 arbiter drives slot 0 for live app consume; higher slots carry policy/staging for trials / future MP.
 #pragma once
 

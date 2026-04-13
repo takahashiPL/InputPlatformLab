@@ -1,3 +1,4 @@
+// Pack-out: platform/win only (D3D/D2D HWND renderer). Not portable; swap for host graphics on other OS.
 // T23/T24/T25: Windows 描画・DirectX 11 最小レンダラ
 // T31: 公開面は Init / Resize / Frame の 3 役割（+ ライフサイクル Shutdown）。
 // T33: Frame 内で clear → D2D/DWrite（1 行）→ Present。失敗時は clear→Present のみ。

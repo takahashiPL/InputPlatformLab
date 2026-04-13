@@ -1,5 +1,7 @@
 ﻿// MainApp.cpp : アプリケーションのエントリ ポイントを定義します。
 //
+// Pack-out: app-specific glue + Win32 verification shell (WndProc, T18–T20, HUD). Not portable as-is.
+// See docs/architecture.md「Pack-out / reuse boundary」. Prefer copying neutral headers/.cpp + platform/win for reuse.
 
 #include "framework.h"
 #include "MainApp.h"

@@ -1,4 +1,5 @@
 // T20: VirtualInputSnapshot, policy, keyboard→consumer merge (no Win32 / XInput types)
+// Pack-out: reusable candidate (portable types + .cpp); host fills VirtualInputSnapshot from its backend.
 #pragma once
 
 #include "GamepadTypes.h"

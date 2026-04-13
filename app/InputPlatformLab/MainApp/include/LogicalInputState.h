@@ -1,4 +1,5 @@
 // 論理ボタン単位のフレーム状態（キーボード + ゲームパッドを OR 合成後に 1 パスで更新）
+// Pack-out: reusable candidate (portable .h + LogicalInputState.cpp); timer cadence note is host-specific.
 //
 // PS4 DS4 HID（verified マップ, MainApp Win32_FillVirtualInputFromDs4StyleHidReport）→ GamepadButtonId:
 //   Cross→South, Circle→East, Square→West(b5&0x10), Triangle→North(b5&0x80), Share→Select(b6&0x10), Options→Start,
