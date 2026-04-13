@@ -20,7 +20,14 @@
 ---
 
 | **日付** | 2026-04-13 |
-| **実施内容** | post-foundation step3: `Win32InputGlue.*` に WM_INPUT 経路の HID `RIDI_DEVICEINFO` 要約、T76 400ms inventory refresh 間引き、XUser 0..3 接続フラグ埋めを追加（T18 分類・arbiter 本体は MainApp、��動不変）。 |
+| **実施内容** | post-foundation step4: T18 snapshot refresh 前段の Win32 survey（XInput 接続フラグ・Raw HID 列挙順で先頭にマッチしたゲームパッドらしい行のデバイス文字列）を `Win32InputGlue_SurveyForT18InventoryRefresh` に集約。分類・SetupDi・T77・arbiter は MainApp 側に残す（挙動不変）。 |
+| **確認できたこと** | Debug\|x64 ビルド成功（既存 C4244 のみ）。 |
+| **未解決事項** | なし。 |
+
+---
+
+| **日付** | 2026-04-13 |
+| **実施内容** | post-foundation step3: `Win32InputGlue.*` に WM_INPUT 経路の HID `RIDI_DEVICEINFO` 要約、T76 400ms inventory refresh 間引き、XUser 0..3 接続フラグ埋めを追加（T18 分類・arbiter 本体は MainApp、挙動不変）。 |
 | **確認できたこと** | Debug\|x64 ビルド成功（既存 C4244 のみ）。 |
 | **未解決事項** | なし。 |
 

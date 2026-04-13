@@ -1,9 +1,13 @@
 // Pack-out: small Win32 input glue (Raw Input registration, device list fetch, first connected XInput slot,
 // XInput slot probe, device string read, Raw HID WM_INPUT survey helpers, inventory refresh throttle).
-// Post-foundation step1–3: split from MainApp.cpp; not input/core.
+// Post-foundation step1–4: split from MainApp.cpp; not input/core.
 #pragma once
 
 #include <Windows.h>
+
+#ifndef RIDI_PRODUCTNAME
+#define RIDI_PRODUCTNAME 0x20000007
+#endif
 
 #include "ControllerClassification.h"
 
@@ -51,3 +55,18 @@ bool Win32InputGlue_ConsumeT76RawHidInventoryRefreshThrottle400ms();
 
 // XInput user 0..3 connected flags (XInputGetCapabilities probe; same as slot probe).
 void Win32InputGlue_FillXInputUserConnectedSlots4(bool outSlots[4]);
+
+// Win32-only preamble for T18 inventory refresh: first connected XInput slot, any-XInput flag,
+// and first Raw-Input-enumeration-order HID row that looks like a gamepad (path + RIDI_PRODUCTNAME).
+// Does not classify family, fill display strings, or touch arbiter.
+struct Win32InputGlue_T18InventorySurvey
+{
+    int first_connected_xinput_slot; // -1 if none
+    bool any_xinput_connected;
+    bool hid_row_found;
+    GameControllerHidSummary hid_traits{};
+    wchar_t hid_device_path[512]{};
+    wchar_t hid_product_name_raw[256]{};
+};
+
+void Win32InputGlue_SurveyForT18InventoryRefresh(Win32InputGlue_T18InventorySurvey& out);

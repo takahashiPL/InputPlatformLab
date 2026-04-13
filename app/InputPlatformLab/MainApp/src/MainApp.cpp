@@ -8096,111 +8096,69 @@ static void Win32_T18_RefreshControllerIdentifySnapshot(bool emitDiffLog)
     snap.parser_kind = ControllerParserKind::None;
     snap.support_level = ControllerSupportLevel::Tentative;
 
-    const DWORD slotDw = Win32InputGlue_GetFirstConnectedXInputSlotOrMax();
-    if (slotDw < XUSER_MAX_COUNT)
-    {
-        snap.xinput_slot = static_cast<int>(slotDw);
-    }
+    Win32InputGlue_T18InventorySurvey inv{};
+    Win32InputGlue_SurveyForT18InventoryRefresh(inv);
 
-    const bool anyXInput = Win32InputGlue_QueryAnyXInputConnected();
+    snap.xinput_slot = inv.first_connected_xinput_slot;
+    const bool anyXInput = inv.any_xinput_connected;
 
-    std::vector<RAWINPUTDEVICELIST> devices;
-    const auto listStT18 = Win32InputGlue_FetchRawInputDeviceList(devices);
-    if (listStT18 == Win32InputGlue_RawInputDeviceListStatus::Ok && !devices.empty())
+    if (inv.hid_row_found)
     {
-        for (UINT i = 0; i < static_cast<UINT>(devices.size()) && !snap.hid_found; ++i)
+        const bool productUsable =
+            (inv.hid_product_name_raw[0] != L'\0') &&
+            !Win32_T18_RawInputProductLooksLikeDevicePath(inv.hid_product_name_raw);
+
+        wchar_t setupDiProduct[256] = {};
+        bool setupDiOk = false;
+        if (inv.hid_device_path[0] != L'\0')
         {
-                if (devices[i].dwType != RIM_TYPEHID)
-                {
-                    continue;
-                }
-
-                const HANDLE hDevice = devices[i].hDevice;
-
-                RID_DEVICE_INFO info = {};
-                info.cbSize = sizeof(info);
-                UINT cbInfo = sizeof(info);
-                if (GetRawInputDeviceInfo(hDevice, RIDI_DEVICEINFO, &info, &cbInfo) == static_cast<UINT>(-1))
-                {
-                    continue;
-                }
-                if (info.dwType != RIM_TYPEHID)
-                {
-                    continue;
-                }
-
-                GameControllerHidSummary traits = {};
-                traits.device_info_valid = true;
-                traits.vendor_id = static_cast<UINT16>(info.hid.dwVendorId);
-                traits.product_id = static_cast<UINT16>(info.hid.dwProductId);
-                traits.usage_page = info.hid.usUsagePage;
-                traits.usage = info.hid.usUsage;
-
-                if (!Win32_HidTraitsLookLikeGamepad(traits))
-                {
-                    continue;
-                }
-
-                wchar_t pathBuf[512] = {};
-                wchar_t productBuf[256] = {};
-                Win32InputGlue_TryGetRawInputDeviceString(hDevice, RIDI_DEVICENAME, pathBuf, _countof(pathBuf));
-                Win32InputGlue_TryGetRawInputDeviceString(hDevice, RIDI_PRODUCTNAME, productBuf, _countof(productBuf));
-
-                const bool productUsable =
-                    (productBuf[0] != L'\0') && !Win32_T18_RawInputProductLooksLikeDevicePath(productBuf);
-
-                wchar_t setupDiProduct[256] = {};
-                bool setupDiOk = false;
-                if (pathBuf[0] != L'\0')
-                {
-                    setupDiOk =
-                        Win32_T18_TrySetupDiDeviceDescriptionFromHidPath(pathBuf, setupDiProduct, _countof(setupDiProduct));
-                }
-
-                const wchar_t* const tableFallback =
-                    Win32_ControllerHidProductDisplayNameFallback(traits.vendor_id, traits.product_id);
-
-                const wchar_t* classifyName = nullptr;
-                if (productUsable)
-                {
-                    classifyName = productBuf;
-                }
-                else if (setupDiOk && setupDiProduct[0] != L'\0')
-                {
-                    classifyName = setupDiProduct;
-                }
-                else if (tableFallback != nullptr)
-                {
-                    classifyName = tableFallback;
-                }
-
-                const wchar_t* pathPtr = (pathBuf[0] != L'\0') ? pathBuf : nullptr;
-
-                snap.hid = traits;
-                snap.hid_found = true;
-                wcscpy_s(snap.device_path, pathBuf);
-                if (productUsable)
-                {
-                    wcscpy_s(snap.product_name, productBuf);
-                }
-                else if (setupDiOk && setupDiProduct[0] != L'\0')
-                {
-                    wcscpy_s(snap.product_name, setupDiProduct);
-                }
-                else if (tableFallback != nullptr)
-                {
-                    wcscpy_s(snap.product_name, tableFallback);
-                }
-
-                snap.inferred_kind =
-                    Win32_ClassifyGameControllerKind(traits, classifyName, pathPtr, anyXInput);
-                Win32_ResolveHidProductTable(
-                    traits.vendor_id,
-                    traits.product_id,
-                    snap.parser_kind,
-                    snap.support_level);
-                break;
+            setupDiOk =
+                Win32_T18_TrySetupDiDeviceDescriptionFromHidPath(
+                    inv.hid_device_path, setupDiProduct, _countof(setupDiProduct));
         }
+
+        const wchar_t* const tableFallback =
+            Win32_ControllerHidProductDisplayNameFallback(inv.hid_traits.vendor_id, inv.hid_traits.product_id);
+
+        const wchar_t* classifyName = nullptr;
+        if (productUsable)
+        {
+            classifyName = inv.hid_product_name_raw;
+        }
+        else if (setupDiOk && setupDiProduct[0] != L'\0')
+        {
+            classifyName = setupDiProduct;
+        }
+        else if (tableFallback != nullptr)
+        {
+            classifyName = tableFallback;
+        }
+
+        const wchar_t* pathPtr = (inv.hid_device_path[0] != L'\0') ? inv.hid_device_path : nullptr;
+
+        snap.hid = inv.hid_traits;
+        snap.hid_found = true;
+        wcscpy_s(snap.device_path, inv.hid_device_path);
+        if (productUsable)
+        {
+            wcscpy_s(snap.product_name, inv.hid_product_name_raw);
+        }
+        else if (setupDiOk && setupDiProduct[0] != L'\0')
+        {
+            wcscpy_s(snap.product_name, setupDiProduct);
+        }
+        else if (tableFallback != nullptr)
+        {
+            wcscpy_s(snap.product_name, tableFallback);
+        }
+
+        snap.inferred_kind =
+            Win32_ClassifyGameControllerKind(inv.hid_traits, classifyName, pathPtr, anyXInput);
+        Win32_ResolveHidProductTable(
+            inv.hid_traits.vendor_id,
+            inv.hid_traits.product_id,
+            snap.parser_kind,
+            snap.support_level);
     }
 
     if (!snap.hid_found)

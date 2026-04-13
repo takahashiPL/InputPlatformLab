@@ -1,4 +1,4 @@
-// Win32 / XInput / Raw Input helpers extracted from MainApp.cpp (post-foundation step1–3; behavior unchanged).
+// Win32 / XInput / Raw Input helpers extracted from MainApp.cpp (post-foundation step1–4; behavior unchanged).
 
 #include "Win32InputGlue.h"
 
@@ -205,5 +205,76 @@ void Win32InputGlue_FillXInputUserConnectedSlots4(bool outSlots[4])
         ControllerSlotProbeResult probe{};
         Win32InputGlue_FillControllerSlotProbe(i, probe);
         outSlots[i] = probe.connected;
+    }
+}
+
+void Win32InputGlue_SurveyForT18InventoryRefresh(Win32InputGlue_T18InventorySurvey& out)
+{
+    out = {};
+    const DWORD slotDw = Win32InputGlue_GetFirstConnectedXInputSlotOrMax();
+    if (slotDw < XUSER_MAX_COUNT)
+    {
+        out.first_connected_xinput_slot = static_cast<int>(slotDw);
+    }
+    else
+    {
+        out.first_connected_xinput_slot = -1;
+    }
+    out.any_xinput_connected = Win32InputGlue_QueryAnyXInputConnected();
+
+    std::vector<RAWINPUTDEVICELIST> devices;
+    const auto listSt = Win32InputGlue_FetchRawInputDeviceList(devices);
+    if (listSt != Win32InputGlue_RawInputDeviceListStatus::Ok || devices.empty())
+    {
+        return;
+    }
+
+    for (UINT i = 0; i < static_cast<UINT>(devices.size()); ++i)
+    {
+        if (devices[i].dwType != RIM_TYPEHID)
+        {
+            continue;
+        }
+
+        const HANDLE hDevice = devices[i].hDevice;
+
+        RID_DEVICE_INFO info = {};
+        info.cbSize = sizeof(info);
+        UINT cbInfo = sizeof(info);
+        if (GetRawInputDeviceInfo(hDevice, RIDI_DEVICEINFO, &info, &cbInfo) == static_cast<UINT>(-1))
+        {
+            continue;
+        }
+        if (info.dwType != RIM_TYPEHID)
+        {
+            continue;
+        }
+
+        GameControllerHidSummary traits = {};
+        traits.device_info_valid = true;
+        traits.vendor_id = static_cast<UINT16>(info.hid.dwVendorId);
+        traits.product_id = static_cast<UINT16>(info.hid.dwProductId);
+        traits.usage_page = info.hid.usUsagePage;
+        traits.usage = info.hid.usUsage;
+
+        if (!Win32_HidTraitsLookLikeGamepad(traits))
+        {
+            continue;
+        }
+
+        Win32InputGlue_TryGetRawInputDeviceString(
+            hDevice,
+            RIDI_DEVICENAME,
+            out.hid_device_path,
+            sizeof(out.hid_device_path) / sizeof(out.hid_device_path[0]));
+        Win32InputGlue_TryGetRawInputDeviceString(
+            hDevice,
+            RIDI_PRODUCTNAME,
+            out.hid_product_name_raw,
+            sizeof(out.hid_product_name_raw) / sizeof(out.hid_product_name_raw[0]));
+
+        out.hid_traits = traits;
+        out.hid_row_found = true;
+        return;
     }
 }
