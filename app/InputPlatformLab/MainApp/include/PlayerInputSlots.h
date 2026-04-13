@@ -1,4 +1,5 @@
 // T77: per-player slot state (vessel). Only slot 0 is driven by T76 today; slots 1.. can carry binding policy only.
+// Layer / reuse: portable structs + conventions; see docs/architecture.md「入力 foundation の整理」.
 //
 // --- T77 step2/3 assignment / binding policy (convention; no auto-assign; no routing in step3) ---
 // - Device enumeration / connection list (T18) and per-slot binding are separate concerns.

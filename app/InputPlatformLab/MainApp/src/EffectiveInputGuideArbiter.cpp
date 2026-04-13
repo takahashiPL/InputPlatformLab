@@ -1,13 +1,16 @@
-// T76: device inventory (T18) vs UI guide / effective owner. T77: primary state in g_playerSlots[0] (1P only).
+// Input/core implementation: slot tables, binding resolution, staged consume, trial gating.
+// Windows.h: GetTickCount, OutputDebugStringW, etc. Not a platform input backend — do not add WM_* here.
+// T76: device inventory (T18) vs effective owner. T77: g_playerSlots[0] live + higher slots trial/policy.
 
 #include "EffectiveInputGuideArbiter.h"
 
 #include <Windows.h>
 #include <cstdio>
 
-// T77 step15/16/21: default off — live trial target needs ManualOverride Live + armed + BoundLocked keyboard route.
+// --- Debug / foundation verification (not production menu policy) ---
+// Armed only via F10 in _DEBUG MainApp. Release: stays false; single live slot remains default (slot0).
 static bool g_liveConsumeTrialArmed = false;
-// Default index1 (2P) preserves step15–20 behavior. Debug F11 may set none or 3P/4P.
+// Default 2P (index1). F11 (_DEBUG) cycles 2P→3P→4P→none; does not change Release defaults.
 static PlayerInputSlotIndex g_liveConsumeTrialTargetSlot = 1u;
 
 static PlayerInputSlotIndex TrialTargetOrLegacySlot1()
@@ -2074,6 +2077,7 @@ void InputGuideArbiter_FormatSlotConsumeResultForT18(PlayerInputSlotIndex slot, 
     }
 }
 
+// T18 paged HUD: compact trial phase tag for lab verification (not a shipping UX contract).
 void InputGuideArbiter_FormatLiveTrialObsForT18(PlayerInputSlotIndex lineSlot, wchar_t* buf, size_t bufCount)
 {
     if (!buf || bufCount == 0)
@@ -2102,7 +2106,7 @@ void InputGuideArbiter_DebugLogSlot1TrialObsIfChanged()
 #if !defined(_DEBUG)
     return;
 #else
-    // T77 step20: change-only observability for single live consume slot (no spam).
+    // T77 step20: _DEBUG foundation verification only — not a shipping telemetry path. Change-only (no spam).
     EnsurePrimaryPlayerSlotSeededForT76();
     const PlayerInputSlotIndex subj = TrialTargetOrLegacySlot1();
     const PlayerSlotState* sSubj = TryMutableSlot(subj);

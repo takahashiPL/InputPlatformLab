@@ -1,4 +1,6 @@
-// T76: effective input owner / guide family vs device inventory. T77: state lives in PlayerSlotState[0] (1P only for now).
+// Input/core: effective guide owner + per-slot consume policy vs device inventory (see PlayerInputSlots.h).
+// Portable API surface; implementation TU may include Windows.h for tick/debug only — keep new OS calls out of headers.
+// T76: slot0 drives live owner; T77: multi-slot policy/staging + single live consume + Debug trial hooks.
 #pragma once
 
 #include "PlayerInputSlots.h"

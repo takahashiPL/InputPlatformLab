@@ -108,6 +108,40 @@ src/
 
 ---
 
+## 入力 foundation の整理（レイヤ・転用・Debug）
+
+**目的**: T76/T77 完了後の読み手向け。挙動は変えず、境界と転用しやすさを文章化する。
+
+### レイヤの読み方（現状の配置）
+
+| 区分 | 役割 | 代表（現状） |
+|------|------|----------------|
+| **platform/win** | HWND・WM_INPUT・Raw Input・XInput・タイマー・GDI/D2D/D3D・ウィンドウサイズ | `src/platform/win/*`、`MainApp.cpp` 内の WndProc / 入力ポンプの大半 |
+| **input/core 相当** | `VirtualInput*` / `LogicalInput*`、プレイヤースロット、arbiter、列挙・定数（HWND 非依存） | `VirtualInputNeutral.*`、`LogicalInput*`、`InputCore.*`、`PlayerInputGuideTypes.h`、`PlayerInputSlots.h`、`EffectiveInputGuideArbiter.*` |
+| **app / debug** | 検証 HUD・T18/T19/T20 ページ・`_DEBUG` ホットキー | `MainApp.cpp` の T18/T19/T20、`Win32_DebugTryApplyT77Slot1TrialHotkeys`（F8–F11）、デバッグオーバーレイ |
+| **app / glue** | core と Win32 を1プロセスでつなぐ巨大 TU（分割予定コメントあり） | `MainApp.cpp`（エントリ・ループ・dispatch） |
+
+大規模なファイル移動はしない。**どの層として読むか**を固定する。
+
+### reusable / app-specific
+
+- **転用しやすい候補（reusable candidate）**: 中立型と実装（`VirtualInput*`、`LogicalInput*`、`PlayerInputGuideTypes.h`、`PlayerInputSlots.h` のデータ面）、`EffectiveInputGuideArbiter` の**ヘッダ契約**、OS 非依存の処理。
+- **InputPlatformLab 固有（app-specific）**: T18 行の文言、ページ式 HUD 本文、**F8/F9/F10/F11**、T17 連携、`OutputDebugStringW` ログ。製品では `_DEBUG` ブロックが落ちる想定。
+
+### Debug-only（foundation verification）
+
+- **F8 / F9 / F10 / F11**: `_DEBUG` のみ。本番の入力経路・既定 consume ではない。T77 single live / slot-indexed trial の検証用。
+- **trial 観測**（`·tr=`、`lv=`、`InputGuideArbiter_DebugLogSlot1TrialObsIfChanged` など）: 検証・説明用。Release では無効想定。
+- **T18 観測補助**: lab HUD 用。本番 UI 仕様ではない。
+
+### `#ifdef` / プラットフォーム依存の方針
+
+- 新しい Win32 API は `platform/win` または `MainApp.cpp` の境界へ寄せる（既存の巨大 TU は段階的に）。
+- core ヘッダ（`PlayerInputGuideTypes.h` 等）は HWND / `Windows.h` を引かない方針。
+- `EffectiveInputGuideArbiter.cpp` の `Windows.h` は時刻・ログ等。条件付きで OS 分岐を増やさないことを優先（将来 platform 側へ分離）。
+
+---
+
 ## 関連ドキュメント
 
 - [API リファレンス（ファイル別・実行フロー）](api_reference.md)

@@ -1,95 +1,113 @@
-// T77: shared guide / owner enums and player-slot sizing (T76 arbiter uses slot 0 only for now).
+// T77: shared guide / owner enums and player-slot sizing (portable). Layer map: docs/architecture.md「入力 foundation の整理」.
+// T76 arbiter drives slot 0 for live app consume; higher slots carry policy/staging for trials / future MP.
 #pragma once
 
 #include "CommonTypes.h"
 
-// UI / arbitration: which input source owns guide labels for a player slot.
+// InputGuideSourceKind — who owns on-screen guide/button glyphs for a slot (HUD arbitration).
+// Granularity: coarse source class only (no per-device id). Intended to stay backend-agnostic.
+// Default in fresh state: Unknown. Not Debug-only.
 enum class InputGuideSourceKind : UINT8
 {
-    Unknown = 0,
-    Keyboard,
-    Gamepad,
+    Unknown = 0, // not classified yet; safe initial / idle label
+    Keyboard, // keyboard-originated guide family
+    Gamepad, // gamepad-originated (any pad family buckets elsewhere)
 };
 
-// Default party size for local multi-player; array may be sized to kPlayerInputSlotCap.
+// Default party size for local multi-player demos; not a hard cap (see kPlayerInputSlotCap).
 constexpr unsigned kPlayerInputSlotCountDefault = 4u;
-// Hard cap for static storage / future 8P extension.
+
+// kPlayerInputSlotCap — static array size for PlayerSlotState[kPlayerInputSlotCap] and related tables.
+// Why this value: fits UINT8 slot indices, leaves headroom beyond 4P without huge static waste.
+// Not Debug-only; changing it touches static storage across the arbiter.
 constexpr unsigned kPlayerInputSlotCap = 8u;
 
-// Local player slot id: 0 = 1P, 1 = 2P, ... (must stay within kPlayerInputSlotCap).
+// PlayerInputSlotIndex —0 = 1P, 1 = 2P, … (must be < kPlayerInputSlotCap).
+// Sentinel values must not collide with real slots; see kPlayerInputNoLiveConsumeTrialTarget.
 using PlayerInputSlotIndex = UINT8;
 static_assert(kPlayerInputSlotCap <= 256u, "PlayerInputSlotIndex must cover all slots");
 
-// T77 step21: live consume trial target sentinel (valid slots are 0..kPlayerInputSlotCap-1).
+// kPlayerInputNoLiveConsumeTrialTarget — reserved slot index meaning "no trial row selected" (trg=--).
+// Why 255: valid slots are 0..kPlayerInputSlotCap-1; 255 avoids overlap with real seats.
+// Debug/UI: F11 (_DEBUG) can set this; live resolver then stays on slot0 when armed.
+// Not a runtime "player"; do not use as dispatch slot.
 constexpr PlayerInputSlotIndex kPlayerInputNoLiveConsumeTrialTarget =
     static_cast<PlayerInputSlotIndex>(255u);
 
-// T77 step2: physical / logical identity for what a slot may bind to (routing still step3+).
+// PlayerBoundDeviceIdentityKind — what device instance a slot claims (policy + inventory resolution).
+// Granularity: project-specific identity kinds (XInput user index, HID hash); portable code treats as opaque.
 enum class PlayerBoundDeviceIdentityKind : UINT8
 {
     Unknown = 0,
-    Unbound, // slot active but no device instance locked (1P step2 default)
-    Keyboard,
-    XInputUser,
-    HidPathHash,
+    Unbound, // seat active but no device instance locked (typical 1P seed)
+    Keyboard, // logical keyboard identity for this slot
+    XInputUser, // Windows XInput user slot0..3 when bound
+    HidPathHash, // HID instance path hashed (see PlayerBoundDeviceIdentity)
 };
 
-// T77 step2: party-seat vs device-lock policy for a slot (not input routing).
+// PlayerSlotBindingAssignment — seat policy: is this slot participating, and is the bind fixed?
+// Not routing: describes intent only. Default for unused seats: None. 1P seed: ActiveOpen.
 enum class PlayerSlotBindingAssignment : UINT8
 {
-    None = 0, // 2P+ default: no seat / no binding policy
-    ActiveOpen, // 1P today: seat in use; device binding open until step3/explicit bind
-    BoundLocked, // future: locked to a specific source instance (rebind UI)
+    None = 0, // no seat policy (typical unassigned 2P+)
+    ActiveOpen, // seat in use; binding open until explicit lock / demo bind
+    BoundLocked, // locked to a specific source instance (trial / future rebind)
 };
 
-// T77 step13: whether this slot may drive app menu/HUD (v1: only slot0 may be Live; slot1+ DryRun/Disabled).
+// PlayerSlotActualConsumePolicy — may this slot apply menu/HUD consume to real app state?
+// Granularity: tri-state per slot. Default seed: slot0 Live; assigned non-primary DryRun; else Disabled.
+// Manual Live on non-primary is Debug/trial path only unless product wiring changes.
 enum class PlayerSlotActualConsumePolicy : UINT8
 {
-    Disabled = 0,
-    DryRun,
-    Live,
+    Disabled = 0, // no staging consume; skip dispatch
+    DryRun, // run scratch apply / staging only (slot1+ default when assigned)
+    Live, // may mutate app menu / primary consume path when selected as single live slot
 };
 
+// PlayerSlotConsumePolicySource — whether policy comes from seat seed or explicit override.
+// ManualOverride: refresh from seat flags does not clobber (step14); used for F9 trial and tests.
 enum class PlayerSlotConsumePolicySource : UINT8
 {
-    DefaultStep13Seed = 0,
-    ManualOverride, // T77 step14: Refresh skips; actualConsumePolicy holds override value
+    DefaultStep13Seed = 0, // derived from seat/binding flags on refresh
+    ManualOverride, // holds actualConsumePolicy until cleared
 };
 
-// T77 step4: binding policy vs current inventory (T18) — display / future routing only.
+// PlayerSlotBindingResolveStatus — inventory (T18) vs declared bind: is the device there?
+// Display + future routing only; does not move OS input by itself.
 enum class PlayerSlotBindingResolveStatus : UINT8
 {
-    Unresolved = 0,
-    IdleNoPolicy,
-    OpenNoLock,
-    LockedPresent,
-    LockedAbsent,
+    Unresolved = 0, // not computed this tick
+    IdleNoPolicy, // None assignment: nothing to resolve
+    OpenNoLock, // ActiveOpen: no locked device to match
+    LockedPresent, // locked bind satisfied by inventory
+    LockedAbsent, // locked bind not satisfied (disconnected / mismatch)
 };
 
-// T77 step5: route readiness (candidate only; no per-slot input plumbing yet).
+// PlayerSlotRouteReadiness — can we build a route candidate from bind + inventory?
 enum class PlayerSlotRouteReadiness : UINT8
 {
-    None = 0, // no adoptable route (idle policy, locked-absent, or unresolved)
-    OpenReady, // ActiveOpen: soft inventory-aligned candidate; not committed to routing
-    Ready, // BoundLocked + present: candidate matches binding and inventory
+    None = 0, // no adoptable route (idle policy, locked-absent, unresolved)
+    OpenReady, // ActiveOpen: soft inventory-aligned candidate; not committed
+    Ready, // BoundLocked + present: firm candidate
 };
 
-// Why this candidate exists (for debug / future routing).
+// PlayerSlotRouteCandidateMode — why the route candidate exists (debug labels / future router).
 enum class PlayerSlotRouteCandidateMode : UINT8
 {
     None = 0,
-    OpenSoftInventory, // mirror primary inventory (pad if any, else keyboard)
+    OpenSoftInventory, // mirror inventory (pad if any, else keyboard)
     LockedKeyboard,
     LockedXInputUser,
     LockedHidPath,
 };
 
-// T77 step6: active branch for slot route (slot0 only wired; same consumer merge as pre-step6 for 1P).
+// PlayerSlotActiveRouteMode — which branch staged input uses for this slot (step6+).
+// slot0: wired to live merge/tick; slot1+: dry-run staging. Names align with candidate modes.
 enum class PlayerSlotActiveRouteMode : UINT8
 {
     NoRoute = 0,
     OpenSoft,
     LockedKeyboard,
-    LockedXinput,
+    LockedXinput, // mirrors LockedXInputUser candidate
     LockedHid,
 };

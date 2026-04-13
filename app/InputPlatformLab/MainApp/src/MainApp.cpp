@@ -9052,7 +9052,10 @@ static void PhysicalKey_FormatDebugLine(const PhysicalKeyEvent& ev, const wchar_
 }
 
 #if defined(_DEBUG)
-// T77 step18/21: Debug のみ。F8/F9=trial target slot（既定2P; trg=none 時も2P）bind/consume、F10=trial armed、F11=trg 2P→3P→4P→none。
+// App-specific / Debug-only — NOT a shipping input path. Entire block omitted in Release.
+// Foundation verification (T77): F8/F9 mutate trial-target slot bind + Manual Live override; F10 arms trial;
+// F11 cycles trg 2P→3P→4P→none. Complements T18 lines (·tr=, lv=) and OutputDebugStringW logs.
+// For lab use only; does not replace auto-assign, rebind UI, or persistence.
 static void Win32_DebugTryApplyT77Slot1TrialHotkeys(HWND hWnd, const PhysicalKeyEvent& ev)
 {
     const UINT vk = static_cast<UINT>(ev.native_key_code);

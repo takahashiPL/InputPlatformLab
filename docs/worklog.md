@@ -20,6 +20,13 @@
 ---
 
 | **日付** | 2026-04-13 |
+| **実施内容** | foundation 後の整理（挙動不変）: `PlayerInputGuideTypes.h` に値・意味・粒度の注釈、`architecture.md` にレイヤ・reusable/app-specific・Debug・`#ifdef` 方針、`EffectiveInputGuideArbiter` / `MainApp` に Debug 境界コメント。 |
+| **確認できたこと** | 型定義と層の読み口が文書化された。 |
+| **未解決事項** | なし（コード移動・機能追加なし）。 |
+
+---
+
+| **日付** | 2026-04-13 |
 | **実施内容** | **T77 step24**: foundation の **stop-go 判断**。[T77_FOUNDATION_CLOSE.md](T77_FOUNDATION_CLOSE.md) を追記（確定・defer・Stop/Go・次候補は最大2件）。コードと既定の動作は不変。 |
 | **確認できたこと** | T76/T77 の到達点（単一 live consume、slot-indexed trial、Debug 検証）で foundation として **close 可能**と整理。slot2+ 本番・owner 完成・rebind 等は **意図的 defer** と明記。 |
 | **未解決事項** | 続行時は close note の **Go** にある1本目からスコープを切る（新機能の一括追加はしない）。 |
