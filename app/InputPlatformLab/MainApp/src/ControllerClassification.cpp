@@ -203,6 +203,18 @@ const wchar_t* Win32_GamepadButtonDisplayLabel(GamepadButtonId id, GameControlle
     }
 }
 
+const wchar_t* Win32_GamepadLeftStickDirLabel(GamepadLeftStickDir d)
+{
+    switch (d)
+    {
+    case GamepadLeftStickDir::Left: return L"Left";
+    case GamepadLeftStickDir::Right: return L"Right";
+    case GamepadLeftStickDir::Up: return L"Up";
+    case GamepadLeftStickDir::Down: return L"Down";
+    default: return L"None";
+    }
+}
+
 // HID と（任意で）製品名・パス文字列から family を推定。XInput 接続のみのときは XInputCompatible になり得る。
 GameControllerKind Win32_ClassifyGameControllerKind(
     const GameControllerHidSummary& t,

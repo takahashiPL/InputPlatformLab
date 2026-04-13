@@ -3691,18 +3691,6 @@ static GamepadLeftStickDir Win32_ClassifyLeftStickDir(SHORT x, SHORT y, bool inD
     return dy < 0.0 ? GamepadLeftStickDir::Down : GamepadLeftStickDir::Up;
 }
 
-static const wchar_t* Win32_LeftStickDirLabel(GamepadLeftStickDir d)
-{
-    switch (d)
-    {
-    case GamepadLeftStickDir::Left: return L"Left";
-    case GamepadLeftStickDir::Right: return L"Right";
-    case GamepadLeftStickDir::Up: return L"Up";
-    case GamepadLeftStickDir::Down: return L"Down";
-    default: return L"None";
-    }
-}
-
 // === T25 [8]→[3] 橋渡し: XINPUT_STATE → VirtualInputSnapshot（中立型への詰め替え） ===
 static void Win32_FillVirtualInputSnapshotFromXInputState(const XINPUT_STATE& st, VirtualInputSnapshot& out)
 {
@@ -3902,11 +3890,11 @@ static void Win32_LogVirtualInputSnapshotSummary(const VirtualInputSnapshot& s, 
         static_cast<int>(s.leftStickX),
         static_cast<int>(s.leftStickY),
         s.leftInDeadzone ? 1 : 0,
-        Win32_LeftStickDirLabel(s.leftDir),
+        Win32_GamepadLeftStickDirLabel(s.leftDir),
         static_cast<int>(s.rightStickX),
         static_cast<int>(s.rightStickY),
         s.rightInDeadzone ? 1 : 0,
-        Win32_LeftStickDirLabel(s.rightDir));
+        Win32_GamepadLeftStickDirLabel(s.rightDir));
     OutputDebugStringW(line);
 }
 
@@ -4034,11 +4022,11 @@ static void Win32_LogVirtualInputPs4Slot99ShoulderGroupIfChanged(
         static_cast<int>(curr.leftStickX),
         static_cast<int>(curr.leftStickY),
         curr.leftInDeadzone ? 1 : 0,
-        Win32_LeftStickDirLabel(curr.leftDir),
+        Win32_GamepadLeftStickDirLabel(curr.leftDir),
         static_cast<int>(curr.rightStickX),
         static_cast<int>(curr.rightStickY),
         curr.rightInDeadzone ? 1 : 0,
-        Win32_LeftStickDirLabel(curr.rightDir));
+        Win32_GamepadLeftStickDirLabel(curr.rightDir));
     OutputDebugStringW(line);
 }
 
@@ -4223,8 +4211,8 @@ static void Win32_LogVirtualInputHelperProbe(
         VirtualInput_IsR2Pressed(curr) ? 1 : 0,
         VirtualInput_LeftInDeadzone(curr) ? 1 : 0,
         VirtualInput_RightInDeadzone(curr) ? 1 : 0,
-        Win32_LeftStickDirLabel(VirtualInput_GetLeftDir(curr)),
-        Win32_LeftStickDirLabel(VirtualInput_GetRightDir(curr)));
+        Win32_GamepadLeftStickDirLabel(VirtualInput_GetLeftDir(curr)),
+        Win32_GamepadLeftStickDirLabel(VirtualInput_GetRightDir(curr)));
     OutputDebugStringW(line);
 }
 
@@ -7215,7 +7203,7 @@ static void Win32_XInputPollDigitalEdgesOnTimer(HWND hwnd)
                         static_cast<unsigned int>(slot),
                         static_cast<int>(lx),
                         static_cast<int>(ly),
-                        Win32_LeftStickDirLabel(leftDir));
+                        Win32_GamepadLeftStickDirLabel(leftDir));
                 }
                 OutputDebugStringW(line);
             }
@@ -7233,8 +7221,8 @@ static void Win32_XInputPollDigitalEdgesOnTimer(HWND hwnd)
                     static_cast<unsigned int>(slot),
                     static_cast<int>(lx),
                     static_cast<int>(ly),
-                    Win32_LeftStickDirLabel(s_xinputPrevLeftDir),
-                    Win32_LeftStickDirLabel(leftDir));
+                    Win32_GamepadLeftStickDirLabel(s_xinputPrevLeftDir),
+                    Win32_GamepadLeftStickDirLabel(leftDir));
                 OutputDebugStringW(line);
             }
             Win32_LogVirtualInputHelperProbe(s_virtualInputPrev, snapCurr, slot);
@@ -7262,7 +7250,7 @@ static void Win32_XInputPollDigitalEdgesOnTimer(HWND hwnd)
                         static_cast<unsigned int>(slot),
                         static_cast<int>(rx),
                         static_cast<int>(ry),
-                        Win32_LeftStickDirLabel(rightDir));
+                        Win32_GamepadLeftStickDirLabel(rightDir));
                 }
                 OutputDebugStringW(line);
             }
@@ -7280,8 +7268,8 @@ static void Win32_XInputPollDigitalEdgesOnTimer(HWND hwnd)
                     static_cast<unsigned int>(slot),
                     static_cast<int>(rx),
                     static_cast<int>(ry),
-                    Win32_LeftStickDirLabel(s_xinputPrevRightDir),
-                    Win32_LeftStickDirLabel(rightDir));
+                    Win32_GamepadLeftStickDirLabel(s_xinputPrevRightDir),
+                    Win32_GamepadLeftStickDirLabel(rightDir));
                 OutputDebugStringW(line);
             }
             Win32_LogVirtualInputHelperProbe(s_virtualInputPrev, snapCurr, slot);

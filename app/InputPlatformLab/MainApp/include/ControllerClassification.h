@@ -63,6 +63,9 @@ const wchar_t* Win32_GameControllerKindShortLabel(GameControllerKind kind);
 const wchar_t* Win32_GamepadButtonIdName(GamepadButtonId id);
 const wchar_t* Win32_GamepadButtonDisplayLabel(GamepadButtonId id, GameControllerKind family);
 
+// T13: 左スティックの粗い方向（HUD/ログ用）
+const wchar_t* Win32_GamepadLeftStickDirLabel(GamepadLeftStickDir d);
+
 // HID + 製品名 / デバイスパス文字列（任意）から family を推定。文字列は wchar_t（CRT の wcsstr のみ使用）
 GameControllerKind Win32_ClassifyGameControllerKind(
     const GameControllerHidSummary& traits,
