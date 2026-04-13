@@ -85,12 +85,6 @@
 #define XINPUT_GAMEPAD_GUIDE 0x0400u
 #endif
 
-// GetRawInputDeviceInfo buffer type for human-readable product name. Unit: ULONG command id (Win8.1+ SDK).
-// platform/win Raw Input. Undef on older targetver — keep fallback define here in glue.
-#ifndef RIDI_PRODUCTNAME
-#define RIDI_PRODUCTNAME 0x20000007
-#endif
-
 // T18: ページ入場時の forced / deferred 確認用ログ（既定 0）。1 で有効。差分ログ Win32_T18_LogIfChanged は別経路。
 #ifndef WIN32_T18_DEBUG_PAGE_ENTER_LOG
 #define WIN32_T18_DEBUG_PAGE_ENTER_LOG 0
