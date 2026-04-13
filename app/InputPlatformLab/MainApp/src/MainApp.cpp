@@ -5538,18 +5538,7 @@ static const wchar_t* Win32_T18_T76_OnePGuideFamilyLabel()
     }
 }
 
-// T76: Raw HID ゲームパッド経路で enumeration を間引き更新（接続直後に T18 family が古いままになりにくくする）。
-static void Win32_T76_ThrottledRefreshT18InventoryFromRawHid()
-{
-    static DWORD s_lastTick = 0;
-    const DWORD now = GetTickCount();
-    if (s_lastTick != 0 && (now - s_lastTick) < 400u)
-    {
-        return;
-    }
-    s_lastTick = now;
-    Win32_T18_RefreshControllerIdentifySnapshot(false);
-}
+// T76: Raw HID ゲームパッド経路での inventory 間引き更新は Win32InputGlue_ConsumeT76RawHidInventoryRefreshThrottle400ms。
 
 // T18 HUD: shorten binding resolve status for compact multi-slot lines (+ = locked present, abs = absent).
 static void Win32_T18_CompactBindResolveStatus(const wchar_t* full, wchar_t* out, size_t outCount)
@@ -8084,12 +8073,7 @@ static UINT32 Win32_T77_Fnv1a32WidePath(const wchar_t* path)
 static void Win32_T77_ResolvePlayerSlotBindingsAfterSnapshot(const T18ControllerIdentifySnapshot& snap)
 {
     PlayerInputInventoryBindingView view{};
-    for (UINT8 i = 0; i < XUSER_MAX_COUNT; ++i)
-    {
-        ControllerSlotProbeResult probe{};
-        Win32InputGlue_FillControllerSlotProbe(i, probe);
-        view.xinputUserConnected[i] = probe.connected;
-    }
+    Win32InputGlue_FillXInputUserConnectedSlots4(view.xinputUserConnected);
     view.inventoryHidRowPresent = snap.hid_found;
     view.inventoryHidVendorId = snap.hid.vendor_id;
     view.inventoryHidProductId = snap.hid.product_id;
@@ -8690,33 +8674,6 @@ static DWORD s_hidGenericLastLogTick = 0;
 static UINT16 s_hidGenericLastVid = 0;
 static UINT16 s_hidGenericLastPid = 0;
 
-static bool Win32_FillGameControllerHidSummaryFromRawInput(const RAWINPUT* raw, GameControllerHidSummary& out)
-{
-    if (raw == nullptr || raw->header.dwType != RIM_TYPEHID)
-    {
-        return false;
-    }
-    const HANDLE hDev = raw->header.hDevice;
-    RID_DEVICE_INFO info = {};
-    info.cbSize = sizeof(info);
-    UINT cb = sizeof(info);
-    if (GetRawInputDeviceInfo(hDev, RIDI_DEVICEINFO, &info, &cb) == static_cast<UINT>(-1))
-    {
-        return false;
-    }
-    if (info.dwType != RIM_TYPEHID)
-    {
-        return false;
-    }
-    out = {};
-    out.device_info_valid = true;
-    out.vendor_id = static_cast<UINT16>(info.hid.dwVendorId);
-    out.product_id = static_cast<UINT16>(info.hid.dwProductId);
-    out.usage_page = info.hid.usUsagePage;
-    out.usage = info.hid.usUsage;
-    return true;
-}
-
 static void Win32_LogGenericHidGamepadFallback(const RAWINPUT* raw, const GameControllerHidSummary& t)
 {
     const RAWHID& hid = raw->data.hid;
@@ -8772,11 +8729,14 @@ static void Win32_LogGenericHidGamepadFallback(const RAWINPUT* raw, const GameCo
 static void Win32_OnRawInputHidGamepadLayers(const RAWINPUT* raw)
 {
     GameControllerHidSummary t{};
-    if (!Win32_FillGameControllerHidSummaryFromRawInput(raw, t) || !Win32_HidTraitsLookLikeGamepad(t))
+    if (!Win32InputGlue_FillHidSummaryFromRawInput(raw, t) || !Win32_HidTraitsLookLikeGamepad(t))
     {
         return;
     }
-    Win32_T76_ThrottledRefreshT18InventoryFromRawHid();
+    if (Win32InputGlue_ConsumeT76RawHidInventoryRefreshThrottle400ms())
+    {
+        Win32_T18_RefreshControllerIdentifySnapshot(false);
+    }
     ControllerParserKind pk{};
     ControllerSupportLevel sl{};
     Win32_ResolveHidProductTable(t.vendor_id, t.product_id, pk, sl);

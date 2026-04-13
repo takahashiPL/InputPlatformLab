@@ -20,6 +20,13 @@
 ---
 
 | **日付** | 2026-04-13 |
+| **実施内容** | post-foundation step3: `Win32InputGlue.*` に WM_INPUT 経路の HID `RIDI_DEVICEINFO` 要約、T76 400ms inventory refresh 間引き、XUser 0..3 接続フラグ埋めを追加（T18 分類・arbiter 本体は MainApp、��動不変）。 |
+| **確認できたこと** | Debug\|x64 ビルド成功（既存 C4244 のみ）。 |
+| **未解決事項** | なし。 |
+
+---
+
+| **日付** | 2026-04-13 |
 | **実施内容** | post-foundation step2: `Win32InputGlue.*` に先頭接続 XInput スロット取得（`XInputGetState`）と `GetRawInputDeviceList` 二段取得を追加。HID ログ・T18 スナップショットを glue 呼び出しに差し替え（挙動不変）。 |
 | **確認できたこと** | Debug\|x64 ビルド成功（既存 C4244 のみ）。 |
 | **未解決事項** | なし。 |

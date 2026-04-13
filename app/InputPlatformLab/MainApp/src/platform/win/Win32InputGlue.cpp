@@ -1,4 +1,4 @@
-// Win32 / XInput / Raw Input helpers extracted from MainApp.cpp (post-foundation step1; behavior unchanged).
+// Win32 / XInput / Raw Input helpers extracted from MainApp.cpp (post-foundation step1–3; behavior unchanged).
 
 #include "Win32InputGlue.h"
 
@@ -156,4 +156,54 @@ Win32InputGlue_RawInputDeviceListStatus Win32InputGlue_FetchRawInputDeviceList(
     }
     out.resize(copyCount);
     return Win32InputGlue_RawInputDeviceListStatus::Ok;
+}
+
+bool Win32InputGlue_FillHidSummaryFromRawInput(const RAWINPUT* raw, GameControllerHidSummary& out)
+{
+    if (raw == nullptr || raw->header.dwType != RIM_TYPEHID)
+    {
+        return false;
+    }
+    const HANDLE hDev = raw->header.hDevice;
+    RID_DEVICE_INFO info = {};
+    info.cbSize = sizeof(info);
+    UINT cb = sizeof(info);
+    if (GetRawInputDeviceInfo(hDev, RIDI_DEVICEINFO, &info, &cb) == static_cast<UINT>(-1))
+    {
+        return false;
+    }
+    if (info.dwType != RIM_TYPEHID)
+    {
+        return false;
+    }
+    out = {};
+    out.device_info_valid = true;
+    out.vendor_id = static_cast<UINT16>(info.hid.dwVendorId);
+    out.product_id = static_cast<UINT16>(info.hid.dwProductId);
+    out.usage_page = info.hid.usUsagePage;
+    out.usage = info.hid.usUsage;
+    return true;
+}
+
+bool Win32InputGlue_ConsumeT76RawHidInventoryRefreshThrottle400ms()
+{
+    static DWORD s_lastTick = 0;
+    const DWORD now = GetTickCount();
+    if (s_lastTick != 0 && (now - s_lastTick) < 400u)
+    {
+        return false;
+    }
+    s_lastTick = now;
+    return true;
+}
+
+void Win32InputGlue_FillXInputUserConnectedSlots4(bool outSlots[4])
+{
+    static_assert(XUSER_MAX_COUNT == 4, "xinputUserConnected[4] must match XUSER_MAX_COUNT");
+    for (UINT8 i = 0; i < XUSER_MAX_COUNT; ++i)
+    {
+        ControllerSlotProbeResult probe{};
+        Win32InputGlue_FillControllerSlotProbe(i, probe);
+        outSlots[i] = probe.connected;
+    }
 }

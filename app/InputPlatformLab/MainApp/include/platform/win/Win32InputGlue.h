@@ -1,9 +1,11 @@
 // Pack-out: small Win32 input glue (Raw Input registration, device list fetch, first connected XInput slot,
-// XInput slot probe, device string read).
-// Post-foundation step1–2: split from MainApp.cpp; not input/core.
+// XInput slot probe, device string read, Raw HID WM_INPUT survey helpers, inventory refresh throttle).
+// Post-foundation step1–3: split from MainApp.cpp; not input/core.
 #pragma once
 
 #include <Windows.h>
+
+#include "ControllerClassification.h"
 
 #include <vector>
 
@@ -40,3 +42,12 @@ enum class Win32InputGlue_RawInputDeviceListStatus
 };
 Win32InputGlue_RawInputDeviceListStatus Win32InputGlue_FetchRawInputDeviceList(
     std::vector<RAWINPUTDEVICELIST>& out);
+
+// RIDI_DEVICEINFO from RAWINPUT (HID path). false if not HID or API failure.
+bool Win32InputGlue_FillHidSummaryFromRawInput(const RAWINPUT* raw, GameControllerHidSummary& out);
+
+// T76: Raw HID traffic-driven T18 inventory refresh throttle (400 ms, GetTickCount).
+bool Win32InputGlue_ConsumeT76RawHidInventoryRefreshThrottle400ms();
+
+// XInput user 0..3 connected flags (XInputGetCapabilities probe; same as slot probe).
+void Win32InputGlue_FillXInputUserConnectedSlots4(bool outSlots[4]);
