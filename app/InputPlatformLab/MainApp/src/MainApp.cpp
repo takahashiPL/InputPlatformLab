@@ -1,4 +1,4 @@
-// MainApp.cpp : アプリケーションのエントリ ポイントを定義します。
+﻿// MainApp.cpp : アプリケーションのエントリ ポイントを定義します。
 //
 // Pack-out: app-specific glue + Win32 verification shell (WndProc, T18–T20, HUD). Not portable as-is.
 // See docs/architecture.md「Pack-out / reuse boundary」. Prefer copying neutral headers/.cpp + platform/win for reuse.
@@ -14,6 +14,7 @@
 #include "Win32HudPaged.h"
 #include "Win32InputGlue.h"
 #include "T18InventorySnapshotGlue.h"
+#include "T18PageBodyFormatGlue.h"
 #include "EffectiveInputGuideArbiter.h"
 
 #include <windowsx.h>
@@ -5292,144 +5293,19 @@ static const wchar_t* Win32_T18_T76_OnePGuideFamilyLabel()
 
 // T76: Raw HID ゲームパッド経路での inventory 間引き更新は Win32InputGlue_ConsumeT76RawHidInventoryRefreshThrottle400ms。
 
-// T18 HUD: shorten binding resolve status for compact multi-slot lines (+ = locked present, abs = absent).
-static void Win32_T18_CompactBindResolveStatus(const wchar_t* full, wchar_t* out, size_t outCount)
-{
-    if (!out || outCount == 0)
-    {
-        return;
-    }
-    out[0] = L'\0';
-    if (!full || full[0] == L'\0')
-    {
-        wcscpy_s(out, outCount, L"-");
-        return;
-    }
-    if (wcscmp(full, L"locked,present") == 0)
-    {
-        wcscpy_s(out, outCount, L"+");
-        return;
-    }
-    if (wcscmp(full, L"locked,absent") == 0)
-    {
-        wcscpy_s(out, outCount, L"abs");
-        return;
-    }
-    if (wcscmp(full, L"open") == 0)
-    {
-        wcscpy_s(out, outCount, L"op");
-        return;
-    }
-    if (wcscmp(full, L"none") == 0)
-    {
-        wcscpy_s(out, outCount, L"-");
-        return;
-    }
-    if (wcscmp(full, L"unresolved") == 0)
-    {
-        wcscpy_s(out, outCount, L"?");
-        return;
-    }
-    wcsncpy_s(out, outCount, full, _TRUNCATE);
-}
-
-#if defined(_DEBUG)
-static void Win32_T18_FormatSlot1DebugBindShortTag(wchar_t* buf, size_t bufCount)
-{
-    if (!buf || bufCount == 0)
-    {
-        return;
-    }
-    buf[0] = L'\0';
-    wchar_t dev[96] = {};
-    InputGuideArbiter_FormatSlotBoundDeviceIdentityForT18(1u, dev, _countof(dev));
-    if (_wcsicmp(dev, L"keyboard") == 0)
-    {
-        wcscpy_s(buf, bufCount, L"·bk=kb");
-        return;
-    }
-    if (wcsstr(dev, L"XInput user 0") != nullptr)
-    {
-        wcscpy_s(buf, bufCount, L"·bk=xi0");
-        return;
-    }
-    wcscpy_s(buf, bufCount, L"·bk=?");
-}
-#endif
-
-// 2P–4P: one line each (bind · device · resolve · route candidate · consume policy/result).
-static void Win32_T18_FormatExtraPlayerOneLine(PlayerInputSlotIndex slot, wchar_t* out, size_t outCount)
-{
-    if (!out || outCount == 0)
-    {
-        return;
-    }
-    out[0] = L'\0';
-    if (!InputGuideArbiter_IsValidSlotIndex(slot) || slot == 0u)
-    {
-        return;
-    }
-    wchar_t bsrc[80] = {};
-    wchar_t bdev[80] = {};
-    wchar_t bst[80] = {};
-    wchar_t rc[80] = {};
-    wchar_t cp[56] = {};
-    wchar_t cr[56] = {};
-    InputGuideArbiter_FormatSlotBoundSourceForT18(slot, bsrc, _countof(bsrc));
-    InputGuideArbiter_FormatSlotBoundDeviceIdentityForT18(slot, bdev, _countof(bdev));
-    InputGuideArbiter_FormatSlotBindStatusForT18(slot, bst, _countof(bst));
-    InputGuideArbiter_FormatSlotRouteCandidateForT18(slot, rc, _countof(rc));
-    InputGuideArbiter_FormatSlotConsumePolicyForT18(slot, cp, _countof(cp));
-    InputGuideArbiter_FormatSlotConsumeResultForT18(slot, cr, _countof(cr));
-    wchar_t stc[16] = {};
-    Win32_T18_CompactBindResolveStatus(bst, stc, _countof(stc));
-    wchar_t t1suf[20] = {};
-    wchar_t bkdbg[16] = {};
-    InputGuideArbiter_FormatLiveTrialObsForT18(slot, t1suf, _countof(t1suf));
-#if defined(_DEBUG)
-    if (slot == 1u)
-    {
-        Win32_T18_FormatSlot1DebugBindShortTag(bkdbg, _countof(bkdbg));
-    }
-#endif
-    const unsigned pn = static_cast<unsigned>(slot) + 1u;
-    swprintf_s(
-        out,
-        outCount,
-        L"%uP b=%ls·%ls st=%ls r=%ls c=%ls/%ls%ls%ls",
-        pn,
-        bsrc,
-        bdev,
-        stc,
-        rc,
-        cp,
-        cr,
-        t1suf,
-        bkdbg);
-}
-
 // T18 page body: no full device path here. Compact fit for paged HUD; full path → [T18] debug output.
+// Line layout: T18PageBodyFormatGlue.*.
 static void Win32_HudPaged_FillT18PageBody(wchar_t* buf, size_t bufCount)
 {
     buf[0] = L'\0';
     Win32_T18_RefreshControllerIdentifySnapshot();
 
-    wchar_t slotStr[16] = L"-";
-    if (s_t18.xinput_slot >= 0)
-    {
-        swprintf_s(slotStr, _countof(slotStr), L"%d", s_t18.xinput_slot);
-    }
+    wchar_t slotStr[16] = {};
+    T18PageBodyFormat_BuildXInputSlotDisplay(s_t18.xinput_slot, slotStr, _countof(slotStr));
     const unsigned vid = s_t18.hid_found ? static_cast<unsigned>(s_t18.hid.vendor_id) : 0u;
     const unsigned pid = s_t18.hid_found ? static_cast<unsigned>(s_t18.hid.product_id) : 0u;
     wchar_t vidPidLine[96] = {};
-    if (s_t18.hid_found)
-    {
-        swprintf_s(vidPidLine, _countof(vidPidLine), L"%04X/%04X", vid, pid);
-    }
-    else
-    {
-        wcscpy_s(vidPidLine, L"--");
-    }
+    T18PageBodyFormat_BuildVidPidShortLine(s_t18.hid_found, vid, pid, vidPidLine, _countof(vidPidLine));
 
     wchar_t prodTiny[48] = L"(none)";
     if (s_t18.product_name[0] != L'\0')
@@ -5449,7 +5325,7 @@ static void Win32_HudPaged_FillT18PageBody(wchar_t* buf, size_t bufCount)
     InputGuideArbiter_FormatSlotBindStatusForT18(0u, p0st, _countof(p0st));
     InputGuideArbiter_FormatSlotBindMatchForT18(0u, p0mt, _countof(p0mt));
     wchar_t p0stc[16] = {};
-    Win32_T18_CompactBindResolveStatus(p0st, p0stc, _countof(p0stc));
+    T18PageBodyFormat_CompactBindResolveStatus(p0st, p0stc, _countof(p0stc));
 
     wchar_t rc0[80] = {};
     InputGuideArbiter_FormatSlotRouteCandidateForT18(0u, rc0, _countof(rc0));
@@ -5476,26 +5352,15 @@ static void Win32_HudPaged_FillT18PageBody(wchar_t* buf, size_t bufCount)
     wchar_t line2p[256] = {};
     wchar_t line3p[192] = {};
     wchar_t line4p[192] = {};
-    Win32_T18_FormatExtraPlayerOneLine(1u, line2p, _countof(line2p));
-    Win32_T18_FormatExtraPlayerOneLine(2u, line3p, _countof(line3p));
-    Win32_T18_FormatExtraPlayerOneLine(3u, line4p, _countof(line4p));
+    T18PageBodyFormat_FormatExtraPlayerOneLine(1u, line2p, _countof(line2p));
+    T18PageBodyFormat_FormatExtraPlayerOneLine(2u, line3p, _countof(line3p));
+    T18PageBodyFormat_FormatExtraPlayerOneLine(3u, line4p, _countof(line4p));
 
-    swprintf_s(
+    T18PageBodyFormat_FillPagedHudBody(
         buf,
         bufCount,
-        L"inv xi=%ls hid=%ls vp=%ls fam=%ls prod=%ls\r\n"
-        L"ctx %ls/%ls %ls\r\n"
-        L"1P bound %ls|%ls\r\n"
-        L"1P bind st=%ls mt=%ls\r\n"
-        L"1P route cand=%ls | act=%ls | src=%ls\r\n"
-        L"1P owner=%ls guide=%ls\r\n"
-        L"1P consume pol=%ls res=%ls lv=%ls%ls src=stg0\r\n"
-        L"1P staged in=%ls log=%ls\r\n"
-        L"%ls\r\n"
-        L"%ls\r\n"
-        L"%ls\r\n",
         slotStr,
-        s_t18.hid_found ? L"y" : L"n",
+        s_t18.hid_found,
         vidPidLine,
         Win32_GameControllerKindFamilyLabel(s_t18.inferred_kind),
         prodTiny,

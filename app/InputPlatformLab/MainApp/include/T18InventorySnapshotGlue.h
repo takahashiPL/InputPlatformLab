@@ -1,5 +1,6 @@
 // T18 app/debug glue: snapshot struct, survey->snapshot classify path, rationale, HUD summaries.
 // Post-foundation step5: split from MainApp.cpp; not platform/win, not input/core.
+// Paged HUD T18 body line layout: T18PageBodyFormatGlue.* (step6).
 #pragma once
 
 #include "ControllerClassification.h"
