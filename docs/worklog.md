@@ -20,6 +20,12 @@
 ---
 
 | **日付** | 2026-04-13 |
+| **実施内容** | post-foundation step5: `T18InventorySnapshotGlue.*` に T18 snapshot 型・survey 後の分類（SetupDi 含む）・rationale・HUD 要約・`[T18]` debug 出力を集約。`Win32_GameControllerKindFamilyLabel` を `ControllerClassification.*` へ。MainApp は Refresh で glue を呼ぶだけ（挙動不変）。 |
+| **確認できたこと** | Debug\|x64 ビルド成功（既存 C4244 のみ）。 |
+| **未解決事項** | なし。 |
+
+---
+| **日付** | 2026-04-13 |
 | **実施内容** | post-foundation step4: T18 snapshot refresh 前段の Win32 survey（XInput 接続フラグ・Raw HID 列挙順で先頭にマッチしたゲームパッドらしい行のデバイス文字列）を `Win32InputGlue_SurveyForT18InventoryRefresh` に集約。分類・SetupDi・T77・arbiter は MainApp 側に残す（挙動不変）。 |
 | **確認できたこと** | Debug\|x64 ビルド成功（既存 C4244 のみ）。 |
 | **未解決事項** | なし。 |

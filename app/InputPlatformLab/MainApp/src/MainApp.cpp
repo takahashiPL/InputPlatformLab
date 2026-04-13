@@ -1,4 +1,4 @@
-﻿// MainApp.cpp : アプリケーションのエントリ ポイントを定義します。
+// MainApp.cpp : アプリケーションのエントリ ポイントを定義します。
 //
 // Pack-out: app-specific glue + Win32 verification shell (WndProc, T18–T20, HUD). Not portable as-is.
 // See docs/architecture.md「Pack-out / reuse boundary」. Prefer copying neutral headers/.cpp + platform/win for reuse.
@@ -13,6 +13,7 @@
 #include "Win32DebugOverlay.h"
 #include "Win32HudPaged.h"
 #include "Win32InputGlue.h"
+#include "T18InventorySnapshotGlue.h"
 #include "EffectiveInputGuideArbiter.h"
 
 #include <windowsx.h>
@@ -304,19 +305,7 @@ static wchar_t s_t17F5UnrelatedHint[192] = L"";
 // Enter の短いタップはタイマー 1 周期内で make/break となり edge が取りこぼすため、WM_INPUT の make でラッチしタイマーで 1 回だけ消費する。
 static bool s_t17PendingApplyRequest = false;
 
-// T18: コントローラー識別（1 台・Raw Input 先頭 HID + XInput 先頭スロット）
-struct T18ControllerIdentifySnapshot
-{
-    int xinput_slot; // -1: 未接続
-    bool hid_found;
-    GameControllerHidSummary hid;
-    wchar_t device_path[512];
-    wchar_t product_name[256];
-    GameControllerKind inferred_kind;
-    ControllerParserKind parser_kind;
-    ControllerSupportLevel support_level;
-    wchar_t rationale[512]; // 表示用: family/parser/support が tentative な理由（断定しない）
-};
+// T18: コントローラー識別（1 台・Raw Input 先頭 HID + XInput 先頭スロット）。snapshot 型・glue は T18InventorySnapshotGlue.*。
 static T18ControllerIdentifySnapshot s_t18{};
 static T18ControllerIdentifySnapshot s_t18LogPrev{};
 static bool s_t18HasLogPrev = false;
@@ -447,7 +436,6 @@ static void PhysicalKey_FormatDebugLine(const PhysicalKeyEvent& ev, const wchar_
 static const wchar_t* Win32_GameControllerKindLabel(GameControllerKind kind);
 static void Win32_LogRawInputHidGameControllersClassified();
 
-static const wchar_t* Win32_GameControllerKindFamilyLabel(GameControllerKind kind);
 static void Win32_T18_RefreshControllerIdentifySnapshot(bool emitDiffLog = true);
 static void Win32_T18_LogCurrentSnapshotForced();
 static void Win32_T18_AppendPaintSection(
@@ -3102,129 +3090,6 @@ static void Win32_T16_AppendPaintSection(
     wcscat_s(buf, bufCount, block);
 }
 
-static void Win32_T18_TruncateWideForPaint(const wchar_t* src, wchar_t* dst, size_t dstCount, size_t maxLen)
-{
-    if (!src || src[0] == L'\0')
-    {
-        wcscpy_s(dst, dstCount, L"(none)");
-        return;
-    }
-    const size_t n = wcslen(src);
-    if (n <= maxLen)
-    {
-        wcscpy_s(dst, dstCount, src);
-        return;
-    }
-    wcsncpy_s(dst, dstCount, src, maxLen);
-    wcscat_s(dst, dstCount, L"...");
-}
-
-// 製品名がデバイスパスに見えるときは T18 表示で path と混同しないよう弾く。
-static bool Win32_T18_RawInputProductLooksLikeDevicePath(const wchar_t* s)
-{
-    if (!s || s[0] == L'\0')
-    {
-        return false;
-    }
-    if (s[0] == L'\\')
-    {
-        return true;
-    }
-    if (wcsstr(s, L"HID#") != nullptr)
-    {
-        return true;
-    }
-    if (wcsstr(s, L"VID_") != nullptr && wcsstr(s, L"PID_") != nullptr)
-    {
-        return true;
-    }
-    return false;
-}
-
-// Raw Input の RIDI_DEVICENAME と SetupDi 列挙の DevicePath が接頭辞などで微妙に違う場合の比較。
-static bool Win32_T18_HidDevicePathsEqualEnough(const wchar_t* a, const wchar_t* b)
-{
-    if (!a || !b || a[0] == L'\0' || b[0] == L'\0')
-    {
-        return false;
-    }
-    if (_wcsicmp(a, b) == 0)
-    {
-        return true;
-    }
-    const wchar_t* ca = wcsstr(a, L"HID#");
-    const wchar_t* cb = wcsstr(b, L"HID#");
-    if (ca && cb && _wcsicmp(ca, cb) == 0)
-    {
-        return true;
-    }
-    return false;
-}
-
-// SetupDi: デバイス説明（Device Description）。RIDI_PRODUCTNAME が無い／パスに見えるときの補助。
-static bool Win32_T18_TrySetupDiDeviceDescriptionFromHidPath(const wchar_t* devicePath, wchar_t* out, size_t outCount)
-{
-    if (!devicePath || devicePath[0] == L'\0' || outCount == 0)
-    {
-        return false;
-    }
-    out[0] = L'\0';
-
-    HDEVINFO hDevInfo =
-        SetupDiGetClassDevs(&GUID_DEVINTERFACE_HID, nullptr, nullptr, DIGCF_PRESENT | DIGCF_DEVICEINTERFACE);
-    if (hDevInfo == INVALID_HANDLE_VALUE)
-    {
-        return false;
-    }
-
-    bool found = false;
-    SP_DEVICE_INTERFACE_DATA ifData{};
-    ifData.cbSize = sizeof(SP_DEVICE_INTERFACE_DATA);
-
-    for (DWORD index = 0; SetupDiEnumDeviceInterfaces(hDevInfo, nullptr, &GUID_DEVINTERFACE_HID, index, &ifData);
-         ++index)
-    {
-        DWORD required = 0;
-        SetupDiGetDeviceInterfaceDetailW(hDevInfo, &ifData, nullptr, 0, &required, nullptr);
-        if (required < sizeof(SP_DEVICE_INTERFACE_DETAIL_DATA))
-        {
-            continue;
-        }
-        std::vector<BYTE> detailBuffer(required);
-        auto* pDetail = reinterpret_cast<SP_DEVICE_INTERFACE_DETAIL_DATA*>(detailBuffer.data());
-        pDetail->cbSize = sizeof(SP_DEVICE_INTERFACE_DETAIL_DATA);
-        SP_DEVINFO_DATA devInfoData{};
-        devInfoData.cbSize = sizeof(SP_DEVINFO_DATA);
-        if (!SetupDiGetDeviceInterfaceDetailW(hDevInfo, &ifData, pDetail, required, nullptr, &devInfoData))
-        {
-            continue;
-        }
-        if (!Win32_T18_HidDevicePathsEqualEnough(devicePath, pDetail->DevicePath))
-        {
-            continue;
-        }
-        DWORD regType = 0;
-        DWORD need = static_cast<DWORD>((outCount - 1) * sizeof(wchar_t));
-        if (SetupDiGetDeviceRegistryPropertyW(
-                hDevInfo,
-                &devInfoData,
-                SPDRP_DEVICEDESC,
-                &regType,
-                reinterpret_cast<PBYTE>(out),
-                need,
-                nullptr))
-        {
-            out[outCount - 1] = L'\0';
-            if (out[0] != L'\0')
-            {
-                found = true;
-            }
-        }
-        break;
-    }
-    SetupDiDestroyDeviceInfoList(hDevInfo);
-    return found;
-}
 
 // ---------------------------------------------------------------------------
 // T18: デバッグ表示ブロック（先頭 HID + 先頭 XInput スロット・VID/PID・parser/support）
@@ -3321,8 +3186,8 @@ static void Win32_T18_AppendPaintSection(
 
     wchar_t pathDisp[384] = {};
     wchar_t prodDisp[384] = {};
-    Win32_T18_TruncateWideForPaint(s_t18.device_path, pathDisp, _countof(pathDisp), 120);
-    Win32_T18_TruncateWideForPaint(
+    T18Inventory_TruncateWideForPaint(s_t18.device_path, pathDisp, _countof(pathDisp), 120);
+    T18Inventory_TruncateWideForPaint(
         (s_t18.product_name[0] != L'\0') ? s_t18.product_name : L"",
         prodDisp,
         _countof(prodDisp),
@@ -3613,21 +3478,6 @@ static const wchar_t* Win32_GameControllerKindLabel(GameControllerKind kind)
     case GameControllerKind::PlayStation5: return L"PS5";
     case GameControllerKind::Nintendo: return L"Nintendo";
     case GameControllerKind::XInputCompatible: return L"XInputCompatible";
-    default: return L"Unknown";
-    }
-}
-
-// T18 / paint: 粗い family（PS4/PS5 は PlayStation にまとめる。XInput 互換は enum 名どおり）
-static const wchar_t* Win32_GameControllerKindFamilyLabel(GameControllerKind kind)
-{
-    switch (kind)
-    {
-    case GameControllerKind::Xbox: return L"Xbox";
-    case GameControllerKind::PlayStation4:
-    case GameControllerKind::PlayStation5: return L"PlayStation";
-    case GameControllerKind::Nintendo: return L"Nintendo";
-    case GameControllerKind::XInputCompatible: return L"XInputCompatible";
-    case GameControllerKind::Unknown:
     default: return L"Unknown";
     }
 }
@@ -5396,104 +5246,6 @@ static void Win32_HudPaged_FillT15PageBody(wchar_t* buf, size_t bufCount)
     }
 }
 
-// ページ式 HUD 用の短い why（2〜3 行）。全文は s.rationale と [T18] rationale ログ。
-static void Win32_T18_FillWhyHudShort(const T18ControllerIdentifySnapshot& s, wchar_t* buf, size_t bufCount)
-{
-    if (bufCount == 0)
-    {
-        return;
-    }
-    buf[0] = L'\0';
-    if (!s.hid_found)
-    {
-        if (s.xinput_slot >= 0)
-        {
-            swprintf_s(
-                buf,
-                bufCount,
-                L"XInput-only (no HID in enum order)\r\n"
-                L"verified API\r\n"
-                L"details → [T18] rationale");
-        }
-        else
-        {
-            wcscpy_s(buf, bufCount, L"No HID; no XInput slot.");
-        }
-        return;
-    }
-    if (s.support_level == ControllerSupportLevel::Verified && s.parser_kind == ControllerParserKind::Ds4KnownHid)
-    {
-        wcscpy_s(
-            buf,
-            bufCount,
-            L"DS4 verified table\r\n"
-            L"known HID report map");
-        return;
-    }
-    if (s.support_level == ControllerSupportLevel::Verified && s.parser_kind == ControllerParserKind::XInput)
-    {
-        wcscpy_s(
-            buf,
-            bufCount,
-            L"XInput-only path\r\n"
-            L"verified API");
-        return;
-    }
-    const bool hori006d = (s.hid.vendor_id == 0x0F0D && s.hid.product_id == 0x006D);
-    if (hori006d)
-    {
-        swprintf_s(
-            buf,
-            bufCount,
-            L"%s · %s\r\n"
-            L"HORI-class · XInput優先\r\n"
-            L"details → [T18] rationale",
-            Win32_ControllerSupportLevelLabel(s.support_level),
-            Win32_ControllerParserKindLabel(s.parser_kind));
-        return;
-    }
-    if (s.hid.vendor_id == 0x054C && s.support_level == ControllerSupportLevel::Tentative &&
-        s.parser_kind == ControllerParserKind::GenericHid)
-    {
-        if (s.hid.product_id == 0x0CE6 || s.hid.product_id == 0x0DF2)
-        {
-            wcscpy_s(
-                buf,
-                bufCount,
-                L"tentative · GenericHid\r\n"
-                L"DualSense-class (USB)\r\n"
-                L"details → [T18] rationale");
-            return;
-        }
-        if (s.inferred_kind == GameControllerKind::PlayStation5)
-        {
-            wcscpy_s(
-                buf,
-                bufCount,
-                L"tentative · GenericHid\r\n"
-                L"Sony PS5-class (HID)\r\n"
-                L"details → [T18] rationale");
-            return;
-        }
-        wcscpy_s(
-            buf,
-            bufCount,
-            L"tentative · GenericHid\r\n"
-            L"Sony PS4-class (HID)\r\n"
-            L"details → [T18] rationale");
-        return;
-    }
-    swprintf_s(
-        buf,
-        bufCount,
-        L"%s · %s\r\n"
-        L"%s\r\n"
-        L"details → [T18] rationale",
-        Win32_ControllerSupportLevelLabel(s.support_level),
-        Win32_ControllerParserKindLabel(s.parser_kind),
-        L"no per-device HID map");
-}
-
 static const wchar_t* Win32_InputGuideSourceKindUiLabel(InputGuideSourceKind k)
 {
     switch (k)
@@ -5579,29 +5331,6 @@ static void Win32_T18_CompactBindResolveStatus(const wchar_t* full, wchar_t* out
         return;
     }
     wcsncpy_s(out, outCount, full, _TRUNCATE);
-}
-
-// Single-line why for paged HUD (full rationale remains in [T18] logs).
-static void Win32_T18_FillWhyHudSingleLine(const T18ControllerIdentifySnapshot& s, wchar_t* buf, size_t bufCount)
-{
-    if (!buf || bufCount == 0)
-    {
-        return;
-    }
-    wchar_t tmp[384] = {};
-    Win32_T18_FillWhyHudShort(s, tmp, _countof(tmp));
-    for (wchar_t* p = tmp; *p != L'\0'; ++p)
-    {
-        if (*p == L'\r' || *p == L'\n')
-        {
-            *p = L'·';
-        }
-    }
-    Win32_T18_TruncateWideForPaint(tmp, buf, bufCount, 120);
-    if (buf[0] == L'\0')
-    {
-        wcscpy_s(buf, bufCount, L"(none)");
-    }
 }
 
 #if defined(_DEBUG)
@@ -5705,10 +5434,10 @@ static void Win32_HudPaged_FillT18PageBody(wchar_t* buf, size_t bufCount)
     wchar_t prodTiny[48] = L"(none)";
     if (s_t18.product_name[0] != L'\0')
     {
-        Win32_T18_TruncateWideForPaint(s_t18.product_name, prodTiny, _countof(prodTiny), 28);
+        T18Inventory_TruncateWideForPaint(s_t18.product_name, prodTiny, _countof(prodTiny), 28);
     }
     wchar_t whyOne[160] = {};
-    Win32_T18_FillWhyHudSingleLine(s_t18, whyOne, _countof(whyOne));
+    T18Inventory_FillWhyHudSingleLine(s_t18, whyOne, _countof(whyOne));
 
     wchar_t boundSrcLine[96] = {};
     wchar_t boundDevLine[96] = {};
@@ -7884,124 +7613,6 @@ static void Win32_LogRawInputHidGameControllersClassified()
     }
 }
 
-// === T18: XInput 先頭スロット + Raw Input 先頭 HID ゲームパッド（1 台・WM_PAINT で更新） ===
-static void Win32_T18_FillIdentifyRationale(const T18ControllerIdentifySnapshot& s, wchar_t* buf, size_t bufCount)
-{
-    if (bufCount == 0)
-    {
-        return;
-    }
-    buf[0] = L'\0';
-    if (!s.hid_found)
-    {
-        if (s.xinput_slot >= 0)
-        {
-            swprintf_s(
-                buf,
-                bufCount,
-                L"No Raw HID gamepad in enum order; XInput slot %d → family/parser via XInput API (verified).",
-                s.xinput_slot);
-        }
-        else
-        {
-            wcscpy_s(buf, bufCount, L"No HID match; no XInput slot.");
-        }
-        return;
-    }
-    if (s.support_level == ControllerSupportLevel::Verified && s.parser_kind == ControllerParserKind::Ds4KnownHid)
-    {
-        wcscpy_s(buf, bufCount, L"VID/PID in verified DS4 HID table; known report layout.");
-        return;
-    }
-    if (s.support_level == ControllerSupportLevel::Verified && s.parser_kind == ControllerParserKind::XInput)
-    {
-        wcscpy_s(buf, bufCount, L"XInput-only path (no HID gamepad in Raw Input order); verified API input.");
-        return;
-    }
-    const bool hori006d = (s.hid.vendor_id == 0x0F0D && s.hid.product_id == 0x006D);
-    if (hori006d)
-    {
-        swprintf_s(
-            buf,
-            bufCount,
-            L"HORI-class 0x0F0D/0x006D: 多くの構成でゲーム入力は XInput 側。HID は補助/二重デバイスになり得る。"
-            L" parser=%s; support=%s（HID レポートマップは本ビルドでは未検証）。",
-            Win32_ControllerParserKindLabel(s.parser_kind),
-            Win32_ControllerSupportLevelLabel(s.support_level));
-        return;
-    }
-    if (s.hid.vendor_id == 0x054C && s.support_level == ControllerSupportLevel::Tentative &&
-        s.parser_kind == ControllerParserKind::GenericHid)
-    {
-        if (s.hid.product_id == 0x0CE6 || s.hid.product_id == 0x0DF2)
-        {
-            swprintf_s(
-                buf,
-                bufCount,
-                L"family=%s: DualSense 系 PID（テーブル）。parser=%s は汎用 HID; レポート検証は未実施のため tentative。",
-                Win32_GameControllerKindFamilyLabel(s.inferred_kind),
-                Win32_ControllerParserKindLabel(s.parser_kind));
-            return;
-        }
-        if (s.inferred_kind == GameControllerKind::PlayStation5)
-        {
-            swprintf_s(
-                buf,
-                bufCount,
-                L"family=%s: 名称/用途から PS5 寄せ。parser=%s; support=%s（HID レポートは本ビルドでは未検証）。",
-                Win32_GameControllerKindFamilyLabel(s.inferred_kind),
-                Win32_ControllerParserKindLabel(s.parser_kind),
-                Win32_ControllerSupportLevelLabel(s.support_level));
-            return;
-        }
-        swprintf_s(
-            buf,
-            bufCount,
-            L"family=%s: Sony PID=0x%04X。parser=%s; support=%s。"
-            L" DS4 verified は 0x05C4/0x09CC のみ（既知レポート）。それ以外は GenericHid のまま。",
-            Win32_GameControllerKindFamilyLabel(s.inferred_kind),
-            static_cast<unsigned>(s.hid.product_id),
-            Win32_ControllerParserKindLabel(s.parser_kind),
-            Win32_ControllerSupportLevelLabel(s.support_level));
-        return;
-    }
-    swprintf_s(
-        buf,
-        bufCount,
-        L"family=%s: classify(VID/PID/name/path, XInput any). "
-        L"parser=%s: generic HID path (no per-device verified report map in this build). "
-        L"support=%s.",
-        Win32_GameControllerKindFamilyLabel(s.inferred_kind),
-        Win32_ControllerParserKindLabel(s.parser_kind),
-        Win32_ControllerSupportLevelLabel(s.support_level));
-}
-
-static void Win32_T18_OutputSnapshotDebugLines(const T18ControllerIdentifySnapshot& snap)
-{
-    const unsigned vid = snap.hid_found ? static_cast<unsigned>(snap.hid.vendor_id) : 0u;
-    const unsigned pid = snap.hid_found ? static_cast<unsigned>(snap.hid.product_id) : 0u;
-    const wchar_t* const pathHint =
-        (snap.device_path[0] != L'\0') ? L"(see device_path(full))" : L"";
-    wchar_t line[2048] = {};
-    swprintf_s(
-        line,
-        _countof(line),
-        L"[T18] hid_found=%d slot=%d vid=0x%04X pid=0x%04X family=%s parser=%s support=%s product=\"%s\" path=\"%s\"\r\n",
-        snap.hid_found ? 1 : 0,
-        snap.xinput_slot,
-        vid,
-        pid,
-        Win32_GameControllerKindFamilyLabel(snap.inferred_kind),
-        Win32_ControllerParserKindLabel(snap.parser_kind),
-        Win32_ControllerSupportLevelLabel(snap.support_level),
-        (snap.product_name[0] != L'\0') ? snap.product_name : L"",
-        pathHint);
-    OutputDebugStringW(line);
-    wchar_t rat[640] = {};
-    swprintf_s(rat, _countof(rat), L"[T18] rationale: %s\r\n", snap.rationale);
-    OutputDebugStringW(rat);
-}
-
 static void Win32_T18_LogIfChanged()
 {
     const bool same =
@@ -8033,7 +7644,7 @@ static void Win32_T18_LogIfChanged()
     s_t18LogPrev = s_t18;
     s_t18HasLogPrev = true;
 
-    Win32_T18_OutputSnapshotDebugLines(s_t18);
+    T18Inventory_OutputSnapshotDebugLines(s_t18);
 }
 
 // ページ式 HUD: 非 T18 → T18 遷移時のみ（差分ログと重複しないよう Refresh(..., false) と併用）。
@@ -8042,7 +7653,7 @@ static void Win32_T18_LogCurrentSnapshotForced()
     if (kT18DebugLog)
     {
         OutputDebugStringW(L"[T18] page-enter forced snapshot\r\n");
-        Win32_T18_OutputSnapshotDebugLines(s_t18);
+        T18Inventory_OutputSnapshotDebugLines(s_t18);
     }
     s_t18LogPrev = s_t18;
     s_t18HasLogPrev = true;
@@ -8099,79 +7710,8 @@ static void Win32_T18_RefreshControllerIdentifySnapshot(bool emitDiffLog)
     Win32InputGlue_T18InventorySurvey inv{};
     Win32InputGlue_SurveyForT18InventoryRefresh(inv);
 
-    snap.xinput_slot = inv.first_connected_xinput_slot;
-    const bool anyXInput = inv.any_xinput_connected;
+    T18Inventory_CompleteSnapshotFromSurvey(snap, inv);
 
-    if (inv.hid_row_found)
-    {
-        const bool productUsable =
-            (inv.hid_product_name_raw[0] != L'\0') &&
-            !Win32_T18_RawInputProductLooksLikeDevicePath(inv.hid_product_name_raw);
-
-        wchar_t setupDiProduct[256] = {};
-        bool setupDiOk = false;
-        if (inv.hid_device_path[0] != L'\0')
-        {
-            setupDiOk =
-                Win32_T18_TrySetupDiDeviceDescriptionFromHidPath(
-                    inv.hid_device_path, setupDiProduct, _countof(setupDiProduct));
-        }
-
-        const wchar_t* const tableFallback =
-            Win32_ControllerHidProductDisplayNameFallback(inv.hid_traits.vendor_id, inv.hid_traits.product_id);
-
-        const wchar_t* classifyName = nullptr;
-        if (productUsable)
-        {
-            classifyName = inv.hid_product_name_raw;
-        }
-        else if (setupDiOk && setupDiProduct[0] != L'\0')
-        {
-            classifyName = setupDiProduct;
-        }
-        else if (tableFallback != nullptr)
-        {
-            classifyName = tableFallback;
-        }
-
-        const wchar_t* pathPtr = (inv.hid_device_path[0] != L'\0') ? inv.hid_device_path : nullptr;
-
-        snap.hid = inv.hid_traits;
-        snap.hid_found = true;
-        wcscpy_s(snap.device_path, inv.hid_device_path);
-        if (productUsable)
-        {
-            wcscpy_s(snap.product_name, inv.hid_product_name_raw);
-        }
-        else if (setupDiOk && setupDiProduct[0] != L'\0')
-        {
-            wcscpy_s(snap.product_name, setupDiProduct);
-        }
-        else if (tableFallback != nullptr)
-        {
-            wcscpy_s(snap.product_name, tableFallback);
-        }
-
-        snap.inferred_kind =
-            Win32_ClassifyGameControllerKind(inv.hid_traits, classifyName, pathPtr, anyXInput);
-        Win32_ResolveHidProductTable(
-            inv.hid_traits.vendor_id,
-            inv.hid_traits.product_id,
-            snap.parser_kind,
-            snap.support_level);
-    }
-
-    if (!snap.hid_found)
-    {
-        snap.inferred_kind = anyXInput ? GameControllerKind::XInputCompatible : GameControllerKind::Unknown;
-        if (snap.xinput_slot >= 0 || anyXInput)
-        {
-            snap.parser_kind = ControllerParserKind::XInput;
-            snap.support_level = ControllerSupportLevel::Verified;
-        }
-    }
-
-    Win32_T18_FillIdentifyRationale(snap, snap.rationale, _countof(snap.rationale));
     s_t18 = snap;
     InputGuideArbiter_OnDeviceInventoryRefreshed(snap.inferred_kind, snap.hid_found, snap.xinput_slot);
     Win32_T77_ResolvePlayerSlotBindingsAfterSnapshot(snap);
@@ -8187,7 +7727,7 @@ static void Win32_T18_RefreshControllerIdentifySnapshot(bool emitDiffLog)
             OutputDebugStringW(lg);
         }
         OutputDebugStringW(L"[T18] page-enter deferred snapshot\r\n");
-        Win32_T18_OutputSnapshotDebugLines(s_t18);
+        T18Inventory_OutputSnapshotDebugLines(s_t18);
         s_t18LogPrev = s_t18;
         s_t18HasLogPrev = true;
         s_t18PageEnterDeferredPending = false;

@@ -42,6 +42,9 @@
     <ClInclude Include="include\ControllerClassification.h">
       <Filter>include</Filter>
     </ClInclude>
+    <ClInclude Include="include\T18InventorySnapshotGlue.h">
+      <Filter>include</Filter>
+    </ClInclude>
     <ClInclude Include="include\GamepadTypes.h">
       <Filter>include</Filter>
     </ClInclude>
@@ -84,6 +87,9 @@
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="src\MainApp.cpp">
+      <Filter>src</Filter>
+    </ClCompile>
+    <ClCompile Include="src\T18InventorySnapshotGlue.cpp">
       <Filter>src</Filter>
     </ClCompile>
     <ClCompile Include="src\ControllerClassification.cpp">

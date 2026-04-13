@@ -53,6 +53,9 @@ const wchar_t* Win32_ControllerHidProductDisplayNameFallback(UINT16 vid, UINT16 
 const wchar_t* Win32_ControllerParserKindLabel(ControllerParserKind p);
 const wchar_t* Win32_ControllerSupportLevelLabel(ControllerSupportLevel s);
 
+// T18 / paint: 粗い family（PS4/PS5 は PlayStation にまとめる。XInput 互換は enum 名どおり）
+const wchar_t* Win32_GameControllerKindFamilyLabel(GameControllerKind kind);
+
 // HID + 製品名 / デバイスパス文字列（任意）から family を推定。文字列は wchar_t（CRT の wcsstr のみ使用）
 GameControllerKind Win32_ClassifyGameControllerKind(
     const GameControllerHidSummary& traits,

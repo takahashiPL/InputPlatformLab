@@ -143,6 +143,7 @@
     <ClInclude Include="include\targetver.h" />
     <ClInclude Include="include\CommonTypes.h" />
     <ClInclude Include="include\ControllerClassification.h" />
+    <ClInclude Include="include\T18InventorySnapshotGlue.h" />
     <ClInclude Include="include\GamepadTypes.h" />
     <ClInclude Include="include\InputCore.h" />
     <ClInclude Include="include\platform\win\WindowsAppShell.h" />
@@ -164,6 +165,7 @@
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="src\ControllerClassification.cpp" />
+    <ClCompile Include="src\T18InventorySnapshotGlue.cpp" />
     <ClCompile Include="src\platform\win\WindowsRenderer.cpp" />
     <ClCompile Include="src\platform\win\Win32DebugOverlay.cpp" />
     <ClCompile Include="src\platform\win\Win32DebugOverlayLegacyStacked.cpp" />

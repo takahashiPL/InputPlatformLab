@@ -103,6 +103,20 @@ const wchar_t* Win32_ControllerSupportLevelLabel(ControllerSupportLevel s)
     }
 }
 
+const wchar_t* Win32_GameControllerKindFamilyLabel(GameControllerKind kind)
+{
+    switch (kind)
+    {
+    case GameControllerKind::Xbox: return L"Xbox";
+    case GameControllerKind::PlayStation4:
+    case GameControllerKind::PlayStation5: return L"PlayStation";
+    case GameControllerKind::Nintendo: return L"Nintendo";
+    case GameControllerKind::XInputCompatible: return L"XInputCompatible";
+    case GameControllerKind::Unknown:
+    default: return L"Unknown";
+    }
+}
+
 // HID と（任意で）製品名・パス文字列から family を推定。XInput 接続のみのときは XInputCompatible になり得る。
 GameControllerKind Win32_ClassifyGameControllerKind(
     const GameControllerHidSummary& t,
