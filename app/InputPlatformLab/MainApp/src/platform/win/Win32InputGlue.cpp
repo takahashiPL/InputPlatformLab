@@ -75,6 +75,83 @@ void Win32InputGlue_LogXInputSlotsAtStartup()
     }
 }
 
+void Win32InputGlue_LogRawInputHidGameControllersClassified()
+{
+    OutputDebugStringW(L"--- HID gamepads (Raw Input + classify) ---\r\n");
+
+    const bool anyXInput = Win32InputGlue_QueryAnyXInputConnected();
+
+    std::vector<RAWINPUTDEVICELIST> devices;
+    const auto listSt = Win32InputGlue_FetchRawInputDeviceList(devices);
+    if (listSt == Win32InputGlue_RawInputDeviceListStatus::CountQueryFailed)
+    {
+        OutputDebugStringW(L"GetRawInputDeviceList(count) failed\r\n");
+        return;
+    }
+    if (listSt == Win32InputGlue_RawInputDeviceListStatus::DeviceListFailed)
+    {
+        OutputDebugStringW(L"GetRawInputDeviceList(list) failed\r\n");
+        return;
+    }
+    if (devices.empty())
+    {
+        OutputDebugStringW(L"(no Raw Input devices)\r\n");
+        return;
+    }
+
+    for (UINT i = 0; i < static_cast<UINT>(devices.size()); ++i)
+    {
+        if (devices[i].dwType != RIM_TYPEHID)
+        {
+            continue;
+        }
+
+        const HANDLE hDevice = devices[i].hDevice;
+
+        GameControllerHidSummary traits = {};
+        if (!Win32InputGlue_TryFillHidSummaryFromRawInputHandle(hDevice, traits))
+        {
+            continue;
+        }
+
+        if (!Win32_HidTraitsLookLikeGamepad(traits))
+        {
+            continue;
+        }
+
+        wchar_t pathBuf[512] = {};
+        wchar_t productBuf[256] = {};
+        Win32InputGlue_TryGetRawInputDeviceString(hDevice, RIDI_DEVICENAME, pathBuf, _countof(pathBuf));
+        Win32InputGlue_TryGetRawInputDeviceString(hDevice, RIDI_PRODUCTNAME, productBuf, _countof(productBuf));
+
+        const wchar_t* productPtr = (productBuf[0] != L'\0') ? productBuf : nullptr;
+        const wchar_t* pathPtr = (pathBuf[0] != L'\0') ? pathBuf : nullptr;
+
+        const GameControllerKind kind = Win32_ClassifyGameControllerKind(traits, productPtr, pathPtr, anyXInput);
+        ControllerParserKind pk{};
+        ControllerSupportLevel sl{};
+        Win32_ResolveHidProductTable(traits.vendor_id, traits.product_id, pk, sl);
+
+        wchar_t line[1024] = {};
+        swprintf_s(
+            line,
+            _countof(line),
+            L"Gamepad: kind=%s vid=0x%04X pid=0x%04X usage=0x%04X/0x%04X xinput_any=%d name=\"%s\" path=\"%s\" "
+            L"parser=%s support=%s\r\n",
+            Win32_GameControllerKindShortLabel(kind),
+            static_cast<unsigned int>(traits.vendor_id),
+            static_cast<unsigned int>(traits.product_id),
+            static_cast<unsigned int>(traits.usage_page),
+            static_cast<unsigned int>(traits.usage),
+            anyXInput ? 1 : 0,
+            productPtr ? productPtr : L"",
+            pathPtr ? pathPtr : L"",
+            Win32_ControllerParserKindLabel(pk),
+            Win32_ControllerSupportLevelLabel(sl));
+        OutputDebugStringW(line);
+    }
+}
+
 bool Win32InputGlue_QueryAnyXInputConnected()
 {
     for (DWORD i = 0; i < XUSER_MAX_COUNT; ++i)

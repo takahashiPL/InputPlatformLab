@@ -190,7 +190,7 @@ windowed / borderless / fullscreen 等のプレゼンテーション状態と ca
 3. **切断**: デバイスの **USB を抜く**、または **管理者** PowerShell で当該コントローラーの **InstanceId** に対し `Disable-PnpDevice -Confirm:$false` を実行する。  
 4. **T18 のまま**、表示が更新されるまで待つ（変化しない場合は **キー1つ**や **マウス移動**で **WM_PAINT** を発生させる）。**HUD** で **`HID=no`**（およびスロット・VID/PID が期待どおり）になることを確認する。  
 5. **再接続**: USB を挿す、または `Enable-PnpDevice -Confirm:$false`。再度 **接続中** と同様の行が戻ることを **HUD** で確認する。  
-6. （任意）**Sysinternals DebugView** などで **`[T18]`** 行（`hid_found`・`rationale`・`device_path(full)`）がスナップショット変化に合わせて出ることを確認する。起動直後の Raw HID 列挙ログは **`Win32_LogRawInputHidGameControllersClassified`** 経路；**抜き差し瞬間**は **`[T18]` 差分ログ**を主とし、**HIDgen** は T18 主系外の汎用 HID 用。
+6. （任意）**Sysinternals DebugView** などで **`[T18]`** 行（`hid_found`・`rationale`・`device_path(full)`）がスナップショット変化に合わせて出ることを確認する。起動直後の Raw HID 列挙ログは **`Win32InputGlue_LogRawInputHidGameControllersClassified`** 経路；**抜き差し瞬間**は **`[T18]` 差分ログ**を主とし、**HIDgen** は T18 主系外の汎用 HID 用。
 
 **確認済み**  
 - (code) `Win32_HudPaged_FillT18PageBody` および T18 状態の参照がページ描画に接続。タイマー・WM_PAINT で更新される設計。  

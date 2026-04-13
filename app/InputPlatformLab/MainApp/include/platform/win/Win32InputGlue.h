@@ -27,6 +27,8 @@ BOOL Win32InputGlue_RegisterKeyboardRawInput(HWND hwnd);
 void Win32InputGlue_FillControllerSlotProbe(UINT8 slot, ControllerSlotProbeResult& out);
 void Win32InputGlue_LogControllerSlotProbeLine(const ControllerSlotProbeResult& probe);
 void Win32InputGlue_LogXInputSlotsAtStartup();
+// Startup-only: classify + OutputDebugString lines for each Raw-Input-enumerated HID gamepad row.
+void Win32InputGlue_LogRawInputHidGameControllersClassified();
 bool Win32InputGlue_QueryAnyXInputConnected();
 bool Win32InputGlue_TryGetRawInputDeviceString(
     HANDLE hDevice,
