@@ -36,32 +36,52 @@
 #include <shellscalingapi.h>
 #pragma comment(lib, "Shcore.lib")
 
+// App glue tunables (Win32/XInput/Raw Input). See docs/architecture.md「入力 foundation の整理」.
+// Prefer moving with a future WindowsInputBackend / XInput TU; not input/core.
+
 #ifndef USER_DEFAULT_SCREEN_DPI
+// Fallback DPI for MulDiv / logical vs physical when monitor DPI unknown. Unit: DPI. 96 = 100% Win baseline.
+// platform/win (display). Reuse: Shcore/DPI helper module, not VirtualInput types.
 #define USER_DEFAULT_SCREEN_DPI 96
 #endif
 
+// LoadStringW cap for title + window class. Unit: WCHAR count (excl. NUL). MS template default.
+// App glue (resources). Reuse: any Win32 shell that loads IDS_APP_TITLE / IDC_MAINAPP.
 #define MAX_LOADSTRING 100
 
+// WM_TIMER id for XInput polling. Unit: none (UINT cookie). Project-local; avoid clashing with other timers.
+// App glue → future: platform/win timer registration next to XInput poll.
 #define TIMER_ID_XINPUT_POLL 1001
+// XInput poll period. Unit: ms. ~30 Hz balances latency vs CPU; tune with UX, not logic constants in core.
+// platform/win (XInput path).
 #define XINPUT_POLL_INTERVAL_MS 33
 
 #ifndef XINPUT_GAMEPAD_TRIGGER_THRESHOLD
+// Digital L2/R2 from analog triggers. Unit: raw byte 0-255. 30 = heuristic press threshold (above idle noise).
+// platform/win mapping into VirtualInputSnapshot; reuse: same TU as XInput-to-neutral bridge.
 #define XINPUT_GAMEPAD_TRIGGER_THRESHOLD 30
 #endif
 
 #ifndef XINPUT_GAMEPAD_LEFT_THUMB_DEADZONE
+// Left stick deadzone vs sqrt(x*x+y*y); stick range about +/-32767. Matches XInput.h default. Unit: axis units.
+// platform/win deadzone helper (Win32_LeftStickInDeadzone).
 #define XINPUT_GAMEPAD_LEFT_THUMB_DEADZONE 7849
 #endif
 
 #ifndef XINPUT_GAMEPAD_RIGHT_THUMB_DEADZONE
+// Right stick deadzone; same semantics as left. Unit: stick magnitude. Default from XInput.h family.
+// platform/win (Win32_RightStickInDeadzone).
 #define XINPUT_GAMEPAD_RIGHT_THUMB_DEADZONE 8689
 #endif
 
 #ifndef XINPUT_GAMEPAD_GUIDE
+// Guide/Home bitmask for wButtons when SDK omits it. Unit: WORD bit mask. 0x0400: Xbox Guide.
+// platform/win (XINPUT_STATE); neutral consumer reads psHome only.
 #define XINPUT_GAMEPAD_GUIDE 0x0400u
 #endif
 
-// Windows 8.1+（targetver によっては未定義のため）
+// GetRawInputDeviceInfo buffer type for human-readable product name. Unit: ULONG command id (Win8.1+ SDK).
+// platform/win Raw Input. Undef on older targetver — keep fallback define here in glue.
 #ifndef RIDI_PRODUCTNAME
 #define RIDI_PRODUCTNAME 0x20000007
 #endif
