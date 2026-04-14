@@ -96,6 +96,22 @@
 
 **まだ実装に触らない理由**: 型は既にヘッダで事実として固定されており、コード変更は accepted・trial 観測・staging 説明へ直結しうる。docs だけで契約と境界を拘束するのが安全。
 
+### 候補 F — `EffectiveInputGuideArbiter`（API 境界・説明責務の docs 固定）
+
+| 項目 | 内容 |
+|------|------|
+| **主な `.h` / `.cpp`** | `app/InputPlatformLab/MainApp/include/EffectiveInputGuideArbiter.h`（`InputGuideArbiter_*` の宣言・`WM_*` なし）。`app/InputPlatformLab/MainApp/src/EffectiveInputGuideArbiter.cpp`（スロット表ロジック・`Windows.h` は時刻・デバッグ用途。コメントどおり **メッセージハンドラではない**）。 |
+| **いまの責務** | T76/T77 に沿った **effective owner・binding 解決・multi-slot staging・single live consume・`_DEBUG` trial ゲート** を **手続き API** としてこの TU に集約する。`PlayerInputSlots.h` の **データ形状**を読み書きする実装側（**E は形の宣言のみ**）。 |
+| **型契約と実装責務の境界** | **E** は struct / 列挙の**形**。**F の `.h`** はその形に対する **`InputGuideArbiter_*` 操作の宣言** と、コメント上の段順（step）のヒント。**`.cpp`** がスロット表の状態と分岐を持つ。owner / guide / slot / consume の **意味そのものは既存ヘッダ・docs の一次情報どおり**—本節は **ファイル所属と誰がいつ呼ぶか** の説明ラベルに限る。 |
+| **tick / 呼び出し順** | タイマー 1 周での **`InputGuideArbiter_*` の前後関係**は、consume 経路・T77 段コメントとセットで読む必要がある。**docs とヘッダで指し示すに留め**、**物理 pack-out・新ラッパ・`MainApp` からの切り出しはしない**（T77 foundation close 後の **別合意**）。 |
+| **host / app glue に残る説明** | **誰が** `VirtualInputConsumerFrame` / `LogicalInputState` / `PlayerInputInventoryBindingView` を **いつ** 渡すか、inventory 解決・trial アーム・T18 向け `Format*ForT18` の呼び出しは **`MainApp` 手順**（`WM_TIMER` 等の**危険線**は **本文で定義し直さない**）。T19/T20 **accepted** は `HUD_PAGED_ACCEPTANCE` 等の一次情報。 |
+| **危険線からの距離** | **`WM_INPUT` / `WM_TIMER` / `WM_PAINT` / `InvalidateRect` を本 TU が扱うわけではない**（**中程度**：tick 契約・**ホストの呼び出し順**を誤読すると観測上ガイド経路に触れうる）。**T19/T20 受け入れ済みページの意味は再解釈しない**。 |
+| **docs で先に固定する価値** | **E（型）と F（手続き TU）** の混同防止。pack-out / 再読時に「Arbiter = この `.h/.cpp`」「順序はホストが握る」と一言で指せる。 |
+
+**F を docs で先に固定する価値**: 厚い `.cpp` を開く前に **API 束とホスト側の順序・説明責務**を本書で突き合わせられる。
+
+**まだ実装に触らない理由**: `.cpp` の移動・分割は tick・`_DEBUG`・T18 呼び出しと一体で回帰しやすく、foundation close 後の **別合意**が先。docs で境界と説明責務だけ拘束するのが安全。
+
 #### 表の読み方 — 最初に埋めるべき候補（1 つ）
 
 **候補 A（VirtualInputNeutral）** を最初に「表の意味で」埋める。**他プロジェクトが真似するならこの TU からリンクする** のが説明コストが最も低い。`InputCore.h` の実装列挙順とも一致する。
