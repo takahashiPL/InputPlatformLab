@@ -215,6 +215,25 @@
 | **危険線への近さ** | **高い**（`WM_INPUT` / `WM_TIMER` 直結）。**設計メモは可能だが、実装の pack-out は最後に回す** のが安全。 |
 | **着手向き** | **設計メモは中程度**。**実装 pack-out は後回し**。 |
 
+### 候補 3 — 索引・対応表（docs 追補、一次情報に従う）
+
+**主なファイル**: `app/InputPlatformLab/MainApp/include/platform/win/Win32InputGlue.h`・`app/InputPlatformLab/MainApp/src/platform/win/Win32InputGlue.cpp`。**`MainApp.cpp`**: メッセージの入口は **`WndProc`**；`WM_INPUT` / `WM_TIMER` 等の代表処理は **`Win32_WndProc_On*`** 静的手続き（詳細は一次情報）。
+
+**位置づけ（呼び出し順・早期 return・再描の意味は再解釈しない）**
+- **`Win32InputGlue`**: Raw Input **登録**、デバイス列・HID 要約・XInput スロット調査・T18 inventory **survey**、T76 系 **throttle** 等、**Win32 入力プラットフォーム寄りの補助**（`WndProc` 本体ではない）。
+- **`WndProc` / `MainApp`**: **メッセージ受信・分岐**と、上記メッセージに対する **代表ハンドラへの委譲**。**`WM_PAINT` / `InvalidateRect` / T19・T20 accepted** の意味は **本節では定義しない**。
+
+**関数名レベルの対応例（索引）** — 呼び出し関係・順序・条件は **`docs/WNDPROC_MESSAGE_RESPONSIBILITY_MAP.md`** に従う。
+
+| 側 | 例（関数名） |
+|----|----------------|
+| **Glue（登録・調査・補助）** | `Win32InputGlue_RegisterKeyboardRawInput`、`Win32InputGlue_FetchRawInputDeviceList`、`Win32InputGlue_FillHidSummaryFromRawInput`、`Win32InputGlue_SurveyForT18InventoryRefresh`、`Win32InputGlue_ConsumeT76RawHidInventoryRefreshThrottle400ms`、`Win32InputGlue_FillXInputUserConnectedSlots4` |
+| **MainApp / WndProc（受信・分岐）** | `WndProc`（`switch (message)`）、`Win32_WndProc_OnRawInput`、`Win32_WndProc_OnXInputPollTimer` |
+
+**一次情報**: メッセージ別の責務・T19/T20 経路・危険線は **`docs/WNDPROC_MESSAGE_RESPONSIBILITY_MAP.md`** を正とする。エンジン対応の読みは **`docs/ENGINE_LOOP_MAPPING_UNITY_UNREAL_MAINAPP.md`**。**本追記は上書きではない**。
+
+**実装 pack-out**: **まだ対象外**（物理移動・`WndProc` 改変は別合意）。
+
 ## 候補 4 — `MainApp.cpp` の将来シェル（プレースホルダー）と責務ラベルだけの地図
 
 | 観点 | 内容 |
