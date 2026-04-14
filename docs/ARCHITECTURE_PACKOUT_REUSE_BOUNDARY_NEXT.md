@@ -243,6 +243,24 @@
 | **危険線への近さ** | **メモのみ低〜中**。実際の抽出は **WndProc 全体** に触れうるため **実装は高リスク**。 |
 | **着手向き** | **設計メモは今すぐ向き**。**物理移動は後回し**。 |
 
+### 候補 4 — ラベル地図・索引（docs 追補、分割手順は書かない）
+
+**主なファイル**
+- `app/InputPlatformLab/MainApp/src/MainApp.cpp`（現状の巨大 TU）
+- `docs/architecture.md` にある **将来の集約先プレースホルダ**（実在ヘッダ）: `app/InputPlatformLab/MainApp/include/platform/win/WindowsAppShell.h`、`WindowsDisplayBackend.h`、`WindowsInputBackend.h`
+
+**`MainApp.cpp` に残る責務（粗いバケット・再解釈しない）**
+- **ホスト骨格**: `wWinMain` 周辺、`GetMessage` ループ、`DispatchMessage` → **`WndProc` への到達**（詳細は一次情報）。
+- **platform/win 寄り（メッセージ・入力ポンプ・レンダラ接続の中枢がここに残る読み）**: `WndProc` と `Win32_WndProc_On*` 委譲、Raw/XInput 経路と **`platform/win` 実装**の接続（**`WM_*` の意味・順序は本節で定義しない**）。
+- **app / debug 寄り**: T18/T19/T20 ページ式 HUD、検証・`_DEBUG` ホットキー、lab 固有の表示・文言経路（**accepted は `docs/HUD_PAGED_ACCEPTANCE.md` 等の一次情報**）。
+- **app / glue 寄り**: 中立 `input/core` と Win32 を同一プロセスでつなぐ統合（`architecture.md` レイヤ表の **app/glue** 行と同趣旨）。
+
+**host / platform / app の読み**: 上記は **ラベル**であり、**物理ファイル分割や移設先の追加命名はしない**（新規プレースホルダ名は作らない）。
+
+**一次情報**: メッセージ・タイマー・`InvalidateRect`・T19/T20 の説明は **`docs/WNDPROC_MESSAGE_RESPONSIBILITY_MAP.md`** を正とする。ループとエンジン対応の読みは **`docs/ENGINE_LOOP_MAPPING_UNITY_UNREAL_MAINAPP.md`**。**本追記は上書きではない**。
+
+**実装分割・shell 化・pack-out**: **まだ対象外**（手順・コミット順は書かない）。
+
 ---
 
 # 5. 第一候補として再開するなら何か
