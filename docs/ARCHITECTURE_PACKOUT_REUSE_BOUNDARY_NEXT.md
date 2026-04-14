@@ -81,6 +81,16 @@
 
 **実装（物理 pack-out 等）に入る前の確認事項**: **D（GamepadTypes / MenuSample / CommonTypes）を同じ portable 束として一緒に持ち出す**前提でビルド対象を数えること。**挙動・API を変えない**こと。**危険線**（`WM_INPUT` / `WM_TIMER` / `WM_PAINT` / `InvalidateRect` / T19・T20 accepted）に手を伸ばす作業と **同一コミットにしない**こと。
 
+**候補 A — 最初の extraction unit（1 段だけ／設計メモ）**
+
+| 観点 | 内容（候補 A のみ） |
+|------|---------------------|
+| **最初の extraction unit** | **`VirtualInputNeutral.h` + `VirtualInputNeutral.cpp`** と、当ヘッダが直接 `#include` する **`GamepadTypes.h` / `VirtualInputMenuSample.h` / `CommonTypes.h`** の **5 ファイル束** を、**第 1 回の pack-out 単位** とみなす（仮想スナップショット〜 policy 〜 `VirtualInputConsumerFrame` 組み立て・マージまでがこの束で完結）。**`InputCore.h` は入口メモとして同梱してよい** が、**別 TU（候補 B〜F の `.cpp`）は入れない**。 |
+| **非目標（今回まだ含めない）** | **`LogicalInputState.*` / `ControllerClassification.*` / `EffectiveInputGuideArbiter.*`**、**`Win32InputGlue.*` / `platform/win/*` / `MainApp.cpp`**、**T18 / T19 / T20 の glue・ページ本文**（別単位または app / host）。 |
+| **ホスト側に残すもの** | **`WndProc` 内の `WM_INPUT` / `WM_TIMER` / `WM_PAINT` の順序・早期 return**、**`InvalidateRect` 条件**、**ページ式 HUD の表示経路**、**T19/T20 accepted の意味**、**Raw/XInput 等から `VirtualInputSnapshot` を埋める処理**（候補 A は **渡されたスナップショット以降** の中立コアに留まる）。 |
+| **最小確認観点（実装前に docs で一致）** | 上記束が **HWND / `Windows.h` なしで閉じる** こと。**危険線** に触れる話題と **同一の変更・コミットにしない** こと。ホストが **毎フレーム `VirtualInputSnapshot`（キー側は `KeyboardActionState`）を渡す** 契約が、上の API 具体化表と矛盾しないこと。 |
+
+
 #### いまは触らない方がよい候補（設計メモの追補は可／実装・呼び出し契約は別）
 
 - **候補 F（EffectiveInputGuideArbiter）の `.cpp` 分割・移動・OS 分岐の増殖** — T77 foundation close 済み域に接続し、タイマー・`_DEBUG` 経路の説明責任が重い。**本書の表でパスと責務を固定する分にはよい**。
