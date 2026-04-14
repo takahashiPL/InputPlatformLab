@@ -55,7 +55,7 @@
 
 | 候補名 | 主なファイル（`.h` / `.cpp`） | いまの責務（要約） | pack-out / 再利用境界としての自然さ | 危険線からの距離 | docs 固定向き / 実装の時期感 |
 |--------|-------------------------------|-------------------|--------------------------------------|------------------|------------------------------|
-| **A. VirtualInputNeutral** | `app/InputPlatformLab/MainApp/include/VirtualInputNeutral.h`<br>`app/InputPlatformLab/MainApp/src/VirtualInputNeutral.cpp` | 仮想スナップショットのリセット・ボタン/スティック読み取り、ポリシー型（`VirtualInputSnapshot` 周り）。Raw/XInput を知らない中立 API。 | `InputCore.h` が明示的にリンク対象として挙げる **最初の `.cpp`**。Portable pack の中核の一つ。ホストが自前バックエンドから `VirtualInputSnapshot` を埋めるときの **参照実装**になりやすい。 | **遠い**。`WM_INPUT` / `WM_TIMER` / `WM_PAINT` / `InvalidateRect` 非接触。 | **docs は今すぐ固定向き**（本表がその実体）。**物理移動は別タスク**（合意とビルド確認後）。 |
+| **A. VirtualInputNeutral** | `include/input/core/VirtualInputNeutral.h`<br>`src/input/core/VirtualInputNeutral.cpp`<br>（`CommonTypes.h`・`GamepadTypes.h`・`VirtualInputMenuSample.h` は同ディレクトリ） | 仮想スナップショットのリセット・ボタン/スティック読み取り、ポリシー型（`VirtualInputSnapshot` 周り）。Raw/XInput を知らない中立 API。 | `InputCore.h` が明示的にリンク対象として挙げる **最初の `.cpp`**。Portable pack の中核の一つ。ホストが自前バックエンドから `VirtualInputSnapshot` を埋めるときの **参照実装**になりやすい。 | **遠い**。`WM_INPUT` / `WM_TIMER` / `WM_PAINT` / `InvalidateRect` 非接触。 | **第 1 回 extraction unit は完了**（上記配置・`vcxproj` / `filters`。**危陸線非接触**）。 |
 | **B. LogicalInputState** | `app/InputPlatformLab/MainApp/include/input/core/LogicalInputState.h`<br>`app/InputPlatformLab/MainApp/src/input/core/LogicalInputState.cpp` | 論理ボタン ID と論理入力状態（`LogicalInputState` 等）の更新・複合。メニュー/ガイド向けの論理層。 | Neutral と同列で **InputCore 束の第二 `.cpp`**。ゲームロジック寄りの「論理入力」境界として pack 単位が明確。 | **遠い**（同上）。 | **第 1 回 extraction unit は完了**（`.cpp` を `src/input/core` に配置、`vcxproj` / `filters` のみ更新）。**第 2 段**は下表。 |
 | **C. ControllerClassification** | `app/InputPlatformLab/MainApp/include/ControllerClassification.h`<br>`app/InputPlatformLab/MainApp/src/ControllerClassification.cpp` | VID/PID テーブル・HID 要約から family / parser / support を決定。`Win32_` 接頭辞の論理があるが、**ファイル先頭コメントどおり Win32 API 呼び出しなし**（命名の名残）。 | デバイス**分類だけ**を切り出す自然な単位。inventory（T18）由来の HID 要約から family/parser/support へ写す「関数寄りの束」。 | **遠い**（メッセージループ非接触）。T18 **ページ本文・accepted** とは別レイヤ（glue は app-specific）。 | **docs は今すぐ固定向き**。**実装移動** は inventory パイプとセットで読みやすいため **時期は A/B より慎重**（呼び出し側の見え方が変わりやすい）。 |
 | **D. 共有型・メニュー試作ヘッダ束** | `app/InputPlatformLab/MainApp/include/CommonTypes.h`<br>`app/InputPlatformLab/MainApp/include/GamepadTypes.h`<br>`app/InputPlatformLab/MainApp/include/VirtualInputMenuSample.h`（**header-only**） | 固定幅エイリアス、ゲームパッド列挙、`VirtualInputConsumerFrame` とメニュー試作状態機械（`VirtualInputMenuSample*`）。 | **`.cpp` なし**の薄い束。Portable pack の **最下層〜試作 UI 方針のサンプル** としてまとめて持ち出しやすい。`InputCore.h` に直接列挙されている。 | **遠い**。 | **docs は今すぐ固定向き**。**実装変更は不要**に近い（分割の対象外）。 |
@@ -66,39 +66,37 @@
 
 **候補 A（VirtualInputNeutral）** を最初に「表の意味で」埋める。**他プロジェクトが真似するならこの TU からリンクする** のが説明コストが最も低い。`InputCore.h` の実装列挙順とも一致する。
 
+**現況（候補 A）**: 第 1 回は **完了済み**（`VirtualInputNeutral.h`・`CommonTypes.h`・`GamepadTypes.h`・`VirtualInputMenuSample.h` は **`include/input/core/`**、`VirtualInputNeutral.cpp` は **`src/input/core/`**）。
+
 **候補 A（VirtualInputNeutral）— API 束ね（1 段具体化）**
 
 | 項目 | 内容 |
 |------|------|
 | **主な公開型 / 関数（入口）** | **型**: `VirtualInputSnapshot`（1 フレーム分の仮想パッド）、`VirtualInputPolicyHeld` / `VirtualInputPolicyMenuEdges`、`KeyboardActionState`。`VirtualInputConsumerFrame` は `VirtualInputMenuSample.h` 側の型で、本 TU から組み立て・マージする。**関数**: `VirtualInput_ResetDisconnected`、`VirtualInput_IsButtonDown`、`VirtualInput_WasButtonPressed` / `VirtualInput_WasButtonReleased`、トリガ・スティック向け getter、`VirtualInputPolicy_*`（move の DPad 優先・クランプ）、`VirtualInputConsumer_BuildFrame`（prev/curr スナップショットから）、`VirtualInputConsumer_BuildFrameFromKeyboardState`、`VirtualInputConsumer_MergeKeyboardController`。 |
-| **主ファイル** | `app/InputPlatformLab/MainApp/include/VirtualInputNeutral.h`、`app/InputPlatformLab/MainApp/src/VirtualInputNeutral.cpp` |
-| **依存** | `GamepadTypes.h`（列挙・`GamepadButtonId` 等）、`VirtualInputMenuSample.h`（→ `CommonTypes.h`、Consumer 型）。`#include` チェーンに **HWND / `Windows.h` は無い**。 |
+| **主ファイル** | `include/input/core/VirtualInputNeutral.h`、`src/input/core/VirtualInputNeutral.cpp` |
+| **依存** | **`include/input/core/`** の `GamepadTypes.h`（列挙・`GamepadButtonId` 等）、`VirtualInputMenuSample.h`（→ `CommonTypes.h`、Consumer 型）。`#include` チェーンに **HWND / `Windows.h` は無い**。 |
 | **Win32 非依存として見なせるか** | **見なせる**（ヘッダ・`.cpp` とも API レベルで Win32 型・呼び出しなし）。コメントが Raw Input / オートリピートに言及するのは **ホスト側の前提説明**であり、本 TU が `WM_INPUT` 等に依存する意味ではない。 |
 | **pack-out 時に先に固定すべき前提（設計メモ）** | ホストが毎フレーム `VirtualInputSnapshot` を埋めること。`leftDir` / `rightDir` / deadzone フラグは **ホストまたは上流**で既に解決済みであることを期待する読み方（本 TU はポリシーとエッジ検出に専念）。`VirtualInputPolicy_*` のルール（Confirm=South pressed 等）は **ヘッダコメントの固定仕様**として読み、変更は T19/T20 **accepted や `InvalidateRect` 経路とは別合意**。Consumer の **パッド優先マージ**（`MergeKeyboardController`）の意味を文書どおり持つ。 |
 | **まだ触らない方がよい周辺** | **`WndProc` / `WM_TIMER` で prev/curr を切る責務**、`InvalidateRect`、T19/T20 **ページ本文**、Raw/XInput から `VirtualInputSnapshot` へ写す **platform / MainApp glue**。候補 A は **その先の中立コア**として切り出す対象で、メッセージループや accepted 文言の再解釈と混同しない。 |
 
 **候補 A の docs 上の準備完了条件**: 上表が **「型・関数の入口」「依存」「ホスト契約」** について読み手の誤読を残さないこと。`InputCore.h` の「リンクする `.cpp`」記述と矛盾しないこと。
 
-**実装（物理 pack-out 等）に入る前の確認事項**: **D（GamepadTypes / MenuSample / CommonTypes）を同じ portable 束として一緒に持ち出す**前提でビルド対象を数えること。**挙動・API を変えない**こと。**危険線**（`WM_INPUT` / `WM_TIMER` / `WM_PAINT` / `InvalidateRect` / T19・T20 accepted）に手を伸ばす作業と **同一コミットにしない**こと。
-
-**候補 A — 最初の extraction unit（1 段だけ／設計メモ）**
+**別 unit・再編時も有効な確認事項**: **D（GamepadTypes / MenuSample / CommonTypes）を候補 A と同じ portable 束として数える**前提を崩さないこと。**挙動・API を変えない**こと。**危陸線**（`WM_INPUT` / `WM_TIMER` / `WM_PAINT` / `InvalidateRect` / T19・T20 accepted）に手を伸ばす作業と **同一コミットにしない**こと。
+
+**候補 A — 第 1 回 extraction unit（現況同期／設計メモ）**
 
 | 観点 | 内容（候補 A のみ） |
 |------|---------------------|
-| **最初の extraction unit** | **`VirtualInputNeutral.h` + `VirtualInputNeutral.cpp`** と、当ヘッダが直接 `#include` する **`GamepadTypes.h` / `VirtualInputMenuSample.h` / `CommonTypes.h`** の **5 ファイル束** を、**第 1 回の pack-out 単位** とみなす（仮想スナップショット〜 policy 〜 `VirtualInputConsumerFrame` 組み立て・マージまでがこの束で完結）。**`InputCore.h` は入口メモとして同梱してよい** が、**別 TU（候補 B〜F の `.cpp`）は入れない**。 |
-| **非目標（今回まだ含めない）** | **`LogicalInputState.*` / `ControllerClassification.*` / `EffectiveInputGuideArbiter.*`**、**`Win32InputGlue.*` / `platform/win/*` / `MainApp.cpp`**、**T18 / T19 / T20 の glue・ページ本文**（別単位または app / host）。 |
+| **第 1 回 extraction unit（配置・完了）** | **`VirtualInputNeutral.h`** — `app/InputPlatformLab/MainApp/include/input/core/VirtualInputNeutral.h`。 **`VirtualInputNeutral.cpp`** — `app/InputPlatformLab/MainApp/src/input/core/VirtualInputNeutral.cpp`。 **`GamepadTypes.h` / `VirtualInputMenuSample.h` / `CommonTypes.h`** — **`include/input/core/`**。**5 ファイル ＋ 任意 `InputCore.h`** が単位（仮想スナップショット〜 policy 〜 `VirtualInputConsumerFrame` 組み立て・マージまで完結）。**別 TU（候補 B〜F の `.cpp`）を同一コミットに入れない**方針は今後も有効。 |
+| **非目標（第 1 回に含めない）** | **`LogicalInputState.*` / `ControllerClassification.*` / `EffectiveInputGuideArbiter.*`**、**`Win32InputGlue.*` / `platform/win/*` / `MainApp.cpp`**、**T18 / T19 / T20 の glue・ページ本文**（別単位または app / host）。 |
 | **ホスト側に残すもの** | **`WndProc` 内の `WM_INPUT` / `WM_TIMER` / `WM_PAINT` の順序・早期 return**、**`InvalidateRect` 条件**、**ページ式 HUD の表示経路**、**T19/T20 accepted の意味**、**Raw/XInput 等から `VirtualInputSnapshot` を埋める処理**（候補 A は **渡されたスナップショット以降** の中立コアに留まる）。 |
-| **最小確認観点（実装前に docs で一致）** | 上記束が **HWND / `Windows.h` なしで閉じる** こと。**危険線** に触れる話題と **同一の変更・コミットにしない** こと。ホストが **毎フレーム `VirtualInputSnapshot`（キー側は `KeyboardActionState`）を渡す** 契約が、上の API 具体化表と矛盾しないこと。 |
+| **第 1 回で満たしたこと（事実）** | **`include/input/core/` / `src/input/core/` への配置**と **`MainApp.vcxproj` / `filters` のみ更新**。**API・マクロ・挙動は不変**。**危陸線**（`WM_INPUT` / `WM_TIMER` / `WM_PAINT` / `InvalidateRect` / T19・T20 accepted）に **触れていない**。 |
 
-**候補 A — 実装着手前チェックリスト（設計メモ）**
+**候補 A — 追加の pack-out を行う場合（設計メモ）**
 
-- **第 1 回 pack-out に入ってよい条件（揃っていること）**
-  - 上記 **extraction unit**（5 ファイル ＋ 任意 `InputCore.h`）の **一覧と依存** が本書どおりで、**別 TU・ホスト側ファイルを同時に触る予定がない**。
-  - **移動・パス変更・プロジェクト参照更新のみ** で完結する計画である（**API・マクロ・ロジックは変えない**）。
-  - **T19/T20** は **受け入れ済みページの意味を変えない** 前提で、前後で **同じ手順の確認** ができる（必要なら `docs/T19_T20_MANUAL_VERIFICATION_GUIDE.md` を参照）。
-  - **危険線**（`WM_INPUT` / `WM_TIMER` / `WM_PAINT` / `InvalidateRect` / accepted 意味）に **手を入れない** ことが作業説明で言い切れる。
+- **第 1 回は完了済み**。以降の unit でも **別 TU・ホスト側を同一コミットに含めない**、**危陸線**（`WM_INPUT` / `WM_TIMER` / `WM_PAINT` / `InvalidateRect` / T19・T20 accepted）に **手を入れない**ことを言い切る。
 
-- **最初のコミット分割方針**
+- **参考（第 1 回実施時のコミット分割方針）**
   - **1 コミット目に含める**: extraction unit の **物理移動**、**`#include` / `.vcxproj` 等の参照更新** のみ。
   - **同一コミットに含めない**: `MainApp.cpp`（`WndProc`・タイマー・`InvalidateRect`・HUD）、`Win32InputGlue` / `platform/win`、**候補 B〜F** の `.cpp`、**挙動変更・名前以外のリファクタ**。
 
@@ -116,7 +114,7 @@
 | 観点 | 内容（候補 B のみ） |
 |------|---------------------|
 | **第 1 回 extraction unit（配置・完了）** | **`LogicalInputState.h`** — `app/InputPlatformLab/MainApp/include/input/core/LogicalInputState.h`。 **`LogicalInputState.cpp`** — `app/InputPlatformLab/MainApp/src/input/core/LogicalInputState.cpp`（旧 `src/LogicalInputState.cpp` は廃止）。**2 ファイル**が単位。**直接依存**は `CommonTypes` / `GamepadTypes` / `VirtualInputNeutral`（候補 A 側）に閉じる。 |
-| **非目標（第 1 回に含めない）** | **`ControllerClassification.*` / `EffectiveInputGuideArbiter.*`**、**`Win32InputGlue.*` / `platform/win/*`**、**`MainApp.cpp`**（**`WndProc`・`WM_INPUT` / `WM_TIMER` / `WM_PAINT`・`InvalidateRect`・HUD**）、**T18 / T19 / T20 の本文・accepted 意味の変更**、**候補 C 以降の `.cpp`**、**`PlayerInputSlots` / Arbiter の責務変更**を同一コミットにしない（束外のパス更新が最小限で済む作業は本 unit と混ぜない）。 |
+| **非目標（第 1 回に含めない）** | **`LogicalInputState.*` / `ControllerClassification.*` / `EffectiveInputGuideArbiter.*`**、**`Win32InputGlue.*` / `platform/win/*`**、**`MainApp.cpp`**（**`WndProc`・`WM_INPUT` / `WM_TIMER` / `WM_PAINT`・`InvalidateRect`・HUD**）、**T18 / T19 / T20 の本文・accepted 意味の変更**、**候補 C 以降の `.cpp`**、**`PlayerInputSlots` / Arbiter の責務変更**を同一コミットにしない（束外のパス更新が最小限で済む作業は本 unit と混ぜない）。 |
 | **ホスト側に残すもの** | **論理 1 フレームをいつ進めるか**（ヘッダコメント上の **`WM_TIMER` tick との対応は説明用**。実装としての分岐・順序・早期 return はホスト）、**その直前の `VirtualInputSnapshot` / `KeyboardActionState` / down[] の供給**、**`InvalidateRect`・ページ式 HUD 表示**。**T19 / T20 受け入れ済みページの accepted 意味**は `docs/HUD_PAGED_ACCEPTANCE.md` 等の一次情報どおり—本束では再解釈しない。 |
 | **第 1 回で満たしたこと（事実）** | **`.cpp` 物理移動**と **`MainApp.vcxproj` / `MainApp.vcxproj.filters` 更新のみ**。**API・マクロ・ロジック・挙動は不変**。**危険線**（`WM_INPUT` / `WM_TIMER` / `WM_PAINT` / `InvalidateRect` / T19・T20 accepted）に **触れていない**。Debug / Release（x64）で **ビルド成功**。 |
 | **第 2 段候補（未着手）** | **`docs/architecture.md` の Pack-out 記述と本書の候補 B パスを突き合わせる**（docs 横断の現況同期）。**コード・呼び出し契約・accepted の変更は別合意**（`MainApp` / `WndProc` は危険線に寄りうる）。 |
