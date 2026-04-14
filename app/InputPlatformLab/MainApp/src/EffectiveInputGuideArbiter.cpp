@@ -2057,7 +2057,7 @@ void InputGuideArbiter_FormatSlotConsumeResultForT18(PlayerInputSlotIndex slot, 
             {
                 wcscpy_s(buf, bufCount, L"live-ready");
             }
-            else if (!SlotKeyboardBoundLiveTrialEligible(p))
+            else if (!SlotManualLiveKeyboardTrialRouteOk(p))
             {
                 wcscpy_s(buf, bufCount, L"rdy·nkb");
             }
