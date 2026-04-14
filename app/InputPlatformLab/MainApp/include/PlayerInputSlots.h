@@ -28,7 +28,7 @@
 #pragma once
 
 #include "GamepadTypes.h"
-#include "LogicalInputState.h"
+#include "input/core/LogicalInputState.h"
 #include "PlayerInputGuideTypes.h"
 #include "VirtualInputMenuSample.h"
 

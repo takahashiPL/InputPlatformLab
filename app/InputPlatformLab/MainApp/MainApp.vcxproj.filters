@@ -72,6 +72,9 @@
     <ClInclude Include="include\input\core\VirtualInputNeutral.h">
       <Filter>include\input\core</Filter>
     </ClInclude>
+    <ClInclude Include="include\input\core\LogicalInputState.h">
+      <Filter>include\input\core</Filter>
+    </ClInclude>
     <ClInclude Include="include\platform\win\WindowsAppShell.h">
       <Filter>include\platform\win</Filter>
     </ClInclude>

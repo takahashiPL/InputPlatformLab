@@ -162,7 +162,7 @@
     <ClInclude Include="include\PlayerInputGuideTypes.h" />
     <ClInclude Include="include\PlayerInputSlots.h" />
     <ClInclude Include="include\EffectiveInputGuideArbiter.h" />
-    <ClInclude Include="include\LogicalInputState.h" />
+    <ClInclude Include="include\input\core\LogicalInputState.h" />
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="src\ControllerClassification.cpp" />
