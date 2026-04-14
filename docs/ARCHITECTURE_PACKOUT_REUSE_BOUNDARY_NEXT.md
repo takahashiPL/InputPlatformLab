@@ -66,6 +66,21 @@
 
 **候補 A（VirtualInputNeutral）** を最初に「表の意味で」埋める。**他プロジェクトが真似するならこの TU からリンクする** のが説明コストが最も低い。`InputCore.h` の実装列挙順とも一致する。
 
+**候補 A（VirtualInputNeutral）— API 束ね（1 段具体化）**
+
+| 項目 | 内容 |
+|------|------|
+| **主な公開型 / 関数（入口）** | **型**: `VirtualInputSnapshot`（1 フレーム分の仮想パッド）、`VirtualInputPolicyHeld` / `VirtualInputPolicyMenuEdges`、`KeyboardActionState`。`VirtualInputConsumerFrame` は `VirtualInputMenuSample.h` 側の型で、本 TU から組み立て・マージする。**関数**: `VirtualInput_ResetDisconnected`、`VirtualInput_IsButtonDown`、`VirtualInput_WasButtonPressed` / `VirtualInput_WasButtonReleased`、トリガ・スティック向け getter、`VirtualInputPolicy_*`（move の DPad 優先・クランプ）、`VirtualInputConsumer_BuildFrame`（prev/curr スナップショットから）、`VirtualInputConsumer_BuildFrameFromKeyboardState`、`VirtualInputConsumer_MergeKeyboardController`。 |
+| **主ファイル** | `app/InputPlatformLab/MainApp/include/VirtualInputNeutral.h`、`app/InputPlatformLab/MainApp/src/VirtualInputNeutral.cpp` |
+| **依存** | `GamepadTypes.h`（列挙・`GamepadButtonId` 等）、`VirtualInputMenuSample.h`（→ `CommonTypes.h`、Consumer 型）。`#include` チェーンに **HWND / `Windows.h` は無い**。 |
+| **Win32 非依存として見なせるか** | **見なせる**（ヘッダ・`.cpp` とも API レベルで Win32 型・呼び出しなし）。コメントが Raw Input / オートリピートに言及するのは **ホスト側の前提説明**であり、本 TU が `WM_INPUT` 等に依存する意味ではない。 |
+| **pack-out 時に先に固定すべき前提（設計メモ）** | ホストが毎フレーム `VirtualInputSnapshot` を埋めること。`leftDir` / `rightDir` / deadzone フラグは **ホストまたは上流**で既に解決済みであることを期待する読み方（本 TU はポリシーとエッジ検出に専念）。`VirtualInputPolicy_*` のルール（Confirm=South pressed 等）は **ヘッダコメントの固定仕様**として読み、変更は T19/T20 **accepted や `InvalidateRect` 経路とは別合意**。Consumer の **パッド優先マージ**（`MergeKeyboardController`）の意味を文書どおり持つ。 |
+| **まだ触らない方がよい周辺** | **`WndProc` / `WM_TIMER` で prev/curr を切る責務**、`InvalidateRect`、T19/T20 **ページ本文**、Raw/XInput から `VirtualInputSnapshot` へ写す **platform / MainApp glue**。候補 A は **その先の中立コア**として切り出す対象で、メッセージループや accepted 文言の再解釈と混同しない。 |
+
+**候補 A の docs 上の準備完了条件**: 上表が **「型・関数の入口」「依存」「ホスト契約」** について読み手の誤読を残さないこと。`InputCore.h` の「リンクする `.cpp`」記述と矛盾しないこと。
+
+**実装（物理 pack-out 等）に入る前の確認事項**: **D（GamepadTypes / MenuSample / CommonTypes）を同じ portable 束として一緒に持ち出す**前提でビルド対象を数えること。**挙動・API を変えない**こと。**危険線**（`WM_INPUT` / `WM_TIMER` / `WM_PAINT` / `InvalidateRect` / T19・T20 accepted）に手を伸ばす作業と **同一コミットにしない**こと。
+
 #### いまは触らない方がよい候補（設計メモの追補は可／実装・呼び出し契約は別）
 
 - **候補 F（EffectiveInputGuideArbiter）の `.cpp` 分割・移動・OS 分岐の増殖** — T77 foundation close 済み域に接続し、タイマー・`_DEBUG` 経路の説明責任が重い。**本書の表でパスと責務を固定する分にはよい**。
