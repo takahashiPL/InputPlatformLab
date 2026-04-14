@@ -49,18 +49,20 @@
 
 ### 第一候補の具体化 — reusable candidate とファイル対応（2026-04-13 時点）
 
-`InputCore.h` のコメントどおり、**単一入口が束ねる中立ヘッダ**と、**`#include "InputCore.h"` には載っていないが `docs/architecture.md` の Pack-out 行に含まれる部品**を、**同一の portable foundation 束**として読む。パスはリポジトリルートからの相対表記。
+`InputCore.h` のコメントどおり、**単一入口が束ねる中立ヘッダ**と、**`#include "InputCore.h"` には載っていないが `docs/architecture.md` の Pack-out 行に含まれる部品**を、**同一の portable foundation 束**として読む。ファイルパスは **`app/InputPlatformLab/MainApp/` 配下**（`architecture.md`「現在のフォルダ構成」と同じ）を相対とする。
+
+**`architecture.md` レイヤ表「input/core 相当」**は、**すべてのファイルが `include/input/core/` 下にある**という意味ではない。**A/B・共有型・E・C・F を InputCore 束と同列に読む foundation** というラベルであり、**物理パスは本表の列を正**とする（`PlayerInputGuideTypes` / `ControllerClassification` 等は `include/` や `src/` 直下）。
 
 **確認条件（設計メモ）**: 各候補について **HWND / `Windows.h` / `WM_*`** をヘッダが要求しないか、`.cpp` がメッセージポンプや `InvalidateRect` に触れないかを見る。例外は **`EffectiveInputGuideArbiter.cpp` のみ**（`Windows.h` 利用。`architecture.md` 既述）。
 
 | 候補名 | 主なファイル（`.h` / `.cpp`） | いまの責務（要約） | pack-out / 再利用境界としての自然さ | 危険線からの距離 | docs 固定向き / 実装の時期感 |
 |--------|-------------------------------|-------------------|--------------------------------------|------------------|------------------------------|
-| **A. VirtualInputNeutral** | `include/input/core/VirtualInputNeutral.h`<br>`src/input/core/VirtualInputNeutral.cpp`<br>（`CommonTypes.h`・`GamepadTypes.h`・`VirtualInputMenuSample.h` は同ディレクトリ） | 仮想スナップショットのリセット・ボタン/スティック読み取り、ポリシー型（`VirtualInputSnapshot` 周り）。Raw/XInput を知らない中立 API。 | `InputCore.h` が明示的にリンク対象として挙げる **最初の `.cpp`**。Portable pack の中核の一つ。ホストが自前バックエンドから `VirtualInputSnapshot` を埋めるときの **参照実装**になりやすい。 | **遠い**。`WM_INPUT` / `WM_TIMER` / `WM_PAINT` / `InvalidateRect` 非接触。 | **第 1 回 extraction unit は完了**（上記配置・`vcxproj` / `filters`。**危陸線非接触**）。 |
-| **B. LogicalInputState** | `app/InputPlatformLab/MainApp/include/input/core/LogicalInputState.h`<br>`app/InputPlatformLab/MainApp/src/input/core/LogicalInputState.cpp` | 論理ボタン ID と論理入力状態（`LogicalInputState` 等）の更新・複合。メニュー/ガイド向けの論理層。 | Neutral と同列で **InputCore 束の第二 `.cpp`**。ゲームロジック寄りの「論理入力」境界として pack 単位が明確。 | **遠い**（同上）。 | **第 1 回 extraction unit は完了**（`.cpp` を `src/input/core` に配置、`vcxproj` / `filters` のみ更新）。**第 2 段**は下表。 |
-| **C. ControllerClassification** | `app/InputPlatformLab/MainApp/include/ControllerClassification.h`<br>`app/InputPlatformLab/MainApp/src/ControllerClassification.cpp` | VID/PID テーブル・HID 要約から family / parser / support を決定。`Win32_` 接頭辞の論理があるが、**ファイル先頭コメントどおり Win32 API 呼び出しなし**（命名の名残）。 | デバイス**分類だけ**を切り出す自然な単位。inventory（T18）由来の HID 要約から family/parser/support へ写す「関数寄りの束」。 | **遠い**（メッセージループ非接触）。T18 **ページ本文・accepted** とは別レイヤ（glue は app-specific）。 | **docs は今すぐ固定向き**。**実装移動** は inventory パイプとセットで読みやすいため **時期は A/B より慎重**（呼び出し側の見え方が変わりやすい）。 |
-| **D. 共有型・メニュー試作ヘッダ束** | `app/InputPlatformLab/MainApp/include/CommonTypes.h`<br>`app/InputPlatformLab/MainApp/include/GamepadTypes.h`<br>`app/InputPlatformLab/MainApp/include/VirtualInputMenuSample.h`（**header-only**） | 固定幅エイリアス、ゲームパッド列挙、`VirtualInputConsumerFrame` とメニュー試作状態機械（`VirtualInputMenuSample*`）。 | **`.cpp` なし**の薄い束。Portable pack の **最下層〜試作 UI 方針のサンプル** としてまとめて持ち出しやすい。`InputCore.h` に直接列挙されている。 | **遠い**。 | **docs は今すぐ固定向き**。**実装変更は不要**に近い（分割の対象外）。 |
-| **E. スロット・ガイド型（データモデル）** | `app/InputPlatformLab/MainApp/include/PlayerInputGuideTypes.h`<br>`app/InputPlatformLab/MainApp/include/PlayerInputSlots.h`（**データ面は header-only**） | ガイド表示・スロット索引・バインド解決に使う **型と定数**（HWND 非依存方針）。 | `architecture.md` の reusable 行で **明示**。**`EffectiveInputGuideArbiter.h`** の前提になるため、**契約の固定に効く**。 | **遠い**（描画・メッセージ非接触）。T19/T20 の **ページ本文** は app glue。本候補は **型の束**。 | **docs は今すぐ固定向き**。**型の意味を変える実装** は早い（T76/T77・effective owner の説明に波及しうる）。 |
-| **F. EffectiveInputGuideArbiter** | `app/InputPlatformLab/MainApp/include/EffectiveInputGuideArbiter.h`<br>`app/InputPlatformLab/MainApp/src/EffectiveInputGuideArbiter.cpp` | T76/T77: スロット表、effective owner、staging、single live consume、`_DEBUG` trial ゲート等。`.cpp` は `Windows.h`（`GetTickCount` / `OutputDebugStringW` 等）。コメントどおり **WM_* は足さない** 方針。 | **Portable pack に含めるが「移植時は .cpp 内 OS 依存を差し替え」**（`architecture.md` 既述）。**ヘッダ契約** は reusable、**実装 TU** はホスト都合で厚くなりやすい。 | **中程度**。`WM_INPUT` 等には直接触れないが、**タイマー駆動の tick 契約** と **MainApp / glue からの呼び出し順** が、説明上 **T19/T20 の「どの入力がガイドの正か」** に接続しうる（**accepted 文言やページ意味は変更しない** 前提で読む）。 | **docs で API 境界・ファイル所属は今すぐ固定向き**。**`.cpp` の物理 pack-out や責務分割はまだ早い**（T77 foundation close 後の別合意）。 |
+| **A. VirtualInputNeutral** | `app/InputPlatformLab/MainApp/include/input/core/VirtualInputNeutral.h`<br>`app/InputPlatformLab/MainApp/src/input/core/VirtualInputNeutral.cpp`<br>（`CommonTypes.h`・`GamepadTypes.h`・`VirtualInputMenuSample.h` は同ディレクトリ） | 仮想スナップショットのリセット・ボタン/スティック読み取り、ポリシー型（`VirtualInputSnapshot` 周り）。Raw/XInput を知らない中立 API。 | `InputCore.h` が明示的にリンク対象として挙げる **最初の `.cpp`**。Portable pack の中核の一つ。ホストが自前バックエンドから `VirtualInputSnapshot` を埋めるときの **参照実装**になりやすい。`architecture.md` Pack-out **候補 A** 行と一致。 | **遠い**。`WM_INPUT` / `WM_TIMER` / `WM_PAINT` / `InvalidateRect` 非接触。 | **第 1 回 extraction unit は完了**（上記配置・`vcxproj` / `filters`。**危陸線非接触**）。 |
+| **B. LogicalInputState** | `app/InputPlatformLab/MainApp/include/input/core/LogicalInputState.h`<br>`app/InputPlatformLab/MainApp/src/input/core/LogicalInputState.cpp` | 論理ボタン ID と論理入力状態（`LogicalInputState` 等）の更新・複合。メニュー/ガイド向けの論理層。 | Neutral と同列で **InputCore 束の第二 `.cpp`**。ゲームロジック寄りの「論理入力」境界として pack 単位が明確。`architecture.md` Pack-out **候補 B（unit-1 完了）** 行と一致。 | **遠い**（同上）。 | **第 1 回 extraction unit は完了**（`.cpp` を `src/input/core` に配置、`vcxproj` / `filters` のみ更新）。**第 2 段**は下表。 |
+| **C. ControllerClassification** | `app/InputPlatformLab/MainApp/include/ControllerClassification.h`<br>`app/InputPlatformLab/MainApp/src/ControllerClassification.cpp` | VID/PID テーブル・HID 要約から family / parser / support を決定。`Win32_` 接頭辞の論理があるが、**ファイル先頭コメントどおり Win32 API 呼び出しなし**（命名の名残）。 | デバイス**分類だけ**を切り出す自然な単位。inventory（T18）由来の HID 要約から family/parser/support へ写す「関数寄りの束」。`architecture.md` の **reusable candidate** 行およびレイヤ表 **input/core 相当**に列挙される **転用候補**として読む（**物理配置は `include/`・`src/` 直下**）。 | **遠い**（メッセージループ非接触）。T18 **ページ本文・accepted** とは別レイヤ（glue は app-specific）。 | **docs は今すぐ固定向き**。**実装移動** は inventory パイプとセットで読みやすいため **時期は A/B より慎重**（呼び出し側の見え方が変わりやすい）。 |
+| **D. 共有型・メニュー試作ヘッダ束** | `app/InputPlatformLab/MainApp/include/input/core/CommonTypes.h`<br>`app/InputPlatformLab/MainApp/include/input/core/GamepadTypes.h`<br>`app/InputPlatformLab/MainApp/include/input/core/VirtualInputMenuSample.h`（**header-only**） | 固定幅エイリアス、ゲームパッド列挙、`VirtualInputConsumerFrame` とメニュー試作状態機械（`VirtualInputMenuSample*`）。 | **`.cpp` なし**の薄い束。Portable pack の **最下層〜試作 UI 方針のサンプル** としてまとめて持ち出しやすい。`InputCore.h` に直接列挙されている。`architecture.md` Pack-out **候補 A** 行の括弧内ヘッダ列と一致。 | **遠い**。 | **docs は今すぐ固定向き**。**実装変更は不要**に近い（分割の対象外）。 |
+| **E. スロット・ガイド型（データモデル）** | `app/InputPlatformLab/MainApp/include/PlayerInputGuideTypes.h`<br>`app/InputPlatformLab/MainApp/include/PlayerInputSlots.h`（**データ面は header-only**） | ガイド表示・スロット索引・バインド解決に使う **型と定数**（HWND 非依存方針）。 | `architecture.md` の reusable 行で **明示**。**`EffectiveInputGuideArbiter.h`** の前提になるため、**契約の固定に効く**。本書 **候補 E 節**まで **docs 固定済み**（意味の再解釈はしない）。 | **遠い**（描画・メッセージ非接触）。T19/T20 の **ページ本文** は app glue。本候補は **型の束**。 | **docs 固定済み**（追認・横断のみ）。**型の意味を変える実装** は早い（T76/T77・effective owner の説明に波及しうる）。 |
+| **F. EffectiveInputGuideArbiter** | `app/InputPlatformLab/MainApp/include/EffectiveInputGuideArbiter.h`<br>`app/InputPlatformLab/MainApp/src/EffectiveInputGuideArbiter.cpp` | T76/T77: スロット表、effective owner、staging、single live consume、`_DEBUG` trial ゲート等。`.cpp` は `Windows.h`（`GetTickCount` / `OutputDebugStringW` 等）。コメントどおり **WM_* は足さない** 方針。 | **Portable pack に含めるが「移植時は .cpp 内 OS 依存を差し替え」**（`architecture.md` 既述）。**ヘッダ契約** は reusable、**実装 TU** はホスト都合で厚くなりやすい。本書 **候補 F 節**まで **API 境界・説明責務は docs 固定済み**。 | **中程度**。`WM_INPUT` 等には直接触れないが、**タイマー駆動の tick 契約** と **MainApp / glue からの呼び出し順** が、説明上 **T19/T20 の「どの入力がガイドの正か」** に接続しうる（**accepted 文言やページ意味は変更しない** 前提で読む）。 | **docs 固定済み**。**`.cpp` の物理 pack-out・責務分割**は **未決（要次回・別合意）**（T77 foundation close 後と同趣旨）。 |
 
 ### C〜F と曖昧 TU — 境界ラベル（A/B 一区切り後）
 
@@ -70,15 +72,15 @@
 |--------|-------------------------------|------------|---------------------------|----------------------------------------|------------------|------------------------------|
 | **C. ControllerClassification** | `app/InputPlatformLab/MainApp/include/ControllerClassification.h`<br>`app/InputPlatformLab/MainApp/src/ControllerClassification.cpp` | HID 要約・VID/PID から family / parser / support を決める分類（Win32 API 呼び出しなし）。 | **高** | **app glue**: T18 inventory パイプと `MainApp` からの呼び出しは lab 一体。**platform/win**: HID 要約の収集は `Win32InputGlue`（本 TU は分類まで）。 | **遠い** | **docs は今すぐ固定向き**。**移動・再配線**は inventory / 表示説明とセットのため **実装はまだ早い**。 |
 | **D. 共有型・メニュー試作ヘッダ束** | `app/InputPlatformLab/MainApp/include/input/core/CommonTypes.h`<br>`app/InputPlatformLab/MainApp/include/input/core/GamepadTypes.h`<br>`app/InputPlatformLab/MainApp/include/input/core/VirtualInputMenuSample.h` | 固定幅エイリアス、ゲームパッド列挙、`VirtualInputConsumerFrame` とメニュー試作状態機械。 | **高**（header-only） | **なし**（型束として portable pack に載せやすい）。 | **遠い** | **docs は今すぐ固定向き**。**実装はほぼ不要**。 |
-| **E. スロット・ガイド型（データモデル）** | `app/InputPlatformLab/MainApp/include/PlayerInputGuideTypes.h`<br>`app/InputPlatformLab/MainApp/include/PlayerInputSlots.h` | ガイド・スロット索引・バインド用の型と定数。 | **高** | **app glue**: T19/T20 ページ本文・accepted は `MainApp` 側。本候補は **契約の型** のみ。 | **遠い** | **docs は今すぐ固定向き**。**型の意味を変える実装**は波及が大きく **早い**。 |
-| **F. EffectiveInputGuideArbiter** | `app/InputPlatformLab/MainApp/include/EffectiveInputGuideArbiter.h`<br>`app/InputPlatformLab/MainApp/src/EffectiveInputGuideArbiter.cpp` | T76/T77 の effective owner・staging・consume。**WM_* は足さない** 方針。`.cpp` は時刻・ログで `Windows.h`。 | **中**（ヘッダは reusable、`.cpp` は OS ユーティリティ依存で移植時に差し替え） | **app glue**: tick タイミング・trial ゲート・呼び出し順は `MainApp`。説明上 T19/T20 の「ガイドの正」と接続。 | **中程度**（`WM_*` 直結ではないが tick / 順序の回帰に繋がりうる） | **docs で契約・所属は今すぐ固定向き**。`.cpp` の pack-out はまだ早い（T77 foundation close 後の別合意と同趣旨）。 |
+| **E. スロット・ガイド型（データモデル）** | `app/InputPlatformLab/MainApp/include/PlayerInputGuideTypes.h`<br>`app/InputPlatformLab/MainApp/include/PlayerInputSlots.h` | ガイド・スロット索引・バインド用の型と定数。 | **高** | **説明の残り**は **app glue**（T19/T20 ページ本文・accepted は `MainApp` 側）。**型束 E 自体**は reusable。 | **遠い** | **docs 固定済み**（本書候補 E 節）。**型の意味を変える実装**は波及が大きく **早い**。 |
+| **F. EffectiveInputGuideArbiter** | `app/InputPlatformLab/MainApp/include/EffectiveInputGuideArbiter.h`<br>`app/InputPlatformLab/MainApp/src/EffectiveInputGuideArbiter.cpp` | T76/T77 の effective owner・staging・consume。**WM_* は足さない** 方針。`.cpp` は時刻・ログで `Windows.h`。 | **中**（ヘッダは reusable、`.cpp` は OS ユーティリティ依存で移植時に差し替え） | **app glue**: tick タイミング・trial ゲート・呼び出し順は `MainApp`。説明上 T19/T20 の「ガイドの正」と接続。 | **中程度**（`WM_*` 直結ではないが tick / 順序の回帰に繋がりうる） | **docs 固定済み**（本書候補 F 節）。**`.cpp` pack-out**は **未決（要次回・別合意）**。 |
 | **曖昧 TU: T18InventorySnapshotGlue** | `app/InputPlatformLab/MainApp/include/T18InventorySnapshotGlue.h`<br>`app/InputPlatformLab/MainApp/src/T18InventorySnapshotGlue.cpp` | T18 向けスナップショット整形・survey 後 classify・rationale・HUD 短行など lab glue。 | **低〜中** | **app glue**（T18 専用）。データ元の Raw 経路は **platform/win**（`Win32InputGlue`）。reusable pack に **無理に寄せない**。 | **中以下**（`WM_PAINT` 経路に接続しうる。T19/T20 accepted は別一次情報） | **docs で app glue ラベルは今すぐ固定向き**。**コード移動は後回し**（§4 候補 2 とセット）。 |
 | **曖昧 TU: T18PageBodyFormatGlue** | `app/InputPlatformLab/MainApp/include/T18PageBodyFormatGlue.h`<br>`app/InputPlatformLab/MainApp/src/T18PageBodyFormatGlue.cpp` | T18 ページ本文の compact 行・2P–4P 1 行・`swprintf` 束。 | **低** | **app glue**（ページ式 HUD の T18 素材）。 | **中**（描画経路に接続） | **docs で app glue 固定向き**。**実装移動は paint 経路とセットで重い**。 |
 | **曖昧 TU: MainApp.cpp（統合点）** | `app/InputPlatformLab/MainApp/src/MainApp.cpp`（当該 TU 全体の読み方） | `WndProc`・タイマー・仮想/論理入力・arbiter・`InvalidateRect`・ページ式 HUD を順序付ける統合点。 | **分類対象外**（巨大 **app glue**。将来シェル分割は **未決（要次回）**） | **host / app glue**（危険線の中枢）。 | **最高**（`WM_INPUT` / `WM_TIMER` / `WM_PAINT` / `InvalidateRect` / T19・T20） | **docs で「危険線はここ」と固定するに留める**。**切り出し実装は最後**（§4 候補 4）。 |
 
 **締め（各 1 行）**
 
-- **次に docs で固定しやすい候補（1 つ）**: **E**（`PlayerInputGuideTypes.h` / `PlayerInputSlots.h`）— ファイルが少なく、T76/T77 の契約説明の根になりやすい。
+- **E / F は本書で docs 固定済み**（`architecture.md` reusable 行・レイヤ表との横断は §8）。新規に「型・API の意味」を広げる docs 作業は **不要**（追認・差分追随のみ）。
 - **まだ実装に触らない方がよい候補（1 つ）**: **F**（`EffectiveInputGuideArbiter.cpp` の移動・分割・OS 分岐増殖）— tick / 呼び出し順が T19/T20 の読みに接続し、foundation close 後の **別合意**が先。
 
 ### 候補 E — `PlayerInputGuideTypes.h` / `PlayerInputSlots.h`（型契約の docs 固定）
@@ -169,7 +171,7 @@
 | **非目標（第 1 回に含めない）** | **`LogicalInputState.*` / `ControllerClassification.*` / `EffectiveInputGuideArbiter.*`**、**`Win32InputGlue.*` / `platform/win/*`**、**`MainApp.cpp`**（**`WndProc`・`WM_INPUT` / `WM_TIMER` / `WM_PAINT`・`InvalidateRect`・HUD**）、**T18 / T19 / T20 の本文・accepted 意味の変更**、**候補 C 以降の `.cpp`**、**`PlayerInputSlots` / Arbiter の責務変更**を同一コミットにしない（束外のパス更新が最小限で済む作業は本 unit と混ぜない）。 |
 | **ホスト側に残すもの** | **論理 1 フレームをいつ進めるか**（ヘッダコメント上の **`WM_TIMER` tick との対応は説明用**。実装としての分岐・順序・早期 return はホスト）、**その直前の `VirtualInputSnapshot` / `KeyboardActionState` / down[] の供給**、**`InvalidateRect`・ページ式 HUD 表示**。**T19 / T20 受け入れ済みページの accepted 意味**は `docs/HUD_PAGED_ACCEPTANCE.md` 等の一次情報どおり—本束では再解釈しない。 |
 | **第 1 回で満たしたこと（事実）** | **`.cpp` 物理移動**と **`MainApp.vcxproj` / `MainApp.vcxproj.filters` 更新のみ**。**API・マクロ・ロジック・挙動は不変**。**危険線**（`WM_INPUT` / `WM_TIMER` / `WM_PAINT` / `InvalidateRect` / T19・T20 accepted）に **触れていない**。Debug / Release（x64）で **ビルド成功**。 |
-| **第 2 段候補（未着手）** | **`docs/architecture.md` の Pack-out 記述と本書の候補 B パスを突き合わせる**（docs 横断の現況同期）。**コード・呼び出し契約・accepted の変更は別合意**（`MainApp` / `WndProc` は危険線に寄りうる）。 |
+| **第 2 段** | **`architecture.md` Pack-out・レイヤ表との横断**は本書 §8 で反映（候補 B パスは unit-1 完了どおり）。**コード・呼び出し契約・accepted の変更は別合意**（`MainApp` / `WndProc` は危険線に寄りうる）。 |
 
 **候補 A との違い（要約）**: 候補 A の第 1 回 unit は **5 ヘッダ + `VirtualInputNeutral.cpp`** の仮想入力束。候補 B の第 1 回 unit は **論理入力の `.h` + `.cpp` のみ**（ヘッダは既に core 配下、**`.cpp` は `src/input/core` に配置済み**）。B はタイマー tick との **説明上の対応**があるが、**メッセージループ・Invalidate・accepted 文言はホスト / 別一次情報の責務**。
 
@@ -211,10 +213,10 @@
 
 # 5. 第一候補として再開するなら何か
 
-**候補 1（reusable candidate と `*.cpp` の対応表を完成させる）** を第一候補とする。
+**候補 1（reusable candidate と `*.cpp` の対応表）** を第一候補とする。**`architecture.md` との横断同期**は §8 を正とする。
 
 - **理由**: **危険線から最も遠く**、**pack-out の目的（何を clone 候補にするか）に直結** する。T19/T20 の accepted や `InvalidateRect` 条件を **書き換えず** に進められる。
-- **`docs/NEXT_THEME_RESTART_ENTRY.md` 候補 B** の精神に合い、**実装に落とす前の言語化** に最も向く。
+- **`docs/NEXT_THEME_RESTART_ENTRY.md`** の再開単位と整合し、**実装に落とす前の境界説明** に向く。次の具体メモは **§4 候補 2〜4**（別セッション）。
 
 ---
 
@@ -234,11 +236,16 @@
 
 **1 セッションで完結させる** 単位として、次を推奨する。
 
-1. **§4「候補 1」直下の具体化表** を基準に、迷いが残る TU へのラベル付け・`docs/decisions.md` への 1 行メモ・本書への「未決：要次回」を足す（**`docs/architecture.md` の Pack-out 行とも突き合わせる**。**実装変更はしない**）。
+1. **§4「候補 1」具体化表** と **§8** を基準に、残る迷いは `docs/decisions.md` 1 行または本書「未決：要次回」に落とす（**`architecture.md` Pack-out は §8 で突合済み**。**実装変更はしない**）。
 2. 表を書くとき **`HWND` / `Windows.h` の有無** を確認条件として明記し、**迷う TU は「platform/win」または「app glue」側に寄せてラベルだけ付ける**（中身の移動はしない）。
 3. 疑問が残る場合は **`docs/decisions.md` に 1 行**、または **本書に「未決：要次回」** とだけ残す。
 
 ---
+
+# 8. 横断同期メモ（`architecture.md` 突合）
+
+- **今回の横断同期で揃えたこと**: 候補 **D** のパスを **`include/input/core/`** に統一し候補 **A** の Pack-out 括弧内と一致。**レイヤ表「input/core 相当」**はフォルダ一対一ではなく **読みラベル**と明示。**E / F** を「本書で docs 固定済み」に揃え、**曖昧 TU** は **app glue** / **platform/win** / **未決**のまま portable に寄せない。
+- **まだ `architecture.md` 側だけでは決めないもの**: **F の `.cpp` 物理 pack-out**、**MainApp シェル分割**、**Glue↔WndProc 対応表**の細部—**別タスク・別合意**（危険線は `WNDPROC_MESSAGE_RESPONSIBILITY_MAP.md` 等の一次情報のまま）。
 
 ## 参照
 
