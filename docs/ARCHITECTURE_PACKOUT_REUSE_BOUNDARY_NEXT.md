@@ -62,6 +62,25 @@
 | **E. スロット・ガイド型（データモデル）** | `app/InputPlatformLab/MainApp/include/PlayerInputGuideTypes.h`<br>`app/InputPlatformLab/MainApp/include/PlayerInputSlots.h`（**データ面は header-only**） | ガイド表示・スロット索引・バインド解決に使う **型と定数**（HWND 非依存方針）。 | `architecture.md` の reusable 行で **明示**。**`EffectiveInputGuideArbiter.h`** の前提になるため、**契約の固定に効く**。 | **遠い**（描画・メッセージ非接触）。T19/T20 の **ページ本文** は app glue。本候補は **型の束**。 | **docs は今すぐ固定向き**。**型の意味を変える実装** は早い（T76/T77・effective owner の説明に波及しうる）。 |
 | **F. EffectiveInputGuideArbiter** | `app/InputPlatformLab/MainApp/include/EffectiveInputGuideArbiter.h`<br>`app/InputPlatformLab/MainApp/src/EffectiveInputGuideArbiter.cpp` | T76/T77: スロット表、effective owner、staging、single live consume、`_DEBUG` trial ゲート等。`.cpp` は `Windows.h`（`GetTickCount` / `OutputDebugStringW` 等）。コメントどおり **WM_* は足さない** 方針。 | **Portable pack に含めるが「移植時は .cpp 内 OS 依存を差し替え」**（`architecture.md` 既述）。**ヘッダ契約** は reusable、**実装 TU** はホスト都合で厚くなりやすい。 | **中程度**。`WM_INPUT` 等には直接触れないが、**タイマー駆動の tick 契約** と **MainApp / glue からの呼び出し順** が、説明上 **T19/T20 の「どの入力がガイドの正か」** に接続しうる（**accepted 文言やページ意味は変更しない** 前提で読む）。 | **docs で API 境界・ファイル所属は今すぐ固定向き**。**`.cpp` の物理 pack-out や責務分割はまだ早い**（T77 foundation close 後の別合意）。 |
 
+### C〜F と曖昧 TU — 境界ラベル（A/B 一区切り後）
+
+**A/B** は実体・docs ともに一区切りとし、本節は **C〜F** と reusable に寄せきれない TU の境界だけを足す。迷うものは **platform/win** / **app glue** / **未決（要次回）** に落とし、無理に portable に寄せない。**`WM_INPUT` / `WM_TIMER` / `WM_PAINT` / `InvalidateRect`** と **T19/T20 受け入れ済みページ**の危険線は変更・再解釈しない。
+
+| 候補名 | 主なファイル（`.h` / `.cpp`） | いまの責務 | portable / reusable 度合い | host / platform / app glue に残す理由 | 危険線からの距離 | docs 固定向き / 実装の時期感 |
+|--------|-------------------------------|------------|---------------------------|----------------------------------------|------------------|------------------------------|
+| **C. ControllerClassification** | `app/InputPlatformLab/MainApp/include/ControllerClassification.h`<br>`app/InputPlatformLab/MainApp/src/ControllerClassification.cpp` | HID 要約・VID/PID から family / parser / support を決める分類（Win32 API 呼び出しなし）。 | **高** | **app glue**: T18 inventory パイプと `MainApp` からの呼び出しは lab 一体。**platform/win**: HID 要約の収集は `Win32InputGlue`（本 TU は分類まで）。 | **遠い** | **docs は今すぐ固定向き**。**移動・再配線**は inventory / 表示説明とセットのため **実装はまだ早い**。 |
+| **D. 共有型・メニュー試作ヘッダ束** | `app/InputPlatformLab/MainApp/include/input/core/CommonTypes.h`<br>`app/InputPlatformLab/MainApp/include/input/core/GamepadTypes.h`<br>`app/InputPlatformLab/MainApp/include/input/core/VirtualInputMenuSample.h` | 固定幅エイリアス、ゲームパッド列挙、`VirtualInputConsumerFrame` とメニュー試作状態機械。 | **高**（header-only） | **なし**（型束として portable pack に載せやすい）。 | **遠い** | **docs は今すぐ固定向き**。**実装はほぼ不要**。 |
+| **E. スロット・ガイド型（データモデル）** | `app/InputPlatformLab/MainApp/include/PlayerInputGuideTypes.h`<br>`app/InputPlatformLab/MainApp/include/PlayerInputSlots.h` | ガイド・スロット索引・バインド用の型と定数。 | **高** | **app glue**: T19/T20 ページ本文・accepted は `MainApp` 側。本候補は **契約の型** のみ。 | **遠い** | **docs は今すぐ固定向き**。**型の意味を変える実装**は波及が大きく **早い**。 |
+| **F. EffectiveInputGuideArbiter** | `app/InputPlatformLab/MainApp/include/EffectiveInputGuideArbiter.h`<br>`app/InputPlatformLab/MainApp/src/EffectiveInputGuideArbiter.cpp` | T76/T77 の effective owner・staging・consume。**WM_* は足さない** 方針。`.cpp` は時刻・ログで `Windows.h`。 | **中**（ヘッダは reusable、`.cpp` は OS ユーティリティ依存で移植時に差し替え） | **app glue**: tick タイミング・trial ゲート・呼び出し順は `MainApp`。説明上 T19/T20 の「ガイドの正」と接続。 | **中程度**（`WM_*` 直結ではないが tick / 順序の回帰に繋がりうる） | **docs で契約・所属は今すぐ固定向き**。`.cpp` の pack-out はまだ早い（T77 foundation close 後の別合意と同趣旨）。 |
+| **曖昧 TU: T18InventorySnapshotGlue** | `app/InputPlatformLab/MainApp/include/T18InventorySnapshotGlue.h`<br>`app/InputPlatformLab/MainApp/src/T18InventorySnapshotGlue.cpp` | T18 向けスナップショット整形・survey 後 classify・rationale・HUD 短行など lab glue。 | **低〜中** | **app glue**（T18 専用）。データ元の Raw 経路は **platform/win**（`Win32InputGlue`）。reusable pack に **無理に寄せない**。 | **中以下**（`WM_PAINT` 経路に接続しうる。T19/T20 accepted は別一次情報） | **docs で app glue ラベルは今すぐ固定向き**。**コード移動は後回し**（§4 候補 2 とセット）。 |
+| **曖昧 TU: T18PageBodyFormatGlue** | `app/InputPlatformLab/MainApp/include/T18PageBodyFormatGlue.h`<br>`app/InputPlatformLab/MainApp/src/T18PageBodyFormatGlue.cpp` | T18 ページ本文の compact 行・2P–4P 1 行・`swprintf` 束。 | **低** | **app glue**（ページ式 HUD の T18 素材）。 | **中**（描画経路に接続） | **docs で app glue 固定向き**。**実装移動は paint 経路とセットで重い**。 |
+| **曖昧 TU: MainApp.cpp（統合点）** | `app/InputPlatformLab/MainApp/src/MainApp.cpp`（当該 TU 全体の読み方） | `WndProc`・タイマー・仮想/論理入力・arbiter・`InvalidateRect`・ページ式 HUD を順序付ける統合点。 | **分類対象外**（巨大 **app glue**。将来シェル分割は **未決（要次回）**） | **host / app glue**（危険線の中枢）。 | **最高**（`WM_INPUT` / `WM_TIMER` / `WM_PAINT` / `InvalidateRect` / T19・T20） | **docs で「危険線はここ」と固定するに留める**。**切り出し実装は最後**（§4 候補 4）。 |
+
+**締め（各 1 行）**
+
+- **次に docs で固定しやすい候補（1 つ）**: **E**（`PlayerInputGuideTypes.h` / `PlayerInputSlots.h`）— ファイルが少なく、T76/T77 の契約説明の根になりやすい。
+- **まだ実装に触らない方がよい候補（1 つ）**: **F**（`EffectiveInputGuideArbiter.cpp` の移動・分割・OS 分岐増殖）— tick / 呼び出し順が T19/T20 の読みに接続し、foundation close 後の **別合意**が先。
+
 #### 表の読み方 — 最初に埋めるべき候補（1 つ）
 
 **候補 A（VirtualInputNeutral）** を最初に「表の意味で」埋める。**他プロジェクトが真似するならこの TU からリンクする** のが説明コストが最も低い。`InputCore.h` の実装列挙順とも一致する。
@@ -81,8 +100,10 @@
 
 **候補 A の docs 上の準備完了条件**: 上表が **「型・関数の入口」「依存」「ホスト契約」** について読み手の誤読を残さないこと。`InputCore.h` の「リンクする `.cpp`」記述と矛盾しないこと。
 
-**別 unit・再編時も有効な確認事項**: **D（GamepadTypes / MenuSample / CommonTypes）を候補 A と同じ portable 束として数える**前提を崩さないこと。**挙動・API を変えない**こと。**危陸線**（`WM_INPUT` / `WM_TIMER` / `WM_PAINT` / `InvalidateRect` / T19・T20 accepted）に手を伸ばす作業と **同一コミットにしない**こと。
-
+**別 unit・再編時も有効な確認事項**: **D（GamepadTypes / MenuSample / CommonTypes）を候補 A と同じ portable 束として数える**前提を崩さないこと。**挙動・API を変えない**こと。**危陸線**（`WM_INPUT` / `WM_TIMER` / `WM_PAINT` / `InvalidateRect` / T19・T20 accepted）に手を伸ばす作業と **同一コミットにしない**こと。
+
+
+
 **候補 A — 第 1 回 extraction unit（現況同期／設計メモ）**
 
 | 観点 | 内容（候補 A のみ） |
