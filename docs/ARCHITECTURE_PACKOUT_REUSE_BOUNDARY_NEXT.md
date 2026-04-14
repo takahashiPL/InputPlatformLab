@@ -191,6 +191,21 @@
 | **危険線への近さ** | **設計メモのみなら中程度以下**。実装移動は **T18 表示・accepted** に波及しうるため **実装は別タスク**。 |
 | **着手向き** | **設計メモは今すぐ向き**。**コード移動は後回し**。 |
 
+### 候補 2 — 責務ライン固定（docs、実装移動なし）
+
+| 項目 | 内容 |
+|------|------|
+| **主なファイル** | `app/InputPlatformLab/MainApp/include/T18InventorySnapshotGlue.h`・`app/InputPlatformLab/MainApp/src/T18InventorySnapshotGlue.cpp`。<br>`app/InputPlatformLab/MainApp/include/T18PageBodyFormatGlue.h`・`app/InputPlatformLab/MainApp/src/T18PageBodyFormatGlue.cpp`。 |
+| **各 TU の責務** | **InventorySnapshotGlue**: T18 用 `T18ControllerIdentifySnapshot`、survey（`Win32InputGlue_T18InventorySurvey`）からの classify 完成、rationale・デバッグ短行・HUD 向け短文（`FillWhyHud*` 等）の **wchar_t バッファ生成**。`TruncateWideForPaint` は **表示幅向けの文字列切り詰め**であり、**描画 API ではない**（名前と実体の対応を docs で固定）。<br>**PageBodyFormatGlue**: ページ式 HUD の T18 本文向け **compact 行・2P–4P 1 行・`FillPagedHudBody` による `swprintf` 束**（引数で渡されたラベルを **1 バッファに畳む**）。 |
+| **データの流れ（どこまでか）** | **上流**の Raw/XInput・inventory survey の事実は **`Win32InputGlue`（platform/win）** 側。本二 TU は **survey 以降〜ページ本文用の文字列**までを担当し、**T19/T20 の accepted 意味は一次情報どおり**（本節は T18 素材経路の説明に限る）。**下流**は **host（`MainApp`）がページ組み立て・描画オーバーレイ直前にバッファを渡す**読み。 |
+| **paint / HUD 表示直前でここではしないこと** | **`WM_PAINT` を処理しない**。**`BeginPaint` / `EndPaint` および D2D・GDI の描画呼び出しを持たない**（文字列整形まで）。**`InvalidateRect` / `RedrawWindow` を発火しない**（再描タイミングは危険線・一次情報側）。→ **「ここでは描かない」**＝描画・再描要求は **host / 危険線**、glue は **与えられた文字列の組み立てのみ**。 |
+| **host / app glue に残る説明** | survey 取得・`T18Inventory_CompleteSnapshotFromSurvey` 等と `FillPagedHudBody` 呼び出しの **順序とタイミング**、どの行をページに載せるかは **`MainApp` 手順**（lab 一体の app glue）。`ENGINE_LOOP_MAPPING` / `WNDPROC_MESSAGE_RESPONSIBILITY_MAP` で示される **メッセージ・再描の中枢**は本 TU に移さない。 |
+| **危険線からの距離** | **docs のみ（本追記）**: **中下**（分岐・条件の再定義をしない限り）。**実装の移動・呼び出し順の変更**: **中〜高**（`WM_PAINT` 経路・T18 表示に接続しうる）。 |
+| **docs で先に固定する価値** | **survey → スナップショット → 短行 → 本文バッファ** と **実描画** の間の **責務切れ**を共有し、**app-specific glue** と **危険線**を混同しない。 |
+
+**今回 docs で揃えたこと**: 両 glue の **担当範囲（文字列まで）** と **描画・再描要求はしない** 境界を本書に明示した。  
+**まだ実装では触らないこと**: **ファイル移動**、`WndProc` / **`WM_INPUT` / `WM_TIMER` / `WM_PAINT`** / **`InvalidateRect`** の変更、T19/T20 **本文・accepted** に繋がる経路・文言の変更。
+
 ## 候補 3 — `Win32InputGlue` と `MainApp.cpp` の入力ポンプ境界
 
 | 観点 | 内容 |
