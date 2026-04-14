@@ -107,6 +107,20 @@
   - **束外ファイル** が同じコミットに入った、**`Windows.h` / HWND が portable 束に入り込んだ**。
   - 「何をホストに残すか」が **説明とコードで矛盾** した（境界メモの更新が先）。
 
+**候補 B（LogicalInputState）— 第 1 回 extraction unit（設計メモ／候補 A とは別束）**
+
+候補 A は **仮想スナップショット〜Consumer 組み立て** の中立コア。候補 B は **論理ボタン列の press / release / push / hold**（`LogicalInputState_Update` 等）であり、`InputCore.h` 束の **第 2 `.cpp`** だが **unit の中身は候補 A と混同しない**。
+
+| 観点 | 内容（候補 B のみ） |
+|------|---------------------|
+| **第 1 回 extraction unit** | **`LogicalInputState.h`**（`app/InputPlatformLab/MainApp/include/input/core/LogicalInputState.h`）と **`LogicalInputState.cpp`**（現状 `app/InputPlatformLab/MainApp/src/LogicalInputState.cpp`）の **2 ファイル**を 1 回目の単位とみなす。ヘッダは既に `include/input/core` にあり、**直接依存は `CommonTypes` / `GamepadTypes` / `VirtualInputNeutral`（候補 A 側の既存配置）**に閉じる。 |
+| **非目標（第 1 回に含めない）** | **`ControllerClassification.*` / `EffectiveInputGuideArbiter.*`**、**`Win32InputGlue.*` / `platform/win/*`**、**`MainApp.cpp`**（**`WndProc`・`WM_INPUT` / `WM_TIMER` / `WM_PAINT`・`InvalidateRect`・HUD**）、**T18 / T19 / T20 の本文・accepted 意味の変更**、**候補 C 以降の `.cpp`**、**`PlayerInputSlots` / Arbiter の責務変更**を同一コミットにしない（束外のパス更新が最小限で済む作業は本 unit と混ぜない）。 |
+| **ホスト側に残すもの** | **論理 1 フレームをいつ進めるか**（ヘッダコメント上の **`WM_TIMER` tick との対応は説明用**。実装としての分岐・順序・早期 return はホスト）、**その直前の `VirtualInputSnapshot` / `KeyboardActionState` / down[] の供給**、**`InvalidateRect`・ページ式 HUD 表示**。**T19 / T20 受け入れ済みページの accepted 意味**は `docs/HUD_PAGED_ACCEPTANCE.md` 等の一次情報どおり—本束では再解釈しない。 |
+| **着手前チェックリスト** | 上記 **2 ファイル**と（必要なら）**`.vcxproj` / `.filters`・束外 `#include` の最小更新**だけで計画が言い切れる。**API・マクロ・ロジック・挙動を変えない**。**危険線**（`WM_INPUT` / `WM_TIMER` / `WM_PAINT` / `InvalidateRect` / T19・T20 accepted）に触れる変更と **同一コミットにしない**。 |
+| **最初のコミット分割方針** | **1 コミット目**: **`LogicalInputState.cpp` の `src/input/core/` への物理移動**（現状 `src/` から寄せる想定）、**プロジェクト参照更新**、束外の **必要最小限の include 修正**のみ。**同一コミットに含めない**: `MainApp.cpp`、`Win32InputGlue`、`platform/win`、候補 C〜F の `.cpp`、**挙動を変えるリファクタ**、**accepted / ページ本文の編集**。 |
+
+**候補 A との違い（要約）**: 候補 A の第 1 回 unit は **5 ヘッダ + `VirtualInputNeutral.cpp`** の仮想入力束。候補 B の第 1 回 unit は **論理入力の `.h` + `.cpp` のみ**（ヘッダは既に core 配下。**実装 `.cpp` の配置そろえ** が次の自然な 1 コミット）。B はタイマー tick との **説明上の対応**があるが、**メッセージループ・Invalidate・accepted 文言はホスト / 別一次情報の責務**。
+
 #### いまは触らない方がよい候補（設計メモの追補は可／実装・呼び出し契約は別）
 
 - **候補 F（EffectiveInputGuideArbiter）の `.cpp` 分割・移動・OS 分岐の増殖** — T77 foundation close 済み域に接続し、タイマー・`_DEBUG` 経路の説明責任が重い。**本書の表でパスと責務を固定する分にはよい**。
