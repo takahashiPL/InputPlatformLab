@@ -4,6 +4,12 @@
     <Filter Include="include">
       <UniqueIdentifier>{a1b2c3d4-1111-4111-8111-111111111111}</UniqueIdentifier>
     </Filter>
+    <Filter Include="include\input">
+      <UniqueIdentifier>{b2c3d4e5-1111-4111-9111-aaaaaaaaaaaa}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="include\input\core">
+      <UniqueIdentifier>{b2c3d4e5-2222-4222-a222-bbbbbbbbbbbb}</UniqueIdentifier>
+    </Filter>
     <Filter Include="include\platform">
       <UniqueIdentifier>{a1b2c3d4-2222-4222-8222-222222222222}</UniqueIdentifier>
     </Filter>
@@ -12,6 +18,12 @@
     </Filter>
     <Filter Include="src">
       <UniqueIdentifier>{4FC737F1-C7A5-4376-A066-2A32D752A2FF}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="src\input">
+      <UniqueIdentifier>{c3d4e5f6-1111-4111-b111-cccccccccccc}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="src\input\core">
+      <UniqueIdentifier>{c3d4e5f6-2222-4222-b222-dddddddddddd}</UniqueIdentifier>
     </Filter>
     <Filter Include="src\platform">
       <UniqueIdentifier>{a1b2c3d4-4444-4444-8444-444444444444}</UniqueIdentifier>
@@ -36,8 +48,8 @@
     <ClInclude Include="include\targetver.h">
       <Filter>include</Filter>
     </ClInclude>
-    <ClInclude Include="include\CommonTypes.h">
-      <Filter>include</Filter>
+    <ClInclude Include="include\input\core\CommonTypes.h">
+      <Filter>include\input\core</Filter>
     </ClInclude>
     <ClInclude Include="include\ControllerClassification.h">
       <Filter>include</Filter>
@@ -48,17 +60,17 @@
     <ClInclude Include="include\T18PageBodyFormatGlue.h">
       <Filter>include</Filter>
     </ClInclude>
-    <ClInclude Include="include\GamepadTypes.h">
-      <Filter>include</Filter>
+    <ClInclude Include="include\input\core\GamepadTypes.h">
+      <Filter>include\input\core</Filter>
     </ClInclude>
-    <ClInclude Include="include\InputCore.h">
-      <Filter>include</Filter>
+    <ClInclude Include="include\input\core\InputCore.h">
+      <Filter>include\input\core</Filter>
     </ClInclude>
-    <ClInclude Include="include\VirtualInputMenuSample.h">
-      <Filter>include</Filter>
+    <ClInclude Include="include\input\core\VirtualInputMenuSample.h">
+      <Filter>include\input\core</Filter>
     </ClInclude>
-    <ClInclude Include="include\VirtualInputNeutral.h">
-      <Filter>include</Filter>
+    <ClInclude Include="include\input\core\VirtualInputNeutral.h">
+      <Filter>include\input\core</Filter>
     </ClInclude>
     <ClInclude Include="include\platform\win\WindowsAppShell.h">
       <Filter>include\platform\win</Filter>
@@ -101,8 +113,8 @@
     <ClCompile Include="src\ControllerClassification.cpp">
       <Filter>src</Filter>
     </ClCompile>
-    <ClCompile Include="src\VirtualInputNeutral.cpp">
-      <Filter>src</Filter>
+    <ClCompile Include="src\input\core\VirtualInputNeutral.cpp">
+      <Filter>src\input\core</Filter>
     </ClCompile>
     <ClCompile Include="src\platform\win\WindowsRenderer.cpp">
       <Filter>src\platform\win</Filter>
