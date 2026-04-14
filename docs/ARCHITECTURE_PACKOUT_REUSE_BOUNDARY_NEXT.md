@@ -90,6 +90,22 @@
 | **ホスト側に残すもの** | **`WndProc` 内の `WM_INPUT` / `WM_TIMER` / `WM_PAINT` の順序・早期 return**、**`InvalidateRect` 条件**、**ページ式 HUD の表示経路**、**T19/T20 accepted の意味**、**Raw/XInput 等から `VirtualInputSnapshot` を埋める処理**（候補 A は **渡されたスナップショット以降** の中立コアに留まる）。 |
 | **最小確認観点（実装前に docs で一致）** | 上記束が **HWND / `Windows.h` なしで閉じる** こと。**危険線** に触れる話題と **同一の変更・コミットにしない** こと。ホストが **毎フレーム `VirtualInputSnapshot`（キー側は `KeyboardActionState`）を渡す** 契約が、上の API 具体化表と矛盾しないこと。 |
 
+**候補 A — 実装着手前チェックリスト（設計メモ）**
+
+- **第 1 回 pack-out に入ってよい条件（揃っていること）**
+  - 上記 **extraction unit**（5 ファイル ＋ 任意 `InputCore.h`）の **一覧と依存** が本書どおりで、**別 TU・ホスト側ファイルを同時に触る予定がない**。
+  - **移動・パス変更・プロジェクト参照更新のみ** で完結する計画である（**API・マクロ・ロジックは変えない**）。
+  - **T19/T20** は **受け入れ済みページの意味を変えない** 前提で、前後で **同じ手順の確認** ができる（必要なら `docs/T19_T20_MANUAL_VERIFICATION_GUIDE.md` を参照）。
+  - **危険線**（`WM_INPUT` / `WM_TIMER` / `WM_PAINT` / `InvalidateRect` / accepted 意味）に **手を入れない** ことが作業説明で言い切れる。
+
+- **最初のコミット分割方針**
+  - **1 コミット目に含める**: extraction unit の **物理移動**、**`#include` / `.vcxproj` 等の参照更新** のみ。
+  - **同一コミットに含めない**: `MainApp.cpp`（`WndProc`・タイマー・`InvalidateRect`・HUD）、`Win32InputGlue` / `platform/win`、**候補 B〜F** の `.cpp`、**挙動変更・名前以外のリファクタ**。
+
+- **差し戻し条件（docs に戻って止める）**
+  - **`WM_INPUT` / `WM_TIMER` / `WM_PAINT` / `InvalidateRect` / T19・T20 accepted** に関する差分が混ざった、または **意図しない挙動差** が出た。
+  - **束外ファイル** が同じコミットに入った、**`Windows.h` / HWND が portable 束に入り込んだ**。
+  - 「何をホストに残すか」が **説明とコードで矛盾** した（境界メモの更新が先）。
 
 #### いまは触らない方がよい候補（設計メモの追補は可／実装・呼び出し契約は別）
 
