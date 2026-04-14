@@ -175,7 +175,7 @@
     <ClCompile Include="src\MainApp.cpp" />
     <ClCompile Include="src\input\core\VirtualInputNeutral.cpp" />
     <ClCompile Include="src\EffectiveInputGuideArbiter.cpp" />
-    <ClCompile Include="src\LogicalInputState.cpp" />
+    <ClCompile Include="src\input\core\LogicalInputState.cpp" />
   </ItemGroup>
   <ItemGroup>
     <ResourceCompile Include="resources\MainApp.rc" />

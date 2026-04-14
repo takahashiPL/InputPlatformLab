@@ -119,6 +119,9 @@
     <ClCompile Include="src\input\core\VirtualInputNeutral.cpp">
       <Filter>src\input\core</Filter>
     </ClCompile>
+    <ClCompile Include="src\input\core\LogicalInputState.cpp">
+      <Filter>src\input\core</Filter>
+    </ClCompile>
     <ClCompile Include="src\platform\win\WindowsRenderer.cpp">
       <Filter>src\platform\win</Filter>
     </ClCompile>
