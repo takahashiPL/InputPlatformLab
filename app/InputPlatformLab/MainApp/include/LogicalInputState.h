@@ -23,10 +23,10 @@
 //   - アプリ終了前や「入力デバイス再列挙」後の明示クリアが必要な場合。
 #pragma once
 
-#include "CommonTypes.h"
-#include "GamepadTypes.h"
+#include "input/core/CommonTypes.h"
+#include "input/core/GamepadTypes.h"
 
-#include "VirtualInputNeutral.h"
+#include "input/core/VirtualInputNeutral.h"
 
 // GamepadButtonId と同一レイアウト（将来の分離用に別名）
 enum class LogicalButtonId : UINT8
