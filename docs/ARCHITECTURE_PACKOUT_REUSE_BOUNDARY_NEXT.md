@@ -47,6 +47,18 @@
 | **危険線への近さ** | **低い**（docs のみ）。`WndProc` や `InvalidateRect` を直接は触らない。 |
 | **着手向き** | **今すぐ設計メモ化向き**。次回 1 セッションで表を埋め切れる単位。 |
 
+### 候補 1 — ファイル対応の物差し（1 段）
+
+`docs/architecture.md` の Pack-out 表・レイヤ表を、**読み手が迷いにくい四つ**に落とす（**実装移動・命名追加なし**。**`WM_*` / `InvalidateRect` / T19・T20 accepted** は再定義しない）。
+
+| 物差し | 主なもの（`app/InputPlatformLab/MainApp/` 配下。詳細は下表・一次情報） |
+|--------|--------------------------------------------------------------------------|
+| **portable と見なす候補** | **A/B/D** の `include/input/core/`・`src/input/core/`（unit-1 どおり）。**E** `include/PlayerInputGuideTypes.h`・`PlayerInputSlots.h`。**F** `include/EffectiveInputGuideArbiter.h` のみ（`.cpp` は下の未決）。**C** `include/ControllerClassification.h`・`src/ControllerClassification.cpp`（reusable 行どおり・**物理パスは core 外**）。 |
+| **platform/win に残す候補** | `include/platform/win/*`、`src/platform/win/*`、**`Win32InputGlue.*`**（Raw/XInput・survey・レンダラ等。細部は `architecture.md` と `WNDPROC_MESSAGE_RESPONSIBILITY_MAP.md`）。 |
+| **app glue として残す候補** | `MainApp.cpp` / `MainApp.h`、`T18InventorySnapshotGlue.*`、`T18PageBodyFormatGlue.*`、`.rc` / `resources/`、T18/T19/T20 固有の検証・`_DEBUG` ホットキー（Pack-out **app-specific** 行と同趣旨）。 |
+| **まだ未決（今回はラベルのみ）** | **F** `.cpp` の物理 pack-out・分割。**MainApp** シェル／巨大 TU の切り出し。**Glue↔WndProc** 対応の細部。曖昧 TU の **コード移動タイミング**（§4 候補 2・4 の docs どおり。**前進の宣言ではない**）。 |
+
+
 ### 第一候補の具体化 — reusable candidate とファイル対応（2026-04-13 時点）
 
 `InputCore.h` のコメントどおり、**単一入口が束ねる中立ヘッダ**と、**`#include "InputCore.h"` には載っていないが `docs/architecture.md` の Pack-out 行に含まれる部品**を、**同一の portable foundation 束**として読む。ファイルパスは **`app/InputPlatformLab/MainApp/` 配下**（`architecture.md`「現在のフォルダ構成」と同じ）を相対とする。
@@ -305,8 +317,8 @@
 
 # 8. 横断同期メモ（`architecture.md` 突合）
 
-- **今回の横断同期で揃えたこと**: 候補 **D** のパスを **`include/input/core/`** に統一し候補 **A** の Pack-out 括弧内と一致。**レイヤ表「input/core 相当」**はフォルダ一対一ではなく **読みラベル**と明示。**E / F** を「本書で docs 固定済み」に揃え、**曖昧 TU** は **app glue** / **platform/win** / **未決**のまま portable に寄せない。
-- **まだ `architecture.md` 側だけでは決めないもの**: **F の `.cpp` 物理 pack-out**、**MainApp シェル分割**、**Glue↔WndProc 対応表**の細部—**別タスク・別合意**（危険線は `WNDPROC_MESSAGE_RESPONSIBILITY_MAP.md` 等の一次情報のまま）。
+- **今回の横断同期で揃えたこと**: 候補 **D** のパスを **`include/input/core/`** に統一し候補 **A** の Pack-out 括弧内と一致。**レイヤ表「input/core 相当」**はフォルダ一対一ではなく **読みラベル**と明示。**E / F** を「本書で docs 固定済み」に揃え、**曖昧 TU** は **app glue** / **platform/win** / **未決**のまま portable に寄せない。**§4「候補 1 — ファイル対応の物差し（1 段）」**で **portable / platform/win / app glue / 未決** を **`architecture.md` Pack-out 表と矛盾しない**短文表に整理した（**実装移動の前進ではない**）。
+- **まだ `architecture.md` 側だけでは決めないもの**: **F の `.cpp` 物理 pack-out**、**MainApp シェル分割**、**Glue↔WndProc 対応表**の細部—**別タスク・別合意**（危険線は `WNDPROC_MESSAGE_RESPONSIBILITY_MAP.md` 等の一次情報のまま）。物差し表の **未決** 行は **ラベル固定のみ**で、**結論を増やしていない**。
 
 ## 参照
 
