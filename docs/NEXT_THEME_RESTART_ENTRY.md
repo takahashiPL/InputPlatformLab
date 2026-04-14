@@ -14,7 +14,7 @@
 
 - **legacy stacked HUD 分離フェーズは closed**。再オープンしない。
 - **ページ式 HUD が通常運用の正**（受け入れの一次情報は `docs/HUD_PAGED_ACCEPTANCE.md`）。
-- **T76 は close**。**T77 は step24 foundation close 済み**（`docs/T77_FOUNDATION_CLOSE.md`。foundation close をあいまいにしない）。
+- **T76 は close**。**T77 は step24 foundation close 済み**（`docs/T77_FOUNDATION_CLOSE.md`。foundation close をあいまいにしない）。**Go(1)**（trial の routing 近接化）は `EffectiveInputGuideArbiter.cpp` のみ **2 コミット**（`fdd33b0`・`57cf06f`）で一区切り、**3 手目は見送り**（現況は `docs/roadmap.md` に同期済み。過大な前進とはみなさない）。
 - **Win32 ホストの実行骨格**は `GetMessage` → `DispatchMessage` → **`WndProc`**。単一の `Update()` 相当入口は無い（`docs/ENGINE_LOOP_MAPPING_UNITY_UNREAL_MAINAPP.md`）。
 - **`WndProc` 経路の責務と危険線**は `docs/WNDPROC_MESSAGE_RESPONSIBILITY_MAP.md` で現状固定されている。
 - **実装側の整理**（直近まで）:
@@ -37,7 +37,7 @@
 # 4. 次の実務テーマ候補
 
 
-**現況（2026-04 時点）**: 候補 **A/B** は **第 1 回 unit まで一区切り**、**E/F** は **`docs/ARCHITECTURE_PACKOUT_REUSE_BOUNDARY_NEXT.md` で docs 固定まで到達**している。ここからの再開は、**特定 TU の延長を最優先に据えず**、同書の **§4（候補 2〜4・曖昧 TU）** と **`roadmap.md`** を突き合わせた **実務テーマの再棚卸し・優先度見直し**を主眼にする（**危険線**は引き続き **`WM_INPUT` / `WM_TIMER` / `WM_PAINT` / `InvalidateRect` / T19・T20 accepted** を別扱いする）。
+**現況（2026-04 時点）**: 候補 **A/B** は **第 1 回 unit 一区切り**、**E/F** は **`docs/ARCHITECTURE_PACKOUT_REUSE_BOUNDARY_NEXT.md` で docs 固定済み**。同書 **§4 候補 2〜4**（T18 glue の paint 非接觨境界・`Win32InputGlue` と `MainApp.cpp` の索引・`MainApp.cpp` の責務ラベル地図）の **docs 追補も済み**。T77 Go(1) は **2 手で一区切り・3 手目見送り**（§2 参照）。ここからの主眼は **pack-out 軸で次の docs 先行を 1 本に絞る判断**（**危険線**は **`WM_INPUT` / `WM_TIMER` / `WM_PAINT` / `InvalidateRect` / T19・T20 accepted** を別扱いし、意味は再定義しない）。
 
 ## 候補 A — ページ式 HUD（T19/T20）中心の **回帰確認・手動検証手順**の実務化
 
@@ -46,7 +46,7 @@
 | **何を触るか** | **主手順**は **`docs/T19_T20_MANUAL_VERIFICATION_GUIDE.md`**。**受け入れ・記録**は **`docs/HUD_PAGED_ACCEPTANCE.md`**（2026-04-13 追記含む）および **`docs/roadmap.md`** の短文まで **反映済み**。残るのは **運用の追随**（手順と一次情報の差分が出たときの **最小追記**）に近い。**「次の第一候補から手順を書き起こす」段階ではない**。 |
 | **なぜ今か** | 足場は既にあるため、**再開直後の唯一の最優先**という位置づけは下げる。それでも **T19/T20 の accepted 意味**は **`HUD_PAGED_ACCEPTANCE.md` に立ち返る**必要がある（危険線は変えない） |
 | **危険線** | **手順書の記述**が誤った解釈を誘発するリスクはあるが、**コードを直接触らない**なら即時の実行時リスクは低い。記述は **`HUD_PAGED_ACCEPTANCE.md` と矛盾しない**こと。 |
-| **着手向き** | **必要時のみの短い docs 追随**。全体の優先は **§5（再棚卸し）** のあとで決める。 |
+| **着手向き** | **必要時のみの短い docs 追随**。全体の優先は **§5（第一候補・候補 4 突合）** と整合させる。 |
 
 ## 候補 B — **VirtualInputNeutral** / **LogicalInputState**（pack-out・**第 1 回 unit 済み**）
 
@@ -79,10 +79,11 @@
 
 # 5. 第一候補として再開するなら何か
 
-**`docs/ARCHITECTURE_PACKOUT_REUSE_BOUNDARY_NEXT.md` を軸にした、次の実務テーマの再棚卸しと優先度の見直し**を第一候補とする。
+**第一候補（1 本固定）**: **`docs/ARCHITECTURE_PACKOUT_REUSE_BOUNDARY_NEXT.md` の §4 候補 4**（`MainApp.cpp` の責務ラベル・プレースホルダー地図）を軸に、**`docs/architecture.md`（Pack-out 行）** と **`docs/roadmap.md`** を **短文で突合**し、読み手向けの索引を 1 枚に揃える **docs 先行の 1 セッション**とする。
 
-- **理由**: 候補 **A/B** は第 1 回 unit **済み**、**E/F** は同書で **docs 固定済み**。個別 TU を延長するより、**C〜D・曖昧 TU（T18 glue 等）・§4 候補 2〜4（paint 経路・`Win32InputGlue` / `MainApp` 境界・シェル地図）**のどこを次に **docs 先行**するか／**実装は別合意**とするかを **1 枚に揃える**段階にある。T19/T20 の手順・一次情報は既に足場があるため、「ゼロから書く」より **全体の線の整理**が先になる。
-- **危険線の置き場所は変えない**: **`WM_INPUT` / `WM_TIMER` / `WM_PAINT` の分岐・順序**、**`InvalidateRect` 条件**、**T19 / T20 の受け入れ済みページの accepted 意味**は **`WNDPROC_MESSAGE_RESPONSIBILITY_MAP.md`** と **`HUD_PAGED_ACCEPTANCE.md`** を一次情報とし、**あいまいにしない**（再棚卸しは **説明とラベル**に留め、意味の再解釈ではない）。
+- **理由**: §4 **候補 2・3** は同書で **docs 追補済み**。pack-out 軸の次の喉のどころは、**巨大 TU の読み方**を `architecture` / `roadmap` と矛盾なく固定すること。**実装 pack-out**・**`WndProc` 改変** は対象外（T77 は §2 のとおり。過大な前進とはみなさない）。
+- **次点**: 候補 2・3 は **必要時の読み返しのみ**（一次情報の上書きはしない）。候補 C〜D・曖昧 TU の優先は **本テーマのあと** に短く見直す。
+- **危険線の置き場所は変えない**: **`WM_INPUT` / `WM_TIMER` / `WM_PAINT` の分岐・順序**、**`InvalidateRect` 条件**、**T19 / T20 の受け入れ済みページの accepted 意味** は **`WNDPROC_MESSAGE_RESPONSIBILITY_MAP.md`** と **`HUD_PAGED_ACCEPTANCE.md`** を一次情報とし、**あいまいにしない**（本テーマは **ラベルと参照** に留め、意味の再解釈ではない）。
 - **まずやらないこと**: 候補 D のような **描画パイプライン実装**、および **合意前の Arbiter `.cpp` pack-out** に踏み込まない。
 
 ---
@@ -104,8 +105,8 @@
 
 **1 セッションで完結させる**単位として、次を推奨する。
 
-1. **`docs/ARCHITECTURE_PACKOUT_REUSE_BOUNDARY_NEXT.md`** の **§4 候補 1 表（A〜F・曖昧 TU）**、**候補 E / F 節**、**§4 候補 2〜4** を読み、**次に docs か実装のどちらを動かす線**を **1 本だけ**候補として書き出す（**危険線**は触らない前提で **ラベルと参照**に留める）。
-2. **`docs/roadmap.md`**・**`docs/architecture.md`**（Pack-out 行）と突き合わせ、**優先度の矛盾**があれば **短文**でどちらを正とするか決める。
+1. **`docs/ARCHITECTURE_PACKOUT_REUSE_BOUNDARY_NEXT.md`** の **§4 候補 4**（`MainApp.cpp` の責務ラベル・プレースホルダー地図）を読み、**`docs/architecture.md`**・**`docs/roadmap.md`** の Pack-out 記述と **短文で矛盾がないか突合**する（**危険線**は **ラベルと参照** に留め、意味の再解釈はしない）。
+2. 手順 1 の突合で **優先度の矛盾**が残る場合のみ、**短文**でどちらを正とするか決め、`decisions` / `roadmap` に **1 行**残す。
 3. T19/T20 については **`docs/T19_T20_MANUAL_VERIFICATION_GUIDE.md`** に従い、必要なら **`docs/HUD_PAGED_ACCEPTANCE.md`** へ **最小限の追記**にとどめる。**accepted 意味に触る用語は一次情報どおり**に保つ。
 4. **実装変更は行わない**（本書の再開単位では）。未決が残る場合は **decisions / roadmap に 1 行**残す程度に留める。
 
