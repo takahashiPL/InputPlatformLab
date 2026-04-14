@@ -21,7 +21,7 @@
   - **`Win32InputGlue`**: Raw Input / XInput 周辺の小整理・重複削除。
   - **`ControllerClassification`**: ゲームパッド系 **表示ラベル**（論理ボタン ID 名・ファミリ別ラベル・左スティック方向ラベル等）の集約。
   - **起動時のゲームパッドボタンラベル表ダンプ**（`OutputDebugStringW`）は **`MainApp.cpp` 側**に置き、分類モジュールから I/O 副作用を外した。
-
+  - **`VirtualInputNeutral`**: **`241a077` で `include/input/core` へ第1回物理移動**（抽出ユニットの移動と参照更新のみ、**挙動変更なし**）。続きの読み手入口は **`docs/ARCHITECTURE_PACKOUT_REUSE_BOUNDARY_NEXT.md`**（**同表の「候補 A」行**と「まだ触らない周辺」）。
 ---
 
 # 3. 小工事フェーズをここで止める理由
@@ -38,19 +38,19 @@
 
 | 項目 | 内容 |
 |------|------|
-| **何を触るか** | 人手確認の **手順・チェック項目・期待表示**（デバッグ出力や HUD 文言の読み方を含む）。実装は **触らず**、**docs またはチェックリスト**として整備する次タスク。 |
-| **なぜ今か** | 小工事で **入力・分類・glue が分散**したため、「何を見れば安全に再開できるか」を **チームで共有する足場**が有用。T19/T20 の accepted 意味は **一次情報に立ち返る**必要がある。 |
+| **何を触るか** | **主手順**は **`docs/T19_T20_MANUAL_VERIFICATION_GUIDE.md`**。**受け入れ・記録**は **`docs/HUD_PAGED_ACCEPTANCE.md`**（2026-04-13 追記含む）および **`docs/roadmap.md`** の短文まで **反映済み**。残るのは **運用の追随**（手順と一次情報の差分が出たときの **最小追記**）に近い。**「次の第一候補から手順を書き起こす」段階ではない**。 |
+| **なぜ今か** | 足場は既にあるため、**再開直後の唯一の最優先**という位置づけは下げる。それでも **T19/T20 の accepted 意味**は **`HUD_PAGED_ACCEPTANCE.md` に立ち返る**必要がある（危険線は変えない） |
 | **危険線** | **手順書の記述**が誤った解釈を誘発するリスクはあるが、**コードを直接触らない**なら即時の実行時リスクは低い。記述は **`HUD_PAGED_ACCEPTANCE.md` と矛盾しない**こと。 |
-| **着手向き** | **今すぐ向き（docs 作業）**。最初は **T19/T20 のみ**にスコープを限定するのが安全。 |
+| **着手向き** | **必要時のみの短い docs 追随**。優先判断は **§5（VirtualInputNeutral pack-out 第2段 vs 追加の docs 整合）**に寄せる。 |
 
-## 候補 B — **pack-out / 再利用境界**の次ステップ（設計・ドキュメント先行）
+## 候補 B — **VirtualInputNeutral** の pack-out（再利用境界・第2段）
 
 | 項目 | 内容 |
 |------|------|
-| **何を触るか** | `docs/architecture.md` の **Pack-out / reuse boundary** と現コードの **対応表・移設候補の優先度**（「次に動かすならどの TU か」を **設計メモ**として固定）。 |
-| **なぜ今か** | Glue・分類の移動が進み、**境界の言語化**が次の衝突を防ぐ。 |
-| **危険線** | 設計だけなら低いが、**実装に落とすと WndProc 近傍に寄りやすい**。本文では **「実装は別タスク」**と明記する。 |
-| **着手向き** | **今すぐ向き（docs）**だが、**実装タスクは後回し**。 |
+| **何を触るか** | 一次の設計メモは **`docs/ARCHITECTURE_PACKOUT_REUSE_BOUNDARY_NEXT.md` まで具体化済み**（**同表の「候補 A」行**・VirtualInputNeutral・「まだ触らない周辺」）。残るのは **pack-out 第2段の切り方**と、**その前に docs をさらに揃えるか**の判断。 |
+| **なぜ今か** | `241a077` まで抽出ユニットの物理移動が入り、**再利用境界の読み手入口が 1 本に寄せられた**。第2段の前に **認知を合わせておく**と衝突が減る。 |
+| **危険線** | 設計・追記だけなら低いが、**実装に落とすと WndProc 近傍に寄りやすい**。本文では **「実装は別タスク」**と明記する。 |
+| **着手向き** | **§5 と一体**。**実装タスクは別途**（`WM_INPUT` / `WM_TIMER` / `WM_PAINT` / `InvalidateRect` の危険線をあいまいにしない）。 |
 
 ## 候補 C — **ロードマップ / 決定ログ**の同期（`roadmap.md`・`decisions.md`）
 
@@ -68,16 +68,17 @@
 | **何を触るか** | 既存の実験メモを **「次に着手する価値があるか」**で並べ替え、**ページ式 HUD 正との関係**を書く。 |
 | **なぜ今か** | 描画経路は **危険線が太い**ため、**いつコードを触るか**を先に合意した方が安全。 |
 | **危険線** | **高**（`WM_PAINT` / `InvalidateRect` / D2D・GDI 接続）。 |
-| **着手向き** | **後回し**（まずは **候補 A または B** で足場を固める）。 |
+| **着手向き** | **後回し**。T19/T20 の手順・記録および pack-out 境界メモは **すでに先行**。**§5** の判断のあとで優先を見直す。 |
 
 ---
 
 # 5. 第一候補として再開するなら何か
 
-**候補 A（ページ式 HUD・T19/T20 中心の 回帰確認・手動検証手順の実務化）**を第一候補とする。
+**VirtualInputNeutral の pack-out 第2段をどう進めるか**、**またはその前に docs をさらに揃えるか**の判断を第一候補とする。
 
-- **理由**: コード変更を伴わずに **チームの安全な再開速度**を上げられる。危険線の理解を **`WNDPROC_MESSAGE_RESPONSIBILITY_MAP.md` と `HUD_PAGED_ACCEPTANCE.md` にアンカー**できる。
-- **まずやらないこと**: 候補 D のような **描画パイプライン実装**には、手順固定が先に付くまで踏み込まない。
+- **理由**: `241a077` で `include/input/core` への第1回移動まで完了し、続きの地図は **`docs/ARCHITECTURE_PACKOUT_REUSE_BOUNDARY_NEXT.md`** に寄せてある。T19/T20 の手動確認は **`docs/T19_T20_MANUAL_VERIFICATION_GUIDE.md`**・**`HUD_PAGED_ACCEPTANCE.md`（2026-04-13 反映）**・**`roadmap.md`** まで **docs 化・確認結果の反映まで進んでいる**ため、「手順をゼロから書く」優先度は下がっている。
+- **危険線の置き場所は変えない**: **`WM_INPUT` / `WM_TIMER` / `WM_PAINT` の分岐・順序**、**`InvalidateRect` 条件**、**T19 / T20 の受け入れ済みページの accepted 意味**は **`WNDPROC_MESSAGE_RESPONSIBILITY_MAP.md`** と **`HUD_PAGED_ACCEPTANCE.md`** を一次情報とし、**あいまいにしない**。
+- **まずやらないこと**: 候補 D のような **描画パイプライン実装**には、上記の地図と合意が付くまで踏み込まない。
 
 ---
 
@@ -98,9 +99,9 @@
 
 **1 セッションで完結させる**単位として、次を推奨する。
 
-1. **`docs/HUD_PAGED_ACCEPTANCE.md`** と **`docs/WNDPROC_MESSAGE_RESPONSIBILITY_MAP.md`** を読み、**T19 / T20 について「人手で確認する項目」を 5〜15 個に列挙する**（**新規 docs 1 本**、または **`docs/app_behavior_guide.md` の追記**など、**別タスクで実施**）。
-2. 列挙時は **analog 間引き・即時 `InvalidateRect`・BUILDINFO 整合**など、**accepted 意味に触る用語を一次情報どおり**に使う。
-3. **実装変更は行わない**。疑問が残る場合は **decisions / roadmap に「未決」を 1 行**残す程度に留める（本書のスコープ外でもよい）。
+1. **`docs/ARCHITECTURE_PACKOUT_REUSE_BOUNDARY_NEXT.md`** を読み、**VirtualInputNeutral**（**同ドキュメント内の表で「候補 A」とラベルされた行**）と **「まだ触らない周辺」**を再確認する。**pack-out 第2段のスコープ**を切るか、**手順・一次情報との差分が出たときの最小 docs 追随**を先にするかを決める。
+2. T19/T20 については **`docs/T19_T20_MANUAL_VERIFICATION_GUIDE.md`** に従い、必要なら **`docs/HUD_PAGED_ACCEPTANCE.md`** へ **最小限の追記**にとどめる。**analog 間引き・即時 `InvalidateRect` ・BUILDINFO 整合**など、**accepted 意味に触る用語は一次情報どおり**に保つ。
+3. **実装変更は行わない**（本書の再開単位では）。未決が残る場合は **decisions / roadmap に 1 行**残す程度に留める。
 
 ---
 
@@ -109,6 +110,8 @@
 - `docs/WNDPROC_MESSAGE_RESPONSIBILITY_MAP.md`
 - `docs/ENGINE_LOOP_MAPPING_UNITY_UNREAL_MAINAPP.md`
 - `docs/HUD_PAGED_ACCEPTANCE.md`
+- `docs/T19_T20_MANUAL_VERIFICATION_GUIDE.md`
+- `docs/ARCHITECTURE_PACKOUT_REUSE_BOUNDARY_NEXT.md`
 - `docs/T77_FOUNDATION_CLOSE.md`
 - `docs/architecture.md`
 - `docs/roadmap.md` / `docs/decisions.md`
