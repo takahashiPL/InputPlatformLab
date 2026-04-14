@@ -136,6 +136,13 @@ bool SlotKeyboardBoundLiveTrialEligible(const PlayerSlotState* s)
     return true;
 }
 
+// Go(1): single predicate for "trial target row may own live menu consume" (ManualOverride Live + step16 kb route).
+// Keeps ResolvedSingleLiveConsumeSlotIndex / dry-run scratch / T18 phase in sync — production-like routing gate.
+static bool SlotManualLiveKeyboardTrialRouteOk(const PlayerSlotState* s)
+{
+    return SlotLiveManualLiveReady(s) && SlotKeyboardBoundLiveTrialEligible(s);
+}
+
 // T77 step19/21: one live menu consumer per tick. Non-primary only when armed + target Manual Live + kb eligible.
 PlayerInputSlotIndex ResolvedSingleLiveConsumeSlotIndex()
 {
@@ -151,11 +158,11 @@ PlayerInputSlotIndex ResolvedSingleLiveConsumeSlotIndex()
         return 0u;
     }
     const PlayerSlotState* st = TryMutableSlot(t);
-    if (SlotLiveManualLiveReady(st) && SlotKeyboardBoundLiveTrialEligible(st))
+    if (!SlotManualLiveKeyboardTrialRouteOk(st))
     {
-        return t;
+        return 0u;
     }
-    return 0u;
+    return t;
 }
 
 // Step17: single trial phase for T18 + debug (0=off … 4=kOn).
@@ -169,7 +176,7 @@ int LiveTrialObsPhaseCode(const PlayerSlotState* sTrial)
     {
         return 1;
     }
-    if (!SlotKeyboardBoundLiveTrialEligible(sTrial))
+    if (!SlotManualLiveKeyboardTrialRouteOk(sTrial))
     {
         return 2;
     }
@@ -1261,7 +1268,7 @@ bool InputGuideArbiter_ShouldSlotDispatchDryRunConsume(PlayerInputSlotIndex slot
         {
             return true;
         }
-        if (!SlotKeyboardBoundLiveTrialEligible(s))
+        if (!SlotManualLiveKeyboardTrialRouteOk(s))
         {
             return true;
         }
