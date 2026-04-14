@@ -56,7 +56,7 @@
 | 候補名 | 主なファイル（`.h` / `.cpp`） | いまの責務（要約） | pack-out / 再利用境界としての自然さ | 危険線からの距離 | docs 固定向き / 実装の時期感 |
 |--------|-------------------------------|-------------------|--------------------------------------|------------------|------------------------------|
 | **A. VirtualInputNeutral** | `app/InputPlatformLab/MainApp/include/VirtualInputNeutral.h`<br>`app/InputPlatformLab/MainApp/src/VirtualInputNeutral.cpp` | 仮想スナップショットのリセット・ボタン/スティック読み取り、ポリシー型（`VirtualInputSnapshot` 周り）。Raw/XInput を知らない中立 API。 | `InputCore.h` が明示的にリンク対象として挙げる **最初の `.cpp`**。Portable pack の中核の一つ。ホストが自前バックエンドから `VirtualInputSnapshot` を埋めるときの **参照実装**になりやすい。 | **遠い**。`WM_INPUT` / `WM_TIMER` / `WM_PAINT` / `InvalidateRect` 非接触。 | **docs は今すぐ固定向き**（本表がその実体）。**物理移動は別タスク**（合意とビルド確認後）。 |
-| **B. LogicalInputState** | `app/InputPlatformLab/MainApp/include/LogicalInputState.h`<br>`app/InputPlatformLab/MainApp/src/LogicalInputState.cpp` | 論理ボタン ID と論理入力状態（`LogicalInputState` 等）の更新・複合。メニュー/ガイド向けの論理層。 | Neutral と同列で **InputCore 束の第二 `.cpp`**。ゲームロジック寄りの「論理入力」境界として pack 単位が明確。 | **遠い**（同上）。 | **docs は今すぐ固定向き**。**実装の物理移動** は Arbiter より前に片付けるのが読みやすい（依存の上下が一方通行に近い）。 |
+| **B. LogicalInputState** | `app/InputPlatformLab/MainApp/include/input/core/LogicalInputState.h`<br>`app/InputPlatformLab/MainApp/src/input/core/LogicalInputState.cpp` | 論理ボタン ID と論理入力状態（`LogicalInputState` 等）の更新・複合。メニュー/ガイド向けの論理層。 | Neutral と同列で **InputCore 束の第二 `.cpp`**。ゲームロジック寄りの「論理入力」境界として pack 単位が明確。 | **遠い**（同上）。 | **第 1 回 extraction unit は完了**（`.cpp` を `src/input/core` に配置、`vcxproj` / `filters` のみ更新）。**第 2 段**は下表。 |
 | **C. ControllerClassification** | `app/InputPlatformLab/MainApp/include/ControllerClassification.h`<br>`app/InputPlatformLab/MainApp/src/ControllerClassification.cpp` | VID/PID テーブル・HID 要約から family / parser / support を決定。`Win32_` 接頭辞の論理があるが、**ファイル先頭コメントどおり Win32 API 呼び出しなし**（命名の名残）。 | デバイス**分類だけ**を切り出す自然な単位。inventory（T18）由来の HID 要約から family/parser/support へ写す「関数寄りの束」。 | **遠い**（メッセージループ非接触）。T18 **ページ本文・accepted** とは別レイヤ（glue は app-specific）。 | **docs は今すぐ固定向き**。**実装移動** は inventory パイプとセットで読みやすいため **時期は A/B より慎重**（呼び出し側の見え方が変わりやすい）。 |
 | **D. 共有型・メニュー試作ヘッダ束** | `app/InputPlatformLab/MainApp/include/CommonTypes.h`<br>`app/InputPlatformLab/MainApp/include/GamepadTypes.h`<br>`app/InputPlatformLab/MainApp/include/VirtualInputMenuSample.h`（**header-only**） | 固定幅エイリアス、ゲームパッド列挙、`VirtualInputConsumerFrame` とメニュー試作状態機械（`VirtualInputMenuSample*`）。 | **`.cpp` なし**の薄い束。Portable pack の **最下層〜試作 UI 方針のサンプル** としてまとめて持ち出しやすい。`InputCore.h` に直接列挙されている。 | **遠い**。 | **docs は今すぐ固定向き**。**実装変更は不要**に近い（分割の対象外）。 |
 | **E. スロット・ガイド型（データモデル）** | `app/InputPlatformLab/MainApp/include/PlayerInputGuideTypes.h`<br>`app/InputPlatformLab/MainApp/include/PlayerInputSlots.h`（**データ面は header-only**） | ガイド表示・スロット索引・バインド解決に使う **型と定数**（HWND 非依存方針）。 | `architecture.md` の reusable 行で **明示**。**`EffectiveInputGuideArbiter.h`** の前提になるため、**契約の固定に効く**。 | **遠い**（描画・メッセージ非接触）。T19/T20 の **ページ本文** は app glue。本候補は **型の束**。 | **docs は今すぐ固定向き**。**型の意味を変える実装** は早い（T76/T77・effective owner の説明に波及しうる）。 |
@@ -107,19 +107,21 @@
   - **束外ファイル** が同じコミットに入った、**`Windows.h` / HWND が portable 束に入り込んだ**。
   - 「何をホストに残すか」が **説明とコードで矛盾** した（境界メモの更新が先）。
 
-**候補 B（LogicalInputState）— 第 1 回 extraction unit（設計メモ／候補 A とは別束）**
+**候補 B（LogicalInputState）— 第 1 回 extraction unit（現況同期／候補 A とは別束）**
+
+**現況**: 第 1 回は **完了済み**（旧 `app/.../src/LogicalInputState.cpp` は **`src/input/core/LogicalInputState.cpp` に統一**）。
 
 候補 A は **仮想スナップショット〜Consumer 組み立て** の中立コア。候補 B は **論理ボタン列の press / release / push / hold**（`LogicalInputState_Update` 等）であり、`InputCore.h` 束の **第 2 `.cpp`** だが **unit の中身は候補 A と混同しない**。
 
 | 観点 | 内容（候補 B のみ） |
 |------|---------------------|
-| **第 1 回 extraction unit** | **`LogicalInputState.h`**（`app/InputPlatformLab/MainApp/include/input/core/LogicalInputState.h`）と **`LogicalInputState.cpp`**（現状 `app/InputPlatformLab/MainApp/src/LogicalInputState.cpp`）の **2 ファイル**を 1 回目の単位とみなす。ヘッダは既に `include/input/core` にあり、**直接依存は `CommonTypes` / `GamepadTypes` / `VirtualInputNeutral`（候補 A 側の既存配置）**に閉じる。 |
+| **第 1 回 extraction unit（配置・完了）** | **`LogicalInputState.h`** — `app/InputPlatformLab/MainApp/include/input/core/LogicalInputState.h`。 **`LogicalInputState.cpp`** — `app/InputPlatformLab/MainApp/src/input/core/LogicalInputState.cpp`（旧 `src/LogicalInputState.cpp` は廃止）。**2 ファイル**が単位。**直接依存**は `CommonTypes` / `GamepadTypes` / `VirtualInputNeutral`（候補 A 側）に閉じる。 |
 | **非目標（第 1 回に含めない）** | **`ControllerClassification.*` / `EffectiveInputGuideArbiter.*`**、**`Win32InputGlue.*` / `platform/win/*`**、**`MainApp.cpp`**（**`WndProc`・`WM_INPUT` / `WM_TIMER` / `WM_PAINT`・`InvalidateRect`・HUD**）、**T18 / T19 / T20 の本文・accepted 意味の変更**、**候補 C 以降の `.cpp`**、**`PlayerInputSlots` / Arbiter の責務変更**を同一コミットにしない（束外のパス更新が最小限で済む作業は本 unit と混ぜない）。 |
 | **ホスト側に残すもの** | **論理 1 フレームをいつ進めるか**（ヘッダコメント上の **`WM_TIMER` tick との対応は説明用**。実装としての分岐・順序・早期 return はホスト）、**その直前の `VirtualInputSnapshot` / `KeyboardActionState` / down[] の供給**、**`InvalidateRect`・ページ式 HUD 表示**。**T19 / T20 受け入れ済みページの accepted 意味**は `docs/HUD_PAGED_ACCEPTANCE.md` 等の一次情報どおり—本束では再解釈しない。 |
-| **着手前チェックリスト** | 上記 **2 ファイル**と（必要なら）**`.vcxproj` / `.filters`・束外 `#include` の最小更新**だけで計画が言い切れる。**API・マクロ・ロジック・挙動を変えない**。**危険線**（`WM_INPUT` / `WM_TIMER` / `WM_PAINT` / `InvalidateRect` / T19・T20 accepted）に触れる変更と **同一コミットにしない**。 |
-| **最初のコミット分割方針** | **1 コミット目**: **`LogicalInputState.cpp` の `src/input/core/` への物理移動**（現状 `src/` から寄せる想定）、**プロジェクト参照更新**、束外の **必要最小限の include 修正**のみ。**同一コミットに含めない**: `MainApp.cpp`、`Win32InputGlue`、`platform/win`、候補 C〜F の `.cpp`、**挙動を変えるリファクタ**、**accepted / ページ本文の編集**。 |
+| **第 1 回で満たしたこと（事実）** | **`.cpp` 物理移動**と **`MainApp.vcxproj` / `MainApp.vcxproj.filters` 更新のみ**。**API・マクロ・ロジック・挙動は不変**。**危険線**（`WM_INPUT` / `WM_TIMER` / `WM_PAINT` / `InvalidateRect` / T19・T20 accepted）に **触れていない**。Debug / Release（x64）で **ビルド成功**。 |
+| **第 2 段候補（未着手）** | **`docs/architecture.md` の Pack-out 記述と本書の候補 B パスを突き合わせる**（docs 横断の現況同期）。**コード・呼び出し契約・accepted の変更は別合意**（`MainApp` / `WndProc` は危険線に寄りうる）。 |
 
-**候補 A との違い（要約）**: 候補 A の第 1 回 unit は **5 ヘッダ + `VirtualInputNeutral.cpp`** の仮想入力束。候補 B の第 1 回 unit は **論理入力の `.h` + `.cpp` のみ**（ヘッダは既に core 配下。**実装 `.cpp` の配置そろえ** が次の自然な 1 コミット）。B はタイマー tick との **説明上の対応**があるが、**メッセージループ・Invalidate・accepted 文言はホスト / 別一次情報の責務**。
+**候補 A との違い（要約）**: 候補 A の第 1 回 unit は **5 ヘッダ + `VirtualInputNeutral.cpp`** の仮想入力束。候補 B の第 1 回 unit は **論理入力の `.h` + `.cpp` のみ**（ヘッダは既に core 配下、**`.cpp` は `src/input/core` に配置済み**）。B はタイマー tick との **説明上の対応**があるが、**メッセージループ・Invalidate・accepted 文言はホスト / 別一次情報の責務**。
 
 #### いまは触らない方がよい候補（設計メモの追補は可／実装・呼び出し契約は別）
 
