@@ -32,10 +32,10 @@
 
 ---
 
-| **目的** | **入力 foundation（T76/T77）を一区切り**。[T77_FOUNDATION_CLOSE.md](T77_FOUNDATION_CLOSE.md) を正とする。ページ式 HUD・T19/T20 受け入れ・既定の 1P live を崩さない。 |
-| **想定順序** | foundation close（step24）→ **停止可**。続く場合は close note の **Go** から **1本だけ** 着手（trial の routing 近接化 **または** multi-player owner/binding 設計）。 |
+| **目的** | **入力 foundation（T76/T77）を一区切り**。[T77_FOUNDATION_CLOSE.md](T77_FOUNDATION_CLOSE.md) を正とする（step24 foundation close を **ここでは再定義しない**）。ページ式 HUD・T19/T20 受け入れ・既定の 1P live を崩さない。 |
+| **想定順序** | foundation close 後も **停止可**。続く場合は close note の **Go** から **1本だけ**。**現況同期**: Go(1) を `EffectiveInputGuideArbiter.cpp` のみ **2 コミット**まで（`fdd33b0` trial live 資格判定の集約、`57cf06f` T18 consume-result と述語の整合）。T19/T20・trial 実機は **OK**。Release 既定は **不変**。**一区切り** — 次は別テーマ優先か T77 再開か **判断のみ**（Go(2)・slot2+ 本番は対象外）。 |
 | **前提条件** | レガシー縦積み HUD 分離フェーズは closed。slot2+ 本番・rebind・保存は **別フェーズ / defer**。 |
-| **保留事項** | auto assign、keyboard 複数席分割、guide family 本番完成は **意図的に未着手**。 |
+| **保留事項** | auto assign、keyboard 複数席分割、guide family 本番完成は **意図的に未着手**。Go(1) の **3 手目以降**は当面見送り。 |
 
 ---
 
