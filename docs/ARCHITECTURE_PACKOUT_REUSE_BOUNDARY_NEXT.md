@@ -81,6 +81,21 @@
 - **次に docs で固定しやすい候補（1 つ）**: **E**（`PlayerInputGuideTypes.h` / `PlayerInputSlots.h`）— ファイルが少なく、T76/T77 の契約説明の根になりやすい。
 - **まだ実装に触らない方がよい候補（1 つ）**: **F**（`EffectiveInputGuideArbiter.cpp` の移動・分割・OS 分岐増殖）— tick / 呼び出し順が T19/T20 の読みに接続し、foundation close 後の **別合意**が先。
 
+### 候補 E — `PlayerInputGuideTypes.h` / `PlayerInputSlots.h`（型契約の docs 固定）
+
+| 項目 | 内容 |
+|------|------|
+| **主な `.h`** | `app/InputPlatformLab/MainApp/include/PlayerInputGuideTypes.h`（`InputGuideSourceKind`、binding / consume / route 系の列挙、`kPlayerInputSlotCap`・`kPlayerInputNoLiveConsumeTrialTarget` 等の定数・スロット索引）。`PlayerInputSlots.h`（`PlayerSlotState`、`PlayerInputInventoryBindingView`、staging / resolution 用 struct 群。T77 ステップ番号はコメント上の読み手ラベル）。 |
+| **いまの責務** | HWND / `WM_*` を引かない「スロットとガイド仲裁のデータ模型」。effective owner・inventory 照合・staging のフィールド形を宣言する。ロジック・tick・ページ文言は持たない（Arbiter / glue の責務）。 |
+| **portable / reusable 度合い** | **高**（header-only・実装 TU なし）。`PlayerInputGuideTypes.h` は `CommonTypes.h` のみ。`PlayerInputSlots.h` は `GamepadTypes`・`LogicalInputState`・`VirtualInputMenuSample`・`PlayerInputGuideTypes` に依存—pack-out ではこの依存チェーンを一塊として読む。 |
+| **host / app glue に残る説明** | `PlayerInputInventoryBindingView` の誰が・どの経路で埋めるか（T18 スナップショット・XInput 調査など）、単一フレームを進める順序（`WndProc` / タイマー—危険線）、T19/T20 のページ本文・accepted（一次情報は `HUD_PAGED_ACCEPTANCE` 等）。本ヘッダは並べる箱と列挙の意味まで。 |
+| **危険線からの距離** | **遠い**（`WM_INPUT` / `WM_TIMER` / `WM_PAINT` / `InvalidateRect` 非接触）。T19/T20 受け入れ済みページの意味は再解釈しない（本節は境界・語彙の固定のみ）。 |
+| **docs で先に固定すべき前提** | ヘッダ先頭コメント・定数・送値（例: `kPlayerInputNoLiveConsumeTrialTarget`）と `docs/T77_FOUNDATION_CLOSE.md` の foundation close を同じ事実レイヤとして読み手が追えること。slot0 が単一 live consume 系の主座、slot1+ が既定 dry-run staging といったコメント上の前提は docs で言い換えず、揃えるだけ。E と F（Arbiter 実装）を混同しない。 |
+
+**E を次に docs で固定する価値**: F や `MainApp` を読む前に列挙・定数・`PlayerSlotState` の語が揃っていないと、T76/T77 の説明が毎回ブレる。本書に 1 枚の参照点を置く。
+
+**まだ実装に触らない理由**: 型は既にヘッダで事実として固定されており、コード変更は accepted・trial 観測・staging 説明へ直結しうる。docs だけで契約と境界を拘束するのが安全。
+
 #### 表の読み方 — 最初に埋めるべき候補（1 つ）
 
 **候補 A（VirtualInputNeutral）** を最初に「表の意味で」埋める。**他プロジェクトが真似するならこの TU からリンクする** のが説明コストが最も低い。`InputCore.h` の実装列挙順とも一致する。
