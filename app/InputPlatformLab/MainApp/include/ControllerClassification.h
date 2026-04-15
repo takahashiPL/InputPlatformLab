@@ -3,6 +3,10 @@
 
 #include "GamepadTypes.h"
 
+// =============================================================================
+// Core classification — parser/support enums, HID summary, traits, VID/PID table resolution, GameControllerKind classification (no display strings).
+// =============================================================================
+
 // 入力の解釈経路（family とは別。Ds4KnownHid は既知レポート前提、GenericHid は汎用、XInput は API 経路）。
 enum class ControllerParserKind : UINT8
 {
@@ -47,6 +51,18 @@ void Win32_ResolveHidProductTable(
     ControllerParserKind& outParser,
     ControllerSupportLevel& outSupport);
 
+// HID + 製品名 / デバイスパス文字列（任意）から family を推定。文字列は wchar_t（CRT の wcsstr のみ使用）
+GameControllerKind Win32_ClassifyGameControllerKind(
+    const GameControllerHidSummary& traits,
+    const wchar_t* productName,
+    const wchar_t* devicePath,
+    bool anyXInputConnected);
+
+// =============================================================================
+// Presentation helpers — human-readable names/labels for HUD, logs, T18, paint.
+// (Strings only; classification decisions live in core section above.)
+// =============================================================================
+
 // T18 表示用: Raw Input の製品文字列・SetupDi が無いときの短い人間可読名（VID/PID 既知行・Sony 既定）。nullptr なら (none) 扱い。
 const wchar_t* Win32_ControllerHidProductDisplayNameFallback(UINT16 vid, UINT16 pid);
 
@@ -65,10 +81,3 @@ const wchar_t* Win32_GamepadButtonDisplayLabel(GamepadButtonId id, GameControlle
 
 // T13: 左スティックの粗い方向（HUD/ログ用）
 const wchar_t* Win32_GamepadLeftStickDirLabel(GamepadLeftStickDir d);
-
-// HID + 製品名 / デバイスパス文字列（任意）から family を推定。文字列は wchar_t（CRT の wcsstr のみ使用）
-GameControllerKind Win32_ClassifyGameControllerKind(
-    const GameControllerHidSummary& traits,
-    const wchar_t* productName,
-    const wchar_t* devicePath,
-    bool anyXInputConnected);

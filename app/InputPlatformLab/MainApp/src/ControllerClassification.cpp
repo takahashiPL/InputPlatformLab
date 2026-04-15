@@ -2,6 +2,10 @@
 
 #include <cwchar>
 
+// =============================================================================
+// Core classification — HID traits, VID/PID table, GameControllerKind body
+// =============================================================================
+
 // ---------------------------------------------------------------------------
 // VID/PID テーブル・usage と製品名から family / parser / support を決める（Win32 API 呼び出しなし）
 // ---------------------------------------------------------------------------
@@ -58,6 +62,81 @@ void Win32_ResolveHidProductTable(
     outParser = ControllerParserKind::GenericHid;
     outSupport = ControllerSupportLevel::Tentative;
 }
+
+// HID と（任意で）製品名・パス文字列から family を推定。XInput 接続のみのときは XInputCompatible になり得る。
+GameControllerKind Win32_ClassifyGameControllerKind(
+    const GameControllerHidSummary& t,
+    const wchar_t* productName,
+    const wchar_t* devicePath,
+    bool anyXInputConnected)
+{
+    if (!t.device_info_valid)
+    {
+        return GameControllerKind::Unknown;
+    }
+
+    const bool nameHasXbox = (productName != nullptr && wcsstr(productName, L"Xbox") != nullptr)
+        || (devicePath != nullptr && wcsstr(devicePath, L"Xbox") != nullptr);
+
+    // 1–2: Sony（DualSense を DualShock より先に）
+    if (t.vendor_id == 0x054C)
+    {
+        if (productName != nullptr && wcsstr(productName, L"DualSense") != nullptr)
+        {
+            return GameControllerKind::PlayStation5;
+        }
+        if (t.product_id == 0x0CE6 || t.product_id == 0x0DF2)
+        {
+            return GameControllerKind::PlayStation5;
+        }
+        if (productName != nullptr &&
+            (wcsstr(productName, L"DualShock") != nullptr ||
+             wcsstr(productName, L"Wireless Controller") != nullptr))
+        {
+            return GameControllerKind::PlayStation4;
+        }
+        if (t.product_id == 0x05C4 || t.product_id == 0x09CC)
+        {
+            return GameControllerKind::PlayStation4;
+        }
+        // 名称・PID が取れない Sony HID ゲームパッド: PS4 ファミリに寄せる（verified ではない。parser はテーブルで決まる）。
+        if (t.usage_page == 0x01 && (t.usage == 0x04 || t.usage == 0x05))
+        {
+            return GameControllerKind::PlayStation4;
+        }
+        return GameControllerKind::Unknown;
+    }
+
+    // Nintendo (HID)
+    if (t.vendor_id == 0x057E)
+    {
+        return GameControllerKind::Nintendo;
+    }
+
+    // HORI 等 0x0F0D: XInput が接続していればゲーム入力は API 側で取れる。HID レポートは本アプリでは未検証のまま。
+    if (t.vendor_id == 0x0F0D && anyXInputConnected)
+    {
+        return GameControllerKind::XInputCompatible;
+    }
+
+    // 3: Microsoft VID または Xbox 名称
+    if (t.vendor_id == 0x045E || nameHasXbox)
+    {
+        return GameControllerKind::Xbox;
+    }
+
+    // 4: 上記以外で XInput が生きているなら互換パッド
+    if (anyXInputConnected)
+    {
+        return GameControllerKind::XInputCompatible;
+    }
+
+    return GameControllerKind::Unknown;
+}
+
+// =============================================================================
+// Presentation helpers — display names and labels (HUD / log / T18 / paint)
+// =============================================================================
 
 const wchar_t* Win32_ControllerHidProductDisplayNameFallback(UINT16 vid, UINT16 pid)
 {
@@ -213,75 +292,4 @@ const wchar_t* Win32_GamepadLeftStickDirLabel(GamepadLeftStickDir d)
     case GamepadLeftStickDir::Down: return L"Down";
     default: return L"None";
     }
-}
-
-// HID と（任意で）製品名・パス文字列から family を推定。XInput 接続のみのときは XInputCompatible になり得る。
-GameControllerKind Win32_ClassifyGameControllerKind(
-    const GameControllerHidSummary& t,
-    const wchar_t* productName,
-    const wchar_t* devicePath,
-    bool anyXInputConnected)
-{
-    if (!t.device_info_valid)
-    {
-        return GameControllerKind::Unknown;
-    }
-
-    const bool nameHasXbox = (productName != nullptr && wcsstr(productName, L"Xbox") != nullptr)
-        || (devicePath != nullptr && wcsstr(devicePath, L"Xbox") != nullptr);
-
-    // 1–2: Sony（DualSense を DualShock より先に）
-    if (t.vendor_id == 0x054C)
-    {
-        if (productName != nullptr && wcsstr(productName, L"DualSense") != nullptr)
-        {
-            return GameControllerKind::PlayStation5;
-        }
-        if (t.product_id == 0x0CE6 || t.product_id == 0x0DF2)
-        {
-            return GameControllerKind::PlayStation5;
-        }
-        if (productName != nullptr &&
-            (wcsstr(productName, L"DualShock") != nullptr ||
-             wcsstr(productName, L"Wireless Controller") != nullptr))
-        {
-            return GameControllerKind::PlayStation4;
-        }
-        if (t.product_id == 0x05C4 || t.product_id == 0x09CC)
-        {
-            return GameControllerKind::PlayStation4;
-        }
-        // 名称・PID が取れない Sony HID ゲームパッド: PS4 ファミリに寄せる（verified ではない。parser はテーブルで決まる）。
-        if (t.usage_page == 0x01 && (t.usage == 0x04 || t.usage == 0x05))
-        {
-            return GameControllerKind::PlayStation4;
-        }
-        return GameControllerKind::Unknown;
-    }
-
-    // Nintendo (HID)
-    if (t.vendor_id == 0x057E)
-    {
-        return GameControllerKind::Nintendo;
-    }
-
-    // HORI 等 0x0F0D: XInput が接続していればゲーム入力は API 側で取れる。HID レポートは本アプリでは未検証のまま。
-    if (t.vendor_id == 0x0F0D && anyXInputConnected)
-    {
-        return GameControllerKind::XInputCompatible;
-    }
-
-    // 3: Microsoft VID または Xbox 名称
-    if (t.vendor_id == 0x045E || nameHasXbox)
-    {
-        return GameControllerKind::Xbox;
-    }
-
-    // 4: 上記以外で XInput が生きているなら互換パッド
-    if (anyXInputConnected)
-    {
-        return GameControllerKind::XInputCompatible;
-    }
-
-    return GameControllerKind::Unknown;
 }
