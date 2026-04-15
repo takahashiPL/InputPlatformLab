@@ -5,36 +5,9 @@
 
 #include "EffectiveInputGuideArbiter.h"
 
-namespace
-{
-
-#if defined(_DEBUG)
-void FormatSlot1DebugBindShortTag(wchar_t* buf, size_t bufCount)
-{
-    if (!buf || bufCount == 0)
-    {
-        return;
-    }
-    buf[0] = L'\0';
-    wchar_t dev[96] = {};
-    InputGuideArbiter_FormatSlotBoundDeviceIdentityForT18(1u, dev, _countof(dev));
-    if (_wcsicmp(dev, L"keyboard") == 0)
-    {
-        wcscpy_s(buf, bufCount, L"·bk=kb");
-        return;
-    }
-    if (wcsstr(dev, L"XInput user 0") != nullptr)
-    {
-        wcscpy_s(buf, bufCount, L"·bk=xi0");
-        return;
-    }
-    wcscpy_s(buf, bufCount, L"·bk=?");
-}
-#else
-void FormatSlot1DebugBindShortTag(wchar_t*, size_t) {}
-#endif
-
-} // namespace
+// =============================================================================
+// compact status / short label builders
+// =============================================================================
 
 void T18PageBodyFormat_CompactBindResolveStatus(const wchar_t* full, wchar_t* out, size_t outCount)
 {
@@ -75,6 +48,73 @@ void T18PageBodyFormat_CompactBindResolveStatus(const wchar_t* full, wchar_t* ou
     }
     wcsncpy_s(out, outCount, full, _TRUNCATE);
 }
+
+void T18PageBodyFormat_BuildXInputSlotDisplay(int xinputSlot, wchar_t* out, size_t outCount)
+{
+    if (!out || outCount == 0)
+    {
+        return;
+    }
+    if (xinputSlot >= 0)
+    {
+        swprintf_s(out, outCount, L"%d", xinputSlot);
+    }
+    else
+    {
+        wcscpy_s(out, outCount, L"-");
+    }
+}
+
+void T18PageBodyFormat_BuildVidPidShortLine(bool hidFound, unsigned vid, unsigned pid, wchar_t* out, size_t outCount)
+{
+    if (!out || outCount == 0)
+    {
+        return;
+    }
+    if (hidFound)
+    {
+        swprintf_s(out, outCount, L"%04X/%04X", vid, pid);
+    }
+    else
+    {
+        wcscpy_s(out, outCount, L"--");
+    }
+}
+
+// =============================================================================
+// extra-player / debug one-line helpers
+// =============================================================================
+
+namespace
+{
+
+#if defined(_DEBUG)
+void FormatSlot1DebugBindShortTag(wchar_t* buf, size_t bufCount)
+{
+    if (!buf || bufCount == 0)
+    {
+        return;
+    }
+    buf[0] = L'\0';
+    wchar_t dev[96] = {};
+    InputGuideArbiter_FormatSlotBoundDeviceIdentityForT18(1u, dev, _countof(dev));
+    if (_wcsicmp(dev, L"keyboard") == 0)
+    {
+        wcscpy_s(buf, bufCount, L"·bk=kb");
+        return;
+    }
+    if (wcsstr(dev, L"XInput user 0") != nullptr)
+    {
+        wcscpy_s(buf, bufCount, L"·bk=xi0");
+        return;
+    }
+    wcscpy_s(buf, bufCount, L"·bk=?");
+}
+#else
+void FormatSlot1DebugBindShortTag(wchar_t*, size_t) {}
+#endif
+
+} // namespace
 
 void T18PageBodyFormat_FormatExtraPlayerOneLine(PlayerInputSlotIndex slot, wchar_t* out, size_t outCount)
 {
@@ -126,37 +166,9 @@ void T18PageBodyFormat_FormatExtraPlayerOneLine(PlayerInputSlotIndex slot, wchar
         bkdbg);
 }
 
-void T18PageBodyFormat_BuildXInputSlotDisplay(int xinputSlot, wchar_t* out, size_t outCount)
-{
-    if (!out || outCount == 0)
-    {
-        return;
-    }
-    if (xinputSlot >= 0)
-    {
-        swprintf_s(out, outCount, L"%d", xinputSlot);
-    }
-    else
-    {
-        wcscpy_s(out, outCount, L"-");
-    }
-}
-
-void T18PageBodyFormat_BuildVidPidShortLine(bool hidFound, unsigned vid, unsigned pid, wchar_t* out, size_t outCount)
-{
-    if (!out || outCount == 0)
-    {
-        return;
-    }
-    if (hidFound)
-    {
-        swprintf_s(out, outCount, L"%04X/%04X", vid, pid);
-    }
-    else
-    {
-        wcscpy_s(out, outCount, L"--");
-    }
-}
+// =============================================================================
+// paged HUD body builder
+// =============================================================================
 
 void T18PageBodyFormat_FillPagedHudBody(
     wchar_t* buf,

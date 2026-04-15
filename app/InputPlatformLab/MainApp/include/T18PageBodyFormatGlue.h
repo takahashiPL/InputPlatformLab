@@ -4,12 +4,21 @@
 
 #include "PlayerInputGuideTypes.h"
 
+// =============================================================================
+// compact status / short label builders
+// =============================================================================
 void T18PageBodyFormat_CompactBindResolveStatus(const wchar_t* full, wchar_t* out, size_t outCount);
-void T18PageBodyFormat_FormatExtraPlayerOneLine(PlayerInputSlotIndex slot, wchar_t* out, size_t outCount);
-
 void T18PageBodyFormat_BuildXInputSlotDisplay(int xinputSlot, wchar_t* out, size_t outCount);
 void T18PageBodyFormat_BuildVidPidShortLine(bool hidFound, unsigned vid, unsigned pid, wchar_t* out, size_t outCount);
 
+// =============================================================================
+// extra-player / debug one-line helpers
+// =============================================================================
+void T18PageBodyFormat_FormatExtraPlayerOneLine(PlayerInputSlotIndex slot, wchar_t* out, size_t outCount);
+
+// =============================================================================
+// paged HUD body builder
+// =============================================================================
 // All string pointers must be non-null where used in the format (use L"" for empty).
 void T18PageBodyFormat_FillPagedHudBody(
     wchar_t* buf,
