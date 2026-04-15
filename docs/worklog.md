@@ -131,3 +131,10 @@
 | **実施内容** | **T77 Go(2) 最小ケース**として、`EffectiveInputGuideArbiter.cpp` のみを更新し **2P=Keyboard の通常 live 化**を追加。対象は **1P=現行1P / 2P=Keyboard / 3P=none / 4P=none** に限定し、**2P=XInput0** は従来どおり **dry-run** のまま維持。コミット `55f6795`（`feat: enable T77 Go(2) normal live for 2P keyboard`）、push 済み。 |
 | **確認できたこと** | **Release\|x64** で `pagedHUD=on`、T18 **4/7**、T19 **5/7**、T20 **7/7**、BUILDINFO、first present を再確認。**Debug\|x64** で **2P=Keyboard** は通常経路で `c=live(default)/live.tr=off`、**2P=XInput0** は `trial target live blocked (non-kb) -> dry-run`、Keyboard trial は `trial nkb->kOn liveSlot 0->1 subjK 2->1` を確認。 |
 | **未解決事項** | T77 Go(2) は **2P=Keyboard 最小ケースまで**。**2P=XInput0 の live 昇格**、**non-kb live 一般化**、**3P/4P 本運用**は未着手。 |
+
+---
+
+| **日付** | 2026-04-15 |
+| **実施内容** | **T77 Go(2) 最小ケース close 確認**。Debug\|x64 で **pad absent → recovery**、**2P=Keyboard live 維持**、**2P=XInput0 dry-run 維持**、**inventory refresh 非干渉**を追加確認。 |
+| **確認できたこと** | `XInput: slot=0 connected=no`、`hid_found=0 ... family=Unknown`、`No HID match; no XInput slot.` を確認後、`pad_present=1 pad_family=XInputCompat`、`hid_found=1 slot=0 vid=0x0F0D pid=0x006D family=XInputCompatible` へ復帰。復帰後も `trial off->off liveSlot 0->1 subjK 0->1` により **2P=Keyboard** の通常 live 維持を確認。これをもって **T77 Go(2) は 2P=Keyboard 最小ケースまで close**。 |
+| **未解決事項** | **2P=XInput0 の live 昇格**、**non-kb live 一般化**、**3P/4P 本運用**は未着手。 |

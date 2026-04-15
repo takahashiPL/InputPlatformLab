@@ -365,6 +365,34 @@ windowed / borderless / fullscreen 等のプレゼンテーション状態と ca
 - **1P owner / guide** と Release 基本表示は今回確認範囲で維持
 - T77 Go(2) は **2P=Keyboard 最小ケース**まで受け入れ
 
+## 2026-04-15 追加実確認（T77 Go(2) 最小ケース close）
+
+### Debug / x64
+- pad absent 時
+  - `XInput: slot=0 connected=no`
+  - `hid_found=0 slot=-1 ... family=Unknown`
+  - `No HID match; no XInput slot.`
+  を確認
+- reattach 後
+  - `pad_present=1 pad_family=XInputCompat`
+  - `hid_found=1 slot=0 vid=0x0F0D pid=0x006D family=XInputCompatible`
+  へ復帰を確認
+- absent / recovery 後も
+  - `trial off->off liveSlot 0->1 subjK 0->1`
+  が出ており、2P Keyboard live 維持を確認
+- inventory refresh 非干渉を確認
+  - 2P=Keyboard は通常 live 維持
+  - 2P=XInput0 は引き続き dry-run 維持
+
+### 今回の判定
+- T77 Go(2) 最小ケースは **close**
+- **2P=Keyboard** は通常経路で live 維持
+- **2P=XInput0** は dry-run 維持
+- **pad absent → recovery** を確認
+- **inventory refresh 非干渉** を確認
+- 2P=XInput0 live 昇格、non-kb live 一般化、3P/4P 展開はまだ対象外
+
+
 ## 更新履歴
 
 | 日付 | 内容 |
@@ -380,3 +408,4 @@ windowed / borderless / fullscreen 等のプレゼンテーション状態と ca
 | **2026-04-13** | **T19/T20** 手動確認（**Debug\|x64**）: T19 **OK**（keyboard は Backspace/Tab/Up/Down 主、Enter は T17 apply・Left/Right はページ送りと競合の注記、analog **LS** 確認）、T20 **OK**（HUD と **`[BUILDINFO]`** 整合） |
 | **2026-04-15** | **small refactor phase 後の再確認**: **Release\|x64** / **Debug\|x64** で `pagedHUD=on` を確認。T18 **4/7**、T19 **5/7**、T20 **7/7** を再目視し、T18 inventory・T19 入力表示・T20 BUILDINFO 整合を確認。Debug では **T76 owner commit** と **T77 trial dry-run** 継続も確認。 |
 | **2026-04-15** | **T77 Go(2) 最小ケース確認**: **2P=Keyboard** の通常 live 化、**2P=XInput0** の dry-run 維持、**1P owner/guide** 非破壊、**Release\|x64** の T18/T19/T20 基本表示維持を確認。 |
+| **2026-04-15** | **T77 Go(2) close 確認**: **pad absent → recovery**、**2P=Keyboard live 維持**、**2P=XInput0 dry-run 維持**、**inventory refresh 非干渉**を追加確認。これをもって **T77 Go(2) 最小ケース**を close。 |
