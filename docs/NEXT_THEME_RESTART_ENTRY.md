@@ -37,7 +37,7 @@
 # 4. 次の実務テーマ候補
 
 
-**現況（2026-04 時点）**: 候補 **A/B** は **第 1 回 unit 一区切り**、**E/F** は **`docs/ARCHITECTURE_PACKOUT_REUSE_BOUNDARY_NEXT.md` で docs 固定済み**。同書 **§4 候補 2〜4**（T18 glue の paint 非接觨境界・`Win32InputGlue` と `MainApp.cpp` の索引・`MainApp.cpp` の責務ラベル地図）の **docs 追補も済み**。T77 Go(1) は **2 手で一区切り・3 手目見送り**（§2 参照）。ここからの主眼は **pack-out 軸で次の docs 先行を 1 本に絞る判断**（**危険線**は **`WM_INPUT` / `WM_TIMER` / `WM_PAINT` / `InvalidateRect` / T19・T20 accepted** を別扱いし、意味は再定義しない）。
+**現況（2026-04 時点）**: 候補 **A/B** は **第 1 回 unit 一区切り**、**E/F** は **`docs/ARCHITECTURE_PACKOUT_REUSE_BOUNDARY_NEXT.md` で docs 固定済み**。同書 **§4 候補 2〜4**（T18 glue の paint 非接觨境界・`Win32InputGlue` と `MainApp.cpp` の索引・`MainApp.cpp` の責務ラベル地図）の **docs 追補も済み**。**責務ラベル地図と `architecture.md` / `roadmap.md` の短文同期も完了済み**。T77 Go(1) は **2 手で一区切り・3 手目見送り**（§2 参照）。ここからの主眼は **区分の docs 先行を 1 本に絞る判断**（**危険線**は **`WM_INPUT` / `WM_TIMER` / `WM_PAINT` / `InvalidateRect` / T19・T20 accepted** を別扱いし、意味は再定義しない）。
 
 ## 候補 A — ページ式 HUD（T19/T20）中心の **回帰確認・手動検証手順**の実務化
 
@@ -79,12 +79,12 @@
 
 # 5. 第一候補として再開するなら何か
 
-**第一候補（1 本固定）**: **`docs/ARCHITECTURE_PACKOUT_REUSE_BOUNDARY_NEXT.md` の §4 候補 4**（`MainApp.cpp` の責務ラベル・プレースホルダー地図）を軸に、**`docs/architecture.md`（Pack-out 行）** と **`docs/roadmap.md`** を **短文で突合**し、読み手向けの索引を 1 枚に揃える **docs 先行の 1 セッション**とする。
+**第一候補（1 本固定）**: **可変更新 / 固定寄り更新 / 描画フレームの現況整理**を、**`docs/ENGINE_LOOP_MAPPING_UNITY_UNREAL_MAINAPP.md`** と **`docs/WNDPROC_MESSAGE_RESPONSIBILITY_MAP.md`** を軸に **docs 先行の 1 セッション**で固定する。`MainApp.cpp` の責務ラベル地図と `architecture.md` / `roadmap.md` の短文同期は **完了済み**として、その次の再開入口をここでそろえる。
 
-- **理由**: §4 **候補 2・3** は同書で **docs 追補済み**。pack-out 軸の次の喉のどころは、**巨大 TU の読み方**を `architecture` / `roadmap` と矛盾なく固定すること。**実装 pack-out**・**`WndProc` 改変** は対象外（T77 は §2 のとおり。過大な前進とはみなさない）。
-- **次点**: 候補 2・3 は **必要時の読み返しのみ**（一次情報の上書きはしない）。候補 C〜D・曖昧 TU の優先は **本テーマのあと** に短く見直す。
-- **危険線の置き場所は変えない**: **`WM_INPUT` / `WM_TIMER` / `WM_PAINT` の分岐・順序**、**`InvalidateRect` 条件**、**T19 / T20 の受け入れ済みページの accepted 意味** は **`WNDPROC_MESSAGE_RESPONSIBILITY_MAP.md`** と **`HUD_PAGED_ACCEPTANCE.md`** を一次情報とし、**あいまいにしない**（本テーマは **ラベルと参照** に留め、意味の再解釈ではない）。
-- **まずやらないこと**: 候補 D のような **描画パイプライン実装**、および **合意前の Arbiter `.cpp` pack-out** に踏み込まない。
+- **理由**: 直前の 1 手で、**巨大 TU をどう読むか**のラベル同期は済んだ。次に必要なのは、**`WM_INPUT` / `WM_TIMER` / `WM_PAINT` を variable-like / fixed-like / render としてどう読むか**を、**「実装完了ではない」こと込みで固定**すること。**実装分割**・**`WndProc` 改変** は対象外。
+- **次点**: 候補 A の T19/T20 手動検証運用は **必要時の追随のみ**。候補 D の描画実験や、Arbiter `.cpp` pack-out は **本テーマのあと** に短く見直す。
+- **危険線の置き場所は変えない**: **`WM_INPUT` / `WM_TIMER` / `WM_PAINT` の分岐・順序**、**`InvalidateRect` 条件**、**T19 / T20 の受け入れ済みページの accepted 意味** は **`WNDPROC_MESSAGE_RESPONSIBILITY_MAP.md`** と **`HUD_PAGED_ACCEPTANCE.md`** を一次情報とし、**あいまいにしない**（本テーマは **区分の参照固定** に留め、意味の再解釈ではない）。
+- **まずやらないこと**: `MainApp.cpp` の物理分割、候補 D のような **描画パイプライン実装**、および **合意前の Arbiter `.cpp` pack-out** に踏み込まない。
 
 ---
 
@@ -105,10 +105,10 @@
 
 **1 セッションで完結させる**単位として、次を推奨する。
 
-1. **`docs/ARCHITECTURE_PACKOUT_REUSE_BOUNDARY_NEXT.md`** の **§4 候補 4**（`MainApp.cpp` の責務ラベル・プレースホルダー地図）を読み、**`docs/architecture.md`**・**`docs/roadmap.md`** の Pack-out 記述と **短文で矛盾がないか突合**する（**危険線**は **ラベルと参照** に留め、意味の再解釈はしない）。
-2. 手順 1 の突合で **優先度の矛盾**が残る場合のみ、**短文**でどちらを正とするか決め、`decisions` / `roadmap` に **1 行**残す。
-3. T19/T20 については **`docs/T19_T20_MANUAL_VERIFICATION_GUIDE.md`** に従い、必要なら **`docs/HUD_PAGED_ACCEPTANCE.md`** へ **最小限の追記**にとどめる。**accepted 意味に触る用語は一次情報どおり**に保つ。
-4. **実装変更は行わない**（本書の再開単位では）。未決が残る場合は **decisions / roadmap に 1 行**残す程度に留める。
+1. **`docs/ENGINE_LOOP_MAPPING_UNITY_UNREAL_MAINAPP.md`** と **`docs/WNDPROC_MESSAGE_RESPONSIBILITY_MAP.md`** を読み、**`WM_INPUT` / `WM_TIMER` / `WM_PAINT`** を **variable-like / fixed-like / render** の語でそろえる（**危険線**は **区分の参照固定** に留め、意味の再解釈はしない）。
+2. 手順 1 の突合で **実装完了と誤読される表現**が残る場合のみ、**短文**で補正し、`decisions` / `roadmap` に **1 行**残す。
+3. T19/T20 については **`docs/HUD_PAGED_ACCEPTANCE.md`** を一次情報とし、必要なら **`docs/T19_T20_MANUAL_VERIFICATION_GUIDE.md`** へ **最小限の追記**にとどめる。**accepted 意味に触る用語は一次情報どおり**に保つ。
+4. **実装変更は行わない**（本書の再開単位では）。`WndProc` の分岐・順序、`InvalidateRect` 条件、`MainApp.cpp` の物理分割には進まない。
 
 ## 参照（既存 docs）
 

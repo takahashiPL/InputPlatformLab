@@ -31,6 +31,14 @@
 - **物理エンジン相当のサブステップループは無い。** 「物理相当の一定刻み更新」に**相当する処理は無い**（N/A に近い）とみなすのが現状に忠実である。
 - **現状は Win32 ホスト + メッセージループ中心のイベント処理 + ポーリングの混在**である（英語でいう *event driven* に近い側面と、タイマー起点の周期処理が同居する）。
 
+## 3.1 現況判定（2026-04 時点）
+
+- **描画フレーム**として読む主経路は、**`WM_PAINT` → `Win32_WndProc_OnPaint` → `Win32_MainView_PaintFrame`**。
+- **固定寄り更新**として読む主経路は、**`WM_TIMER`（`TIMER_ID_XINPUT_POLL`）→ `Win32_WndProc_OnXInputPollTimer`**。
+- **可変更新寄り**として読む主経路は、**`WM_INPUT`** とその周辺状態更新だが、**単一の `Update()` 相当入口にはなっていない**。
+- したがって、**区分の docs 整理は可能だが、`MainApp.cpp` の実装が Variable / Fixed / Render に分離完了しているとは言わない**。
+- 次に安全に進めるなら、**区分の意味を docs で固定する段階**までで止め、`WndProc` の分岐・順序や `InvalidateRect` 条件には触れない。
+
 ---
 
 # 4. 対応表（Unity / Unreal / MainApp.cpp）
