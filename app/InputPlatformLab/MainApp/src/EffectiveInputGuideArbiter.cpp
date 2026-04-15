@@ -68,6 +68,16 @@ void RefreshDefaultConsumePolicyFromSeatFlags()
             continue;
         }
         s.actualConsumePolicy = ComputeDefaultStep13ConsumePolicy(i, s);
+
+        // T77 Go(2) minimal: 2P=Keyboard only — promote to Live via default seed.
+        // Does not generalize non-kb live; keeps XInput/HID paths as dry-run.
+        if (i == 1u &&
+            s.bindingAssignment == PlayerSlotBindingAssignment::BoundLocked &&
+            s.boundSourceKind == InputGuideSourceKind::Keyboard &&
+            s.boundDeviceIdentity.kind == PlayerBoundDeviceIdentityKind::Keyboard)
+        {
+            s.actualConsumePolicy = PlayerSlotActualConsumePolicy::Live;
+        }
     }
 }
 
@@ -147,14 +157,37 @@ static bool SlotManualLiveKeyboardTrialRouteOk(const PlayerSlotState* s)
     return SlotLiveManualLiveReady(s) && SlotKeyboardBoundLiveTrialEligible(s);
 }
 
+static bool SlotKeyboardBoundNormalLiveEligible(const PlayerSlotState* s)
+{
+    if (!s)
+    {
+        return false;
+    }
+    if (!s->slotAssigned || !s->slotActive)
+    {
+        return false;
+    }
+    if (s->consumePolicySource != PlayerSlotConsumePolicySource::DefaultStep13Seed ||
+        s->actualConsumePolicy != PlayerSlotActualConsumePolicy::Live)
+    {
+        return false;
+    }
+    return SlotKeyboardBoundLiveTrialEligible(s);
+}
+
 // T77 step19/21: one live menu consumer per tick. Non-primary only when armed + target Manual Live + kb eligible.
 PlayerInputSlotIndex ResolvedSingleLiveConsumeSlotIndex()
 {
     EnsurePrimaryPlayerSlotSeededForT76();
+
+    // Go(2) minimal: when trial is not armed, allow only the fixed 2P=Keyboard case to own live.
+    // This keeps the existing trial/debug path intact and avoids non-kb generalization.
     if (!g_liveConsumeTrialArmed)
     {
-        return 0u;
+        const PlayerSlotState* s1 = TryMutableSlot(1u);
+        return SlotKeyboardBoundNormalLiveEligible(s1) ? 1u : 0u;
     }
+
     const PlayerInputSlotIndex t = g_liveConsumeTrialTargetSlot;
     if (t == kPlayerInputNoLiveConsumeTrialTarget || t == 0u ||
         static_cast<unsigned>(t) >= kPlayerInputSlotCap)
@@ -1711,7 +1744,8 @@ void InputGuideArbiter_ApplyStep3DemoReservationBindings()
     s_done = true;
     EnsurePrimaryPlayerSlotSeededForT76();
     // 2P / 3P policy placeholders: no input routing; T76 still uses merged 1P stream only.
-    InputGuideArbiter_SetSlotPartySeatFlags(1u, true, false);
+    // Go(2) minimal: fixed target case uses 2P=Keyboard as an input-active seat.
+    InputGuideArbiter_SetSlotPartySeatFlags(1u, true, true);
     InputGuideArbiter_BindSlotToKeyboard(1u);
     InputGuideArbiter_SetSlotPartySeatFlags(2u, true, false);
     InputGuideArbiter_BindSlotToXInputUser(2u, 0);
