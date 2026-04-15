@@ -79,7 +79,7 @@
 
 # 5. 第一候補として再開するなら何か
 
-**第一候補（1 本固定）**: **可変更新 / 固定寄り更新 / 描画フレームの現況整理**を、**`docs/ENGINE_LOOP_MAPPING_UNITY_UNREAL_MAINAPP.md`** と **`docs/WNDPROC_MESSAGE_RESPONSIBILITY_MAP.md`** を軸に固定し、その止め線を **`docs/MAINAPP_PHASE_MAP_STATUS.md`** にまとめる **docs 先行の 1 セッション**とする。`MainApp.cpp` の責務ラベル地図と `architecture.md` / `roadmap.md` の短文同期は **完了済み**として、その次の再開入口をここでそろえる。
+**第一候補（1 本固定）**: **可変更新 / 固定寄り更新 / 描画フレームの現況整理**は、**`docs/ENGINE_LOOP_MAPPING_UNITY_UNREAL_MAINAPP.md`** と **`docs/WNDPROC_MESSAGE_RESPONSIBILITY_MAP.md`** を軸に、**`docs/decisions.md` / `docs/roadmap.md`** まで含めて **既存 docs 上で止め線を固定する** ところまでを 1 セッションとする。`MainApp.cpp` の責務ラベル地図と `architecture.md` / `roadmap.md` の短文同期は **完了済み**として、その次の再開入口をここでそろえる。
 
 - **理由**: 直前の 1 手で、**巨大 TU をどう読むか**のラベル同期は済んだ。次に必要なのは、**`WM_INPUT` / `WM_TIMER` / `WM_PAINT` を variable-like / fixed-like / render としてどう読むか**を、**「実装完了ではない」こと込みで固定**し、**どこで止めるか**まで 1 枚で示すこと。**実装分割**・**`WndProc` 改変** は対象外。
 - **次点**: 候補 A の T19/T20 手動検証運用は **必要時の追随のみ**。候補 D の描画実験や、Arbiter `.cpp` pack-out は **本テーマのあと** に短く見直す。
@@ -106,7 +106,7 @@
 **1 セッションで完結させる**単位として、次を推奨する。
 
 1. **`docs/ENGINE_LOOP_MAPPING_UNITY_UNREAL_MAINAPP.md`** と **`docs/WNDPROC_MESSAGE_RESPONSIBILITY_MAP.md`** を読み、**`WM_INPUT` / `WM_TIMER` / `WM_PAINT`** を **variable-like / fixed-like / render** の語でそろえる（**危険線**は **区分の参照固定** に留め、意味の再解釈はしない）。
-2. 手順 1 の突合で **実装完了と誤読される表現**が残る場合のみ、**短文**で補正し、`docs/MAINAPP_PHASE_MAP_STATUS.md` と `decisions` / `roadmap` に **最小限**を残す。
+2. 手順 1 の突合で **実装完了と誤読される表現**が残る場合のみ、**短文**で補正し、**既存の** `docs/decisions.md` / `docs/roadmap.md` に **最小限**を残す。
 3. T19/T20 については **`docs/HUD_PAGED_ACCEPTANCE.md`** を一次情報とし、必要なら **`docs/T19_T20_MANUAL_VERIFICATION_GUIDE.md`** へ **最小限の追記**にとどめる。**accepted 意味に触る用語は一次情報どおり**に保つ。
 4. **実装変更は行わない**（本書の再開単位では）。`WndProc` の分岐・順序、`InvalidateRect` 条件、`MainApp.cpp` の物理分割には進まない。
 
@@ -119,5 +119,4 @@
 - `docs/ARCHITECTURE_PACKOUT_REUSE_BOUNDARY_NEXT.md`
 - `docs/T77_FOUNDATION_CLOSE.md`
 - `docs/architecture.md`
-- `docs/MAINAPP_PHASE_MAP_STATUS.md`
 - `docs/roadmap.md` / `docs/decisions.md`

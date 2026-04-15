@@ -39,7 +39,7 @@
 
 ---
 
-| **目的** | Win32 周辺の**小工事フェーズを一区切り**。責務ラベル地図の固定と `architecture.md` / `roadmap.md` の短文同期は完了済み。**次の第一候補**は、[NEXT_THEME_RESTART_ENTRY.md](NEXT_THEME_RESTART_ENTRY.md) に沿って **可変更新 / 固定寄り更新 / 描画フレームの現況整理**を docs で固定し、その **止め線**を [MAINAPP_PHASE_MAP_STATUS.md](MAINAPP_PHASE_MAP_STATUS.md) にまとめること。 |
-| **想定順序** | `WM_INPUT` / `WM_TIMER` / `WM_PAINT` を **variable-like / fixed-like / render** の読みで揃える → `ENGINE_LOOP_MAPPING_UNITY_UNREAL_MAINAPP.md` と `WNDPROC_MESSAGE_RESPONSIBILITY_MAP.md` の参照を再開入口に固定 → `MAINAPP_PHASE_MAP_STATUS.md` に **実装完了ではない**ことと **ここで止める線**を残す → 必要なら `decisions.md` に 1 行だけ残す。 |
+| **目的** | Win32 周辺の**小工事フェーズを一区切り**。責務ラベル地図の固定と `architecture.md` / `roadmap.md` の短文同期は完了済み。**次の第一候補**は、[NEXT_THEME_RESTART_ENTRY.md](NEXT_THEME_RESTART_ENTRY.md) に沿って **可変更新 / 固定寄り更新 / 描画フレームの現況整理**を **既存 docs**（`ENGINE_LOOP_MAPPING_UNITY_UNREAL_MAINAPP.md` / `WNDPROC_MESSAGE_RESPONSIBILITY_MAP.md` / `decisions.md` / `roadmap.md`）上で固定すること。 |
+| **想定順序** | `WM_INPUT` / `WM_TIMER` / `WM_PAINT` を **variable-like / fixed-like / render** の読みで揃える → `ENGINE_LOOP_MAPPING_UNITY_UNREAL_MAINAPP.md` と `WNDPROC_MESSAGE_RESPONSIBILITY_MAP.md` の参照を再開入口に固定 → **既存の** `decisions.md` / `roadmap.md` に **実装完了ではない**ことと **ここで止める線**を最小限だけ残す。 |
 | **前提条件** | ページ式 HUD が通常運用の正。レガシー縦積み HUD 分離フェーズは closed。T19/T20 受け入れ・T76 close・T77 foundation close・Go(1) 2 手で一区切りの一次情報は変えない。**`WM_INPUT` / `WM_TIMER` / `WM_PAINT` / `InvalidateRect` / T19-T20 accepted の意味を上書きしない**。 |
 | **保留事項** | 実装としての `MainApp.cpp` 分割、レンダラ実験、`WindowsAppShell` / backend への物理移設は別テーマ。コード側の区分完成は **別フェーズの複数手**として扱う。 |
