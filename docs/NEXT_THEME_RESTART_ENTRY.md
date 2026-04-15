@@ -77,14 +77,13 @@
 
 ---
 
-# 5. 第一候補として再開するなら何か
+# 5. この文書軸の第一候補はどうなったか
 
-**第一候補（1 本固定）**: **可変更新 / 固定寄り更新 / 描画フレームの現況整理**は、**`docs/ENGINE_LOOP_MAPPING_UNITY_UNREAL_MAINAPP.md`** と **`docs/WNDPROC_MESSAGE_RESPONSIBILITY_MAP.md`** を軸に、**`docs/decisions.md` / `docs/roadmap.md`** まで含めて **既存 docs 上で止め線を固定する** ところまでを 1 セッションとする。`MainApp.cpp` の責務ラベル地図と `architecture.md` / `roadmap.md` の短文同期は **完了済み**として、その次の再開入口をここでそろえる。
+**この文書軸の第一候補**だった **責務ラベル地図の同期** と **可変更新 / 固定寄り更新 / 描画フレームの docs stop line 固定** は、**既存 docs 上で一区切り完了**した。
 
-- **理由**: 直前の 1 手で、**巨大 TU をどう読むか**のラベル同期は済んだ。次に必要なのは、**`WM_INPUT` / `WM_TIMER` / `WM_PAINT` を variable-like / fixed-like / render としてどう読むか**を、**「実装完了ではない」こと込みで固定**し、**どこで止めるか**まで 1 枚で示すこと。**実装分割**・**`WndProc` 改変** は対象外。
-- **次点**: 候補 A の T19/T20 手動検証運用は **必要時の追随のみ**。候補 D の描画実験や、Arbiter `.cpp` pack-out は **本テーマのあと** に短く見直す。
-- **危険線の置き場所は変えない**: **`WM_INPUT` / `WM_TIMER` / `WM_PAINT` の分岐・順序**、**`InvalidateRect` 条件**、**T19 / T20 の受け入れ済みページの accepted 意味** は **`WNDPROC_MESSAGE_RESPONSIBILITY_MAP.md`** と **`HUD_PAGED_ACCEPTANCE.md`** を一次情報とし、**あいまいにしない**（本テーマは **区分の参照固定** に留め、意味の再解釈ではない）。
-- **まずやらないこと**: `MainApp.cpp` の物理分割、候補 D のような **描画パイプライン実装**、および **合意前の Arbiter `.cpp` pack-out** に踏み込まない。
+- **完了済みとして扱うもの**: `architecture.md` の責務ラベル地図、`ENGINE_LOOP_MAPPING_UNITY_UNREAL_MAINAPP.md` と `WNDPROC_MESSAGE_RESPONSIBILITY_MAP.md` の phase wording、`decisions.md` / `roadmap.md` / 本書の stop line 同期。
+- **この文書で今後やらないこと**: `MainApp.cpp` の物理分割、`WndProc` 改変、`InvalidateRect` 条件変更、T19/T20 accepted 意味の再解釈。
+- **次の別フェーズ**: ここから先は **表示 / render 文書軸**へ移り、入口は **`docs/T34_T35_DISPLAY_RENDER_RESTART_ENTRY.md`** とする。主眼は **T35 §5 の A / D**（T17 ログと committed の読み分け、`axis=*` の観測性補助）であり、**表示方針そのものは変えない**。
 
 ---
 
@@ -103,20 +102,19 @@
 
 # 7. 次回の最初の着手単位
 
-**1 セッションで完結させる**単位として、次を推奨する。
+**次回の着手は本書ではなく、表示 / render 文書軸から始める**。
 
-1. **`docs/ENGINE_LOOP_MAPPING_UNITY_UNREAL_MAINAPP.md`** と **`docs/WNDPROC_MESSAGE_RESPONSIBILITY_MAP.md`** を読み、**`WM_INPUT` / `WM_TIMER` / `WM_PAINT`** を **variable-like / fixed-like / render** の語でそろえる（**危険線**は **区分の参照固定** に留め、意味の再解釈はしない）。
-2. 手順 1 の突合で **実装完了と誤読される表現**が残る場合のみ、**短文**で補正し、**既存の** `docs/decisions.md` / `docs/roadmap.md` に **最小限**を残す。
-3. T19/T20 については **`docs/HUD_PAGED_ACCEPTANCE.md`** を一次情報とし、必要なら **`docs/T19_T20_MANUAL_VERIFICATION_GUIDE.md`** へ **最小限の追記**にとどめる。**accepted 意味に触る用語は一次情報どおり**に保つ。
-4. **実装変更は行わない**（本書の再開単位では）。`WndProc` の分岐・順序、`InvalidateRect` 条件、`MainApp.cpp` の物理分割には進まない。
+1. **`docs/T34_T35_DISPLAY_RENDER_RESTART_ENTRY.md`** を入口にし、**T35 §5 の A / D** を今回の実務テーマとして固定する。
+2. **`docs/T35_OBSERVABILITY_AXIS_READING_GUIDE.md`** と **`docs/T35_SECTION5_A_T17_COMMITTED_LOG_READING.md`** を読み、**T17 ログは `axis=mode`、committed は `axis=committed`** のまま **どう読み分けるか**だけを確認する。
+3. そのうえで **`docs/T35_SECTION5_UNDECIDED_BACKLOG.md`** を見て、**今回は A / D に留め、B / C へは進まない**ことを再確認する。
+4. **実装変更は行わない**。表示方針・ログ文言・UI・`WM_*` / `InvalidateRect` / T19-T20 accepted は上書きしない。
 
 ## 参照（既存 docs）
 
-- `docs/WNDPROC_MESSAGE_RESPONSIBILITY_MAP.md`
-- `docs/ENGINE_LOOP_MAPPING_UNITY_UNREAL_MAINAPP.md`
-- `docs/HUD_PAGED_ACCEPTANCE.md`
-- `docs/T19_T20_MANUAL_VERIFICATION_GUIDE.md`
-- `docs/ARCHITECTURE_PACKOUT_REUSE_BOUNDARY_NEXT.md`
-- `docs/T77_FOUNDATION_CLOSE.md`
-- `docs/architecture.md`
+- `docs/T34_T35_DISPLAY_RENDER_RESTART_ENTRY.md`
+- `docs/T35_OBSERVABILITY_AXIS_READING_GUIDE.md`
+- `docs/T35_SECTION5_A_T17_COMMITTED_LOG_READING.md`
+- `docs/T35_SECTION5_UNDECIDED_BACKLOG.md`
+- `docs/t35_display_mode_policy.md`
+- `docs/t34_t35_display_and_render.md`
 - `docs/roadmap.md` / `docs/decisions.md`

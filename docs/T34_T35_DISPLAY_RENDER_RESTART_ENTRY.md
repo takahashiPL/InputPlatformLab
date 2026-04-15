@@ -27,6 +27,15 @@
 - [t35_display_mode_policy.md](t35_display_mode_policy.md) **§5** に列挙のとおり: T17 と committed の **ログ上の揃え**、**Fullscreen の committed オフスクリーン** の本格化、**GDI 仮想解像度**、**T36 を正式に昇格するか** 等。
 - **decisions.md**・**worklog.md** に依存する細部は、表示タスク側で都度参照する。
 
+### この軸の次の第一候補
+
+**次の 1 本**は、**T35 §5 の A / D** を **docs のみ**で読み直すこと。
+
+- **A**: `T17` ログと `committed` を **別軸のまま**どう読むか。
+- **D**: `axis=mode` / `axis=committed` / `axis=offscreen` / `axis=final` を **観測性補助**としてどう読むか。
+
+ここでやるのは **読み分けの固定**だけであり、**表示方針の変更・ログ文言変更・実装着手**ではない。
+
 ---
 
 ## 4. 何はまだ触らないか（この軸の docs 先行で）
@@ -42,4 +51,7 @@
 1. [roadmap.md](roadmap.md) 第 1 表  
 2. [t34_t35_display_and_render.md](t34_t35_display_and_render.md)（T34 要約）  
 3. [t35_display_mode_policy.md](t35_display_mode_policy.md)（T35 本体）  
-4. 必要なら [architecture.md](architecture.md) の `platform/win`・レンダラ言及、[NEXT_THEME_RESTART_ENTRY.md](NEXT_THEME_RESTART_ENTRY.md)（入力側の再開はここで終わらない）
+4. [T35_OBSERVABILITY_AXIS_READING_GUIDE.md](T35_OBSERVABILITY_AXIS_READING_GUIDE.md)（`axis=*` の読み分け）  
+5. [T35_SECTION5_A_T17_COMMITTED_LOG_READING.md](T35_SECTION5_A_T17_COMMITTED_LOG_READING.md)（A の補助）  
+6. [T35_SECTION5_UNDECIDED_BACKLOG.md](T35_SECTION5_UNDECIDED_BACKLOG.md)（今回は A / D に留める確認）  
+7. 必要なら [architecture.md](architecture.md) の `platform/win`・レンダラ言及、[NEXT_THEME_RESTART_ENTRY.md](NEXT_THEME_RESTART_ENTRY.md)（入力側 docs stop line は完了済み）
