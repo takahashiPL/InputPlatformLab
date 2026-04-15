@@ -326,6 +326,45 @@ windowed / borderless / fullscreen 等のプレゼンテーション状態と ca
 上記 small refactor 後も、Debug / Release とも paged HUD の基本動作は維持。
 この確認をもって、小整理フェーズはいったん受け入れ。
 
+
+## 2026-04-15 追加実確認（T77 Go(2) 2P=Keyboard 最小ケース）
+
+### Release / x64
+- `config=Release  platform=x64  pagedHUD=on`
+- T18 4/7 表示確認
+- T19 5/7 表示確認
+- T20 7/7 表示確認
+- `T33 first EndDraw ok`
+- `D3D11 present ok (first)`
+- T18 inventory 表示継続
+  - `hid_found=1`
+  - `family=XInputCompatible`
+  - `parser=GenericHid`
+  - `support=tentative`
+- 目視範囲で HUD 本文崩れなし
+
+### Debug / x64
+- T18 4/7 で **2P=Keyboard 最小ケースの通常 live 化**を確認
+  - 2P 行: `b-locked:Keyboard:keyboard`
+  - `c=live(default)/live.tr=off`
+  - 1P 側は `res=hold(2P)` 表示
+- T77 trial 経路の比較確認
+  - `F8` で `2P=XInput0`
+  - `F9` で live override
+  - `F10` で armed on
+  - `trial target live blocked (non-kb) -> dry-run` を確認
+- T77 Keyboard 側比較確認
+  - `F8` で `2P=Keyboard`
+  - `trial nkb->kOn liveSlot 0->1 subjK 2->1` を確認
+- T76 owner / guide の既存意味は今回確認範囲では非破壊
+
+### 今回の判定
+- `feat: enable T77 Go(2) normal live for 2P keyboard`
+- **2P=Keyboard** は通常経路で live 可
+- **2P=XInput0** は引き続き dry-run 維持
+- **1P owner / guide** と Release 基本表示は今回確認範囲で維持
+- T77 Go(2) は **2P=Keyboard 最小ケース**まで受け入れ
+
 ## 更新履歴
 
 | 日付 | 内容 |
@@ -340,3 +379,4 @@ windowed / borderless / fullscreen 等のプレゼンテーション状態と ca
 | **2026-04-10** | **残余**: T14 **↑↓**、T17 **Fullscreen** HUD、T20 **Release\|x64**。T18 抜き差し・T17 マルチモニタは未実施 |
 | **2026-04-13** | **T19/T20** 手動確認（**Debug\|x64**）: T19 **OK**（keyboard は Backspace/Tab/Up/Down 主、Enter は T17 apply・Left/Right はページ送りと競合の注記、analog **LS** 確認）、T20 **OK**（HUD と **`[BUILDINFO]`** 整合） |
 | **2026-04-15** | **small refactor phase 後の再確認**: **Release\|x64** / **Debug\|x64** で `pagedHUD=on` を確認。T18 **4/7**、T19 **5/7**、T20 **7/7** を再目視し、T18 inventory・T19 入力表示・T20 BUILDINFO 整合を確認。Debug では **T76 owner commit** と **T77 trial dry-run** 継続も確認。 |
+| **2026-04-15** | **T77 Go(2) 最小ケース確認**: **2P=Keyboard** の通常 live 化、**2P=XInput0** の dry-run 維持、**1P owner/guide** 非破壊、**Release\|x64** の T18/T19/T20 基本表示維持を確認。 |

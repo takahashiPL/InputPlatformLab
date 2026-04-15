@@ -123,3 +123,11 @@
 | **確認できたこと** | **Release\|x64** / **Debug\|x64** とも `pagedHUD=on` で起動確認。T18 **4/7**、T19 **5/7**、T20 **7/7** を再確認。Release では BUILDINFO・first present・T18 inventory 継続を確認。Debug では **T76 owner commit** と **T77 trial dry-run** 継続を確認。small refactor 群による明白な回帰は今回確認範囲では未検出。 |
 | **未解決事項** | small refactor はここで一区切り。次は追加 refactor を続けず、新しい実務テーマ選定へ戻る。 |
 
+
+
+---
+
+| **日付** | 2026-04-15 |
+| **実施内容** | **T77 Go(2) 最小ケース**として、`EffectiveInputGuideArbiter.cpp` のみを更新し **2P=Keyboard の通常 live 化**を追加。対象は **1P=現行1P / 2P=Keyboard / 3P=none / 4P=none** に限定し、**2P=XInput0** は従来どおり **dry-run** のまま維持。コミット `55f6795`（`feat: enable T77 Go(2) normal live for 2P keyboard`）、push 済み。 |
+| **確認できたこと** | **Release\|x64** で `pagedHUD=on`、T18 **4/7**、T19 **5/7**、T20 **7/7**、BUILDINFO、first present を再確認。**Debug\|x64** で **2P=Keyboard** は通常経路で `c=live(default)/live.tr=off`、**2P=XInput0** は `trial target live blocked (non-kb) -> dry-run`、Keyboard trial は `trial nkb->kOn liveSlot 0->1 subjK 2->1` を確認。 |
+| **未解決事項** | T77 Go(2) は **2P=Keyboard 最小ケースまで**。**2P=XInput0 の live 昇格**、**non-kb live 一般化**、**3P/4P 本運用**は未着手。 |
