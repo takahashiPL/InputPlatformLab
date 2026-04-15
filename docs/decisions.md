@@ -32,3 +32,9 @@
 ---
 
 （以下にエントリを追記してください。）
+
+---
+
+| **判断** | `MainApp.cpp` の **variable-like / fixed-like / render** の区分は、まず **docs 上の読み方として固定**し、**実装分離完了とは言わない**。 |
+| **理由** | `WM_INPUT` / `WM_TIMER` / `WM_PAINT` は現況で主経路として読めるが、`WndProc` 分散・`InvalidateRect` 条件・accepted 意味を崩さずにコード側完成まで進めるには、別テーマの複数手が必要。 |
+| **影響範囲** | `docs/ENGINE_LOOP_MAPPING_UNITY_UNREAL_MAINAPP.md`、`docs/WNDPROC_MESSAGE_RESPONSIBILITY_MAP.md`、`docs/MAINAPP_PHASE_MAP_STATUS.md`、`docs/NEXT_THEME_RESTART_ENTRY.md`、`docs/roadmap.md`。コード変更なし。 |
