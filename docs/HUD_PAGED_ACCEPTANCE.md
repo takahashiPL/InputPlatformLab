@@ -22,6 +22,7 @@
 | **2026-04-09** | **T18 / T20**（ページ送りで T18・T20、キャプチャ目視） | T18: DS4 接続時に family/parser/support/product/why が読める。T20: HUD のマクロ行が **Debug\|x64** と一致（`BUILDINFO` と同一関数由来） |
 | **2026-04-10** | **残余受け入れ**（Debug\|x64・**Release\|x64** ビルド、キー操作） | **T14** `↑↓` 選択追従。**T17** Fullscreen 適用後 `cand=act=Fullscreen`。**T20** `config=Release`。**T18** 抜き差し・**T17** マルチモニタは**未実施** |
 | **2026-04-15** | **T19/T20** 手動確認（**Debug\|x64**・同一セッション） | T19 **5/7** 到達・表示 **OK**。T20 **7/7** 到達・**`config=Debug`** **platform=x64** **pagedHUD=on** 整合 **OK**。**`[BUILDINFO]`** と矛盾なし |
+| **2026-04-15** | **追加確認**（**Release\|x64**・同一セッション） | T20 **7/7** **OK**。**`config=Release`** **platform=x64** **pagedHUD=on** 整合 **OK**。**`[BUILDINFO]`** と矛盾なし。T19 **5/7**: analog **RT=1.00**・**R2 非ゼロ**・**analog 行の下端欠けなし** |
 
 **限界**: **マルチモニタ・プライマリ切替・非接続コントローラ**などは、引き続きローカルで必要に応じて実施する。
 
