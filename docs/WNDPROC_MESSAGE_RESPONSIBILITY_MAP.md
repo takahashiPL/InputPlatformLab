@@ -43,6 +43,16 @@
    - **`Win32InputGlue.*`**: 登録・列挙・スロット・`WM_INPUT` 調査など **Win32 / 入力プラットフォーム寄りのグルー**（`WndProc` 本体ではないが、`WM_INPUT` 経路と結びつく）。
    - **`T18InventorySnapshotGlue.*` / `T18PageBodyFormatGlue.*`**: **T18 本文・スナップショット・フォーマット**（**描画や状態参照の素材**）。`WndProc` のメッセージ種別表に「全部載せ」はしないが、**ページ式 HUD の本文生成**とセットで読む。
 
+## 4.1 フェーズ語との対応（参照だけ固定）
+
+本書では `WndProc` の **主責務**を一次情報として固定しつつ、再開時の読み筋としてだけ **variable-like / fixed-like / render** の語を使う。これは **意味の再定義ではなく参照名** である。
+
+| フェーズ語 | 主な `WM_*` 経路 | 本書での扱い |
+|------------|------------------|---------------|
+| **variable-like** | `WM_INPUT` | 生入力とその周辺状態更新の主経路として参照する。**単一の `Update()` 相当入口ではない。** |
+| **fixed-like** | `WM_TIMER` → `Win32_WndProc_OnXInputPollTimer` | 一定間隔処理として最も近い。**fixed-step 完了の意味では使わない。** |
+| **render** | `WM_PAINT` → `Win32_WndProc_OnPaint` → `Win32_MainView_PaintFrame` | 描画フレームの主経路として参照する。**`InvalidateRect` 条件や paint 順序の意味は変えない。** |
+
 ---
 
 # 5. 主な WM_* メッセージと責務
@@ -115,6 +125,7 @@
 **挙動が変わりやすい境界**というのが妥当である（**小工事でも触る前に受け入れ手順とセット** が望ましい）。
 
 - **`WndProc` 内の `WM_INPUT` / `WM_TIMER` / `WM_PAINT` の順序・早期 return・`break` の有無**。
+- **phase 語（variable-like / fixed-like / render）を使った読み替えで、`WM_*` の主責務を書き換えること**。
 - **`InvalidateRect` / `RedrawWindow` を張る条件**（T19、T17 no-op skip の注意、サイズ移動系）。
 - **`Win32_WndProc_OnXInputPollTimer` 内の T19 差分判定と `kT19AnalogThrottleMs`**。
 - **`Win32_MainView_PaintFrame` 内の D2D prefill、`WindowsRenderer_Frame`、`Win32DebugOverlay_Paint` の順序と suppress フラグ**（二重描画・本文欠け）。
