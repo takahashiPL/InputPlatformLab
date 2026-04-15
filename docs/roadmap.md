@@ -39,7 +39,7 @@
 
 ---
 
-| **目的** | Win32 周辺の**小工事フェーズを一区切り**。**次の第一候補**は [T19_T20_MANUAL_VERIFICATION_GUIDE.md](T19_T20_MANUAL_VERIFICATION_GUIDE.md) に沿った T19/T20 の受け入れ確認・手動検証の運用（再開入口は [NEXT_THEME_RESTART_ENTRY.md](NEXT_THEME_RESTART_ENTRY.md)）。 |
-| **想定順序** | docs から再開できる確認運用を優先。**`WM_PAINT` / `InvalidateRect` 近傍の重いテーマ**は後回し。 |
-| **前提条件** | ページ式 HUD が通常運用の正。レガシー縦積み HUD 分離フェーズは closed。T19/T20 の受け入れ・T76 close・T77 foundation close の一次情報は変えない。 |
-| **保留事項** | レンダラ実験・描画パイプライン拡張は、上記の検証手順の共有が先。 |
+| **目的** | Win32 周辺の**小工事フェーズを一区切り**。**次の第一候補**は [NEXT_THEME_RESTART_ENTRY.md](NEXT_THEME_RESTART_ENTRY.md) に沿った **`MainApp.cpp` の責務ラベル地図**と **`architecture.md` / `roadmap.md` の短文突合**（docs 先行・実装変更なし）。 |
+| **想定順序** | `docs/ARCHITECTURE_PACKOUT_REUSE_BOUNDARY_NEXT.md` の候補 4 を起点に、`MainApp.cpp` を **host / platform/win / app/debug / app/glue** のラベルで読む → `architecture.md` / `roadmap.md` を短文同期 → 必要なら `decisions.md` に 1 行だけ残す。**`WM_PAINT` / `InvalidateRect` 近傍の重いテーマ**は後回し。 |
+| **前提条件** | ページ式 HUD が通常運用の正。レガシー縦積み HUD 分離フェーズは closed。T19/T20 の受け入れ・T76 close・T77 foundation close・Go(1) 2 手で一区切りの一次情報は変えない。**`WM_INPUT` / `WM_TIMER` / `WM_PAINT` / `InvalidateRect` / T19-T20 accepted の意味を上書きしない**。 |
+| **保留事項** | T19/T20 の手動検証運用は **必要時の追随**として継続。レンダラ実験・描画パイプライン拡張、`MainApp.cpp` の物理分割 / shell 化は別テーマ。 |

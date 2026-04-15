@@ -127,6 +127,17 @@ src/
 
 大規模なファイル移動はしない。**どの層として読むか**を固定する。
 
+### `MainApp.cpp` の責務ラベル地図（読み方の固定）
+
+`MainApp.cpp` は **物理分割の宣言ではなく、現状を読むためのラベル** で扱う。
+
+- **host**: `wWinMain`、`GetMessage` ループ、`DispatchMessage` → `WndProc` 到達。
+- **platform/win**: `WndProc`、`Win32_WndProc_On*`、Raw Input / XInput / timer / renderer 接続の中枢。
+- **app / debug**: T18/T19/T20 のページ式 HUD、検証表示、`_DEBUG` ホットキー、lab 固有の観測文言。
+- **app / glue**: `input/core` と Win32 を同一プロセスでつなぐ統合点。
+
+ここでは **`WM_INPUT` / `WM_TIMER` / `WM_PAINT` / `InvalidateRect` / T19-T20 accepted の意味を再定義しない**。一次情報は `WNDPROC_MESSAGE_RESPONSIBILITY_MAP.md` と `ENGINE_LOOP_MAPPING_UNITY_UNREAL_MAINAPP.md` を正とする。
+
 ### reusable / app-specific
 
 - **転用しやすい候補（reusable candidate）**: 中立型と実装（`VirtualInput*`、`LogicalInput*`、`PlayerInputGuideTypes.h`、`PlayerInputSlots.h` のデータ面）、`EffectiveInputGuideArbiter` の**ヘッダ契約**、OS 非依存の処理。**候補 A/B** のポータブル中心は **`include/input/core/`**・**`src/input/core/`**（レイヤ表および下の Pack-out 節のとおり）。
