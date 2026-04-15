@@ -5193,9 +5193,18 @@ static const wchar_t* Win32_T18_T76_OnePGuideFamilyLabel()
 // Line layout: T18PageBodyFormatGlue.*.
 static void Win32_HudPaged_FillT18PageBody(wchar_t* buf, size_t bufCount)
 {
+    // =============================================================================
+    // T18 paged HUD body composition
+    // - owner / guide family
+    // - short lines (VID/PID, product tiny, why)
+    // - bind/route/staged/consume summaries
+    // - T18PageBodyFormat_* + InputGuideArbiter_Format*ForT18 + FillPagedHudBody
+    // =============================================================================
+
     buf[0] = L'\0';
     Win32_T18_RefreshControllerIdentifySnapshot();
 
+    // compact status / short label builders
     wchar_t slotStr[16] = {};
     T18PageBodyFormat_BuildXInputSlotDisplay(s_t18.xinput_slot, slotStr, _countof(slotStr));
     const unsigned vid = s_t18.hid_found ? static_cast<unsigned>(s_t18.hid.vendor_id) : 0u;
@@ -5203,6 +5212,7 @@ static void Win32_HudPaged_FillT18PageBody(wchar_t* buf, size_t bufCount)
     wchar_t vidPidLine[96] = {};
     T18PageBodyFormat_BuildVidPidShortLine(s_t18.hid_found, vid, pid, vidPidLine, _countof(vidPidLine));
 
+    // HUD strings derived from the snapshot (no logic changes here)
     wchar_t prodTiny[48] = L"(none)";
     if (s_t18.product_name[0] != L'\0')
     {
@@ -5211,6 +5221,7 @@ static void Win32_HudPaged_FillT18PageBody(wchar_t* buf, size_t bufCount)
     wchar_t whyOne[160] = {};
     T18Inventory_FillWhyHudSingleLine(s_t18, whyOne, _countof(whyOne));
 
+    // binding status / route / staged summaries (slot0)
     wchar_t boundSrcLine[96] = {};
     wchar_t boundDevLine[96] = {};
     InputGuideArbiter_FormatPrimarySlotBoundSourceForT18(boundSrcLine, _countof(boundSrcLine));
@@ -5236,6 +5247,7 @@ static void Win32_HudPaged_FillT18PageBody(wchar_t* buf, size_t bufCount)
     InputGuideArbiter_FormatSlotStagedInputSummaryForT18(0u, stg0, _countof(stg0));
     InputGuideArbiter_FormatSlotStagedLogicalSummaryForT18(0u, sl0, _countof(sl0));
 
+    // consume / trial tags
     wchar_t cd0[48] = {};
     wchar_t cr0[48] = {};
     wchar_t lvTag[8] = {};
@@ -5252,6 +5264,7 @@ static void Win32_HudPaged_FillT18PageBody(wchar_t* buf, size_t bufCount)
     T18PageBodyFormat_FormatExtraPlayerOneLine(2u, line3p, _countof(line3p));
     T18PageBodyFormat_FormatExtraPlayerOneLine(3u, line4p, _countof(line4p));
 
+    // body builder: one bundled swprintf
     T18PageBodyFormat_FillPagedHudBody(
         buf,
         bufCount,
@@ -6654,6 +6667,13 @@ static void Win32_UnifiedInputMenuTick_WhenMenuClosed(HWND hwndForPaint)
 // T77 step11/12/15–21: single live consume slot; default 0; trial target slot (default2P) live only when armed+kb-eligible+Manual Live.
 static void Win32_DispatchVirtualMenuSampleLiveConsumeSlots(HWND hwndForPaint)
 {
+    // =============================================================================
+    // T76/T77 dispatch / trial update path
+    // - staged fan-out results drive per-slot dispatch
+    // - live / dry-run / skipped record
+    // - trial obs/debug log (change-only)
+    // =============================================================================
+
     const UINT32 t = static_cast<UINT32>(GetTickCount());
     for (unsigned ui = 0; ui < kPlayerInputSlotCap; ++ui)
     {
@@ -6686,6 +6706,7 @@ static void Win32_DispatchVirtualMenuSampleLiveConsumeSlots(HWND hwndForPaint)
 // キーとパッドの ConsumerFrame をマージしメニュー試作へ。末尾でタイマー境界のキー状態を進める。
 static void Win32_UnifiedInputMenuTick_MergeAndApply(HWND hwndForPaint)
 {
+    // dispatch/update の塊: route tick -> staged fan-out -> staged logical -> per-slot dispatch
     const VirtualInputConsumerFrame kbFrame =
         VirtualInputConsumer_BuildFrameFromKeyboardState(
             s_keyboardActionStateAtLastTimer,
@@ -7353,6 +7374,14 @@ static UINT32 Win32_T77_Fnv1a32WidePath(const wchar_t* path)
     }
     return h;
 }
+
+// =============================================================================
+// inventory refresh path
+// - survey -> snapshot completion
+// - inventory binding view
+// - InputGuideArbiter_ResolveSlotBindingsFromInventory
+// - InputGuideArbiter_OnDeviceInventoryRefreshed
+// =============================================================================
 
 static void Win32_T77_ResolvePlayerSlotBindingsAfterSnapshot(const T18ControllerIdentifySnapshot& snap)
 {
