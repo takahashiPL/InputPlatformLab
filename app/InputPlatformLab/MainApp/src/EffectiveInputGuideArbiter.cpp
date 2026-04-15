@@ -7,6 +7,10 @@
 #include <Windows.h>
 #include <cstdio>
 
+// =============================================================================
+// owner / guide preference state
+// =============================================================================
+
 // --- Debug / foundation verification (not production menu policy) ---
 // Armed only via F10 in _DEBUG MainApp. Release: stays false; single live slot remains default (slot0).
 static bool g_liveConsumeTrialArmed = false;
@@ -205,6 +209,10 @@ const wchar_t* LiveTrialObsPhaseLabel(int code)
         return L"?";
     }
 }
+
+// =============================================================================
+// binding resolution / presence evaluation
+// =============================================================================
 
 void ResolveOnePlayerSlot(PlayerSlotState& s, const PlayerInputInventoryBindingView& inv, UINT32 tick)
 {
@@ -1031,6 +1039,10 @@ void FillSlotRouteCandidateLineForT18(const PlayerSlotState& s, wchar_t* buf, si
     }
 }
 } // namespace
+
+// =============================================================================
+// public update / query entry points
+// =============================================================================
 
 void InputGuideArbiter_OnDeviceInventoryRefreshed(
     GameControllerKind inventoryGamepadFamily,
