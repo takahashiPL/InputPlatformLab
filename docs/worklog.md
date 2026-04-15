@@ -116,4 +116,10 @@
 | **未解決事項** | t35 §5 の将来項目（ログ整合・Fullscreen オフスクリーン・GDI スケール）は未実装。 |
 
 
+---
+
+| **日付** | 2026-04-15 |
+| **実施内容** | small refactor フェーズ完了。`ControllerClassification`、`T18InventorySnapshotGlue`、`T18PageBodyFormatGlue`、`EffectiveInputGuideArbiter`、`MainApp.cpp` call-surface seam を、境界が追いやすいよう最小整理（コメント・並び整理中心、挙動不変）。 |
+| **確認できたこと** | **Release\|x64** / **Debug\|x64** とも `pagedHUD=on` で起動確認。T18 **4/7**、T19 **5/7**、T20 **7/7** を再確認。Release では BUILDINFO・first present・T18 inventory 継続を確認。Debug では **T76 owner commit** と **T77 trial dry-run** 継続を確認。small refactor 群による明白な回帰は今回確認範囲では未検出。 |
+| **未解決事項** | small refactor はここで一区切り。次は追加 refactor を続けず、新しい実務テーマ選定へ戻る。 |
 

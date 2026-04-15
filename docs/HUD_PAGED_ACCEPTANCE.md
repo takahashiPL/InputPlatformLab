@@ -283,6 +283,49 @@ windowed / borderless / fullscreen 等のプレゼンテーション状態と ca
 
 ---
 
+
+## 2026-04-15 追加実確認（small refactor phase 後）
+
+### Release / x64
+- `config=Release  platform=x64  pagedHUD=on`
+- `WIN32_HUD_USE_PAGED_HUD=1`
+- T18 4/7 表示確認
+- T19 5/7 表示確認
+- T20 7/7 表示確認
+- `T33 first EndDraw ok`
+- `D3D11 present ok (first)`
+- T18 inventory 表示継続
+  - `hid_found=1`
+  - `family=XInputCompatible`
+  - `parser=GenericHid`
+  - `support=tentative`
+- 目視範囲で HUD 本文崩れなし
+
+### Debug / x64
+- `config=Debug  platform=x64  pagedHUD=on`
+- T18 4/7 表示確認
+- T19 5/7 表示確認
+- T20 7/7 表示確認
+- T76 owner commit 継続確認
+  - `Unknown -> Keyboard`
+  - `Keyboard -> Gamepad`
+  - `Gamepad -> Keyboard`
+- T77 trial 継続確認
+  - `F9` live override
+  - `F10` armed on/off
+  - `trial target live blocked (non-kb) -> dry-run`
+- 直近 small refactor 群による明白な回帰は今回確認範囲では未検出
+
+### 今回の判定
+- `ControllerClassification`
+- `T18InventorySnapshotGlue`
+- `T18PageBodyFormatGlue`
+- `EffectiveInputGuideArbiter`
+- `MainApp.cpp` call-surface seam comments
+
+上記 small refactor 後も、Debug / Release とも paged HUD の基本動作は維持。
+この確認をもって、小整理フェーズはいったん受け入れ。
+
 ## 更新履歴
 
 | 日付 | 内容 |
@@ -296,3 +339,4 @@ windowed / borderless / fullscreen 等のプレゼンテーション状態と ca
 | **2026-04-09** | **T18/T20**: T18 の DS4 行を再目視。T20 と **`[BUILDINFO]`** の **同一関数**由来を明記（**Release\|x64** は **2026-04-10** に追記） |
 | **2026-04-10** | **残余**: T14 **↑↓**、T17 **Fullscreen** HUD、T20 **Release\|x64**。T18 抜き差し・T17 マルチモニタは未実施 |
 | **2026-04-13** | **T19/T20** 手動確認（**Debug\|x64**）: T19 **OK**（keyboard は Backspace/Tab/Up/Down 主、Enter は T17 apply・Left/Right はページ送りと競合の注記、analog **LS** 確認）、T20 **OK**（HUD と **`[BUILDINFO]`** 整合） |
+| **2026-04-15** | **small refactor phase 後の再確認**: **Release\|x64** / **Debug\|x64** で `pagedHUD=on` を確認。T18 **4/7**、T19 **5/7**、T20 **7/7** を再目視し、T18 inventory・T19 入力表示・T20 BUILDINFO 整合を確認。Debug では **T76 owner commit** と **T77 trial dry-run** 継続も確認。 |
