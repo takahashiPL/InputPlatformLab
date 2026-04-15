@@ -19,12 +19,22 @@ struct T18ControllerIdentifySnapshot
     wchar_t rationale[512]; // 表示用: family/parser/support が tentative な理由（断定しない）
 };
 
+// =============================================================================
+// snapshot completion / classify path
+// =============================================================================
 void T18Inventory_CompleteSnapshotFromSurvey(
     T18ControllerIdentifySnapshot& snap,
     const Win32InputGlue_T18InventorySurvey& inv);
 
+// =============================================================================
+// rationale / debug output
+// =============================================================================
 void T18Inventory_FillIdentifyRationale(const T18ControllerIdentifySnapshot& s, wchar_t* buf, size_t bufCount);
 void T18Inventory_OutputSnapshotDebugLines(const T18ControllerIdentifySnapshot& snap);
+
+// =============================================================================
+// HUD presentation helpers
+// =============================================================================
 void T18Inventory_FillWhyHudShort(const T18ControllerIdentifySnapshot& s, wchar_t* buf, size_t bufCount);
 void T18Inventory_FillWhyHudSingleLine(const T18ControllerIdentifySnapshot& s, wchar_t* buf, size_t bufCount);
 void T18Inventory_TruncateWideForPaint(const wchar_t* src, wchar_t* dst, size_t dstCount, size_t maxLen);

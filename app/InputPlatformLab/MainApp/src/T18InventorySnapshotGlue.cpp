@@ -11,6 +11,10 @@
 #include <cstdio>
 #include <vector>
 
+// =============================================================================
+// snapshot completion / classify path
+// =============================================================================
+
 namespace
 {
 
@@ -120,23 +124,6 @@ bool TrySetupDiDeviceDescriptionFromHidPath(const wchar_t* devicePath, wchar_t* 
 
 } // namespace
 
-void T18Inventory_TruncateWideForPaint(const wchar_t* src, wchar_t* dst, size_t dstCount, size_t maxLen)
-{
-    if (!src || src[0] == L'\0')
-    {
-        wcscpy_s(dst, dstCount, L"(none)");
-        return;
-    }
-    const size_t n = wcslen(src);
-    if (n <= maxLen)
-    {
-        wcscpy_s(dst, dstCount, src);
-        return;
-    }
-    wcsncpy_s(dst, dstCount, src, maxLen);
-    wcscat_s(dst, dstCount, L"...");
-}
-
 void T18Inventory_CompleteSnapshotFromSurvey(
     T18ControllerIdentifySnapshot& snap,
     const Win32InputGlue_T18InventorySurvey& inv)
@@ -213,6 +200,10 @@ void T18Inventory_CompleteSnapshotFromSurvey(
 
     T18Inventory_FillIdentifyRationale(snap, snap.rationale, sizeof(snap.rationale) / sizeof(wchar_t));
 }
+
+// =============================================================================
+// rationale / debug output
+// =============================================================================
 
 void T18Inventory_FillIdentifyRationale(const T18ControllerIdentifySnapshot& s, wchar_t* buf, size_t bufCount)
 {
@@ -329,6 +320,27 @@ void T18Inventory_OutputSnapshotDebugLines(const T18ControllerIdentifySnapshot& 
     wchar_t rat[640] = {};
     swprintf_s(rat, sizeof(rat) / sizeof(wchar_t), L"[T18] rationale: %s\r\n", snap.rationale);
     OutputDebugStringW(rat);
+}
+
+// =============================================================================
+// HUD presentation helpers
+// =============================================================================
+
+void T18Inventory_TruncateWideForPaint(const wchar_t* src, wchar_t* dst, size_t dstCount, size_t maxLen)
+{
+    if (!src || src[0] == L'\0')
+    {
+        wcscpy_s(dst, dstCount, L"(none)");
+        return;
+    }
+    const size_t n = wcslen(src);
+    if (n <= maxLen)
+    {
+        wcscpy_s(dst, dstCount, src);
+        return;
+    }
+    wcsncpy_s(dst, dstCount, src, maxLen);
+    wcscat_s(dst, dstCount, L"...");
 }
 
 void T18Inventory_FillWhyHudShort(const T18ControllerIdentifySnapshot& s, wchar_t* buf, size_t bufCount)
