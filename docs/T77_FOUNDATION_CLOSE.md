@@ -39,6 +39,13 @@
 - **複数 pad かつ別 identity** が成立する場合だけ、将来の再検討候補とする。
 - ここでは **Release defaults / 1P owner-guide / trial-debug semantics** を変えない。
 
+## Current blocker（2026-04-16）
+
+- `boundDeviceIdentity` は **slot lock の宣言**であり、**physical-unique な device truth** ではない。
+- そのため `EffectiveInputGuideArbiter.cpp` の中だけでは、**単一 pad ではないこと**を安全に証明できない。
+- **単一 pad では `2P=XInput0` を normal live にしない**線を守るには、inventory 側に **physical-unique key** と **複数デバイス表現**が必要。
+- この前提が揃うまで、`2P=XInput0` の **effective-normal-live** は未着手維持とする。
+
 ## Pre-branch freeze check（readiness）
 
 **As of 2026-04-13** — no code or default-behavior changes in this step; documentation alignment only.

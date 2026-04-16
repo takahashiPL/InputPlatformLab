@@ -48,6 +48,6 @@
 ---
 
 | **目的** | **T77 次段条件整理**。`2P=XInput0` を将来 normal live に上げる条件があるかを、**実装ではなく docs / 判断のみ**で整理する。現行固定は **2P=Keyboard は live、2P=XInput0 は dry-run**。 |
-| **想定順序** | 単一 pad 環境では `2P=XInput0` を **normal live に上げない**と先に固定 → **複数 pad かつ別 identity** が成立する場合だけ再検討候補とする → 必要なら次段で production-like routing を別テーマとして扱う。 |
-| **前提条件** | **1P owner / guide** を壊さない。**2P=Keyboard live** を壊さない。**absent / recovery** と **inventory refresh 非干渉** を前提維持。**cross-player family change** を起こさない。**trial/debug 経路**の意味を壊さない。 |
-| **保留事項** | `2P=XInput0` live 実装、non-kb live 一般化、3P/4P 展開、route / consume / staged / live の再設計、UI 文言変更、MainApp.cpp 大改修は **次段以降**。 |
+| **想定順序** | 単一 pad 環境では `2P=XInput0` を **normal live に上げない**と先に固定 → **複数 pad かつ別 identity** が成立する場合だけ再検討候補とする → ただし現時点では **`boundDeviceIdentity` では physical-unique な複数 pad 判定ができない**ため、まず **inventory 側の physical-unique key / 複数デバイス表現**を前提条件として整理する。 |
+| **前提条件** | **1P owner / guide** を壊さない。**2P=Keyboard live** を壊さない。**absent / recovery** と **inventory refresh 非干渉** を前提維持。**cross-player family change** を起こさない。**trial/debug 経路**の意味を壊さない。**`boundDeviceIdentity` は slot-lock 宣言であり、physical-unique truth ではない**。 |
+| **保留事項** | `2P=XInput0` live 実装、non-kb live 一般化、3P/4P 展開、route / consume / staged / live の再設計、UI 文言変更、MainApp.cpp 大改修は **次段以降**。inventory 側の physical-unique key が無い間は **effective-normal-live は未着手維持**。 |

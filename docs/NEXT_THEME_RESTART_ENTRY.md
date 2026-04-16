@@ -135,6 +135,13 @@
 - route / consume / staged / live の再設計
 - MainApp.cpp 大改修
 
+## 7.6 現在の blocker
+
+- `boundDeviceIdentity` は **slot が何に lock したか**を表す宣言であり、**physical-unique な device truth** ではない。
+- したがって `EffectiveInputGuideArbiter.cpp` の中だけでは、**「別 physical pad が 2 台以上ある」**を安全に確定できない。
+- **単一 pad では `2P=XInput0` を normal live にしない**線を守るには、inventory 側に **physical-unique な device key** と **複数デバイス表現**が必要。
+- その前提が揃うまでは、`2P=XInput0` の **effective-normal-live は未着手維持**とする。
+
 ## 7.5 参照（既存 docs）
 
 - `docs/T77_FOUNDATION_CLOSE.md`
@@ -145,4 +152,4 @@
 
 # 8. 次回の最初の着手単位
 
-**次回の着手は本書ではなく、次テーマとして選定した `T77` 次段条件整理から始める。**
+**次回の着手は本書ではなく、`T77` 次段条件整理のうち「inventory 側の physical-unique key が必要」という blocker 整理から始める。**
