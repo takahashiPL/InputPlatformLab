@@ -38,3 +38,10 @@
 | **判断** | `MainApp.cpp` の **variable-like / fixed-like / render** の区分は、まず **docs 上の読み方として固定**し、**実装分離完了とは言わない**。 |
 | **理由** | `WM_INPUT` / `WM_TIMER` / `WM_PAINT` は現況で主経路として読めるが、`WndProc` 分散・`InvalidateRect` 条件・accepted 意味を崩さずにコード側完成まで進めるには、別テーマの複数手が必要。 |
 | **影響範囲** | `docs/ENGINE_LOOP_MAPPING_UNITY_UNREAL_MAINAPP.md`、`docs/WNDPROC_MESSAGE_RESPONSIBILITY_MAP.md`、`docs/NEXT_THEME_RESTART_ENTRY.md`、`docs/roadmap.md`。必要なら本表を追記対象にする。コード変更なし。 |
+
+---
+
+| **判断** | **T77 次段**は、まず **条件整理のみ**を行い、**単一 pad 環境では `2P=XInput0` を normal live に上げない**。**複数 pad かつ別 identity が成立する場合だけ**、将来の再検討候補とする。 |
+| **理由** | 直近の Go(2) 最小ケースでは、**2P=Keyboard live**、**2P=XInput0 dry-run 維持**、**absent / recovery 後の 2P Keyboard live 維持**まで受け入れ済み。ここで non-kb live を一般化すると、**1P owner / guide**、**2P=Keyboard live**、**cross-player family change**、**trial/debug semantics** を壊す危険があるため、先に **条件だけ**を固定する。 |
+| **影響範囲** | `docs/T77_FOUNDATION_CLOSE.md`、`docs/NEXT_THEME_RESTART_ENTRY.md`、`docs/roadmap.md`。**コード変更なし**。`2P=XInput0` live 実装、non-kb live 一般化、3P/4P 展開、route / consume / staged / live の再設計は **次段以降**。 |
+
