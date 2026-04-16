@@ -100,24 +100,18 @@
 
 ---
 
-# 7. 次回の最初の着手単位
-
-**次回の着手は本書ではなく、次テーマとして選定した `T77` 次段条件整理から始める。**
-
----
-
-# 6. 次テーマ（現行）
+# 7. 次テーマ（現行）
 
 次の実務テーマは **T77 次段条件整理** とする。ここで進めるのは **実装ではなく条件整理** のみである。
 
-## 6.1 固定する前提
+## 7.1 固定する前提
 
 - **2P=Keyboard** は現行受け入れ済み（通常 live 可）。
 - **2P=XInput0** は現行受け入れ済みとして **dry-run 維持**。
 - **absent / recovery** 後も 2P Keyboard live 維持は確認済み。
 - **T35** は **A/D までで stop**。B/C・render policy・実装変更には入らない。
 
-## 6.2 次段で整理する問い
+## 7.2 次段で整理する問い
 
 **`2P=XInput0` を将来 normal live に上げる条件はあるか。**
 
@@ -127,33 +121,28 @@
 - **複数 pad かつ別 identity が成立する場合だけ、再検討候補**とする。
 - ここでは **実装変更を行わない**。
 
-## 6.3 維持する線
+## 7.3 維持する線
 
 - **1P owner / guide** を壊さない。
 - **2P=Keyboard live** を壊さない。
 - **cross-player family change** を起こさない。
 - **trial/debug 経路**の意味を壊さない。
 
-## 6.4 今まだ触らないもの
+## 7.4 今まだ触らないもの
 
 - non-kb live 一般化
 - 3P/4P 展開
 - route / consume / staged / live の再設計
 - MainApp.cpp 大改修
 
+## 7.5 参照（既存 docs）
 
-1. **表示 / render 文書軸の docs-only 再開（A 本体 / D 補助）は完了**として扱う。
-2. 固定済みの結論は、**T17 logs = `axis=mode` / committed = `axis=committed` / 両者は別軸**である。
-3. **B / C**（T36 昇格、GDI 仮想解像度）は **今回は進めない**。
-4. **実装変更は行わない**。表示方針・ログ文言・UI・`WM_*` / `InvalidateRect` / T19-T20 accepted は上書きしない。
-5. **次は別テーマ選定**へ移る。
+- `docs/T77_FOUNDATION_CLOSE.md`
+- `docs/roadmap.md`
+- `docs/decisions.md`
 
-## 参照（既存 docs）
+---
 
-- `docs/T34_T35_DISPLAY_RENDER_RESTART_ENTRY.md`
-- `docs/T35_OBSERVABILITY_AXIS_READING_GUIDE.md`
-- `docs/T35_SECTION5_A_T17_COMMITTED_LOG_READING.md`
-- `docs/T35_SECTION5_UNDECIDED_BACKLOG.md`
-- `docs/t35_display_mode_policy.md`
-- `docs/t34_t35_display_and_render.md`
-- `docs/roadmap.md` / `docs/decisions.md`
+# 8. 次回の最初の着手単位
+
+**次回の着手は本書ではなく、次テーマとして選定した `T77` 次段条件整理から始める。**
