@@ -29,6 +29,16 @@
   1. Move the slot-indexed trial toward **production-like routing** (incremental; keep defaults unchanged).
   2. **Multi-player owner / binding** production design (fix arbiter contracts and UI assumptions first; large refactors stay a separate phase).
 
+## Current next-step framing（2026-04-16）
+
+**Foundation close は維持**したまま、次に扱うとしても **実装ではなく条件整理**に留める。
+
+- **2P=Keyboard** は現行受け入れ済みの通常 live。
+- **2P=XInput0** は現行受け入れ済みとして **dry-run 維持**。
+- **単一 pad 環境では `2P=XInput0` を normal live に上げない。**
+- **複数 pad かつ別 identity** が成立する場合だけ、将来の再検討候補とする。
+- ここでは **Release defaults / 1P owner-guide / trial-debug semantics** を変えない。
+
 ## Pre-branch freeze check（readiness）
 
 **As of 2026-04-13** — no code or default-behavior changes in this step; documentation alignment only.

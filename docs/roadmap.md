@@ -43,3 +43,11 @@
 | **想定順序** | `T34_T35_DISPLAY_RENDER_RESTART_ENTRY.md` → `T35_SECTION5_A_T17_COMMITTED_LOG_READING.md` → `T35_OBSERVABILITY_AXIS_READING_GUIDE.md` → `T35_SECTION5_UNDECIDED_BACKLOG.md` の順で読んで、**A を本体・D を補助**として整理する作業は **完了**。**次は別テーマ選定**へ移る。 |
 | **前提条件** | T34/T35 の一次情報は `t34_t35_display_and_render.md` / `t35_display_mode_policy.md`。**`WM_INPUT` / `WM_TIMER` / `WM_PAINT` / `InvalidateRect` / T19-T20 accepted の意味は上書きしない**。T76 close・T77 foundation close・Go(1) 2 手で一区切りも別軸の固定として保つ。 |
 | **保留事項** | T35 §5 の **B / C**（T36 昇格、GDI 仮想解像度）や、描画実装・ログ文言変更・UI 変更は **次段以降**。今回は **A/D の読み分け結論まで**で止め、**実装変更には入らない**。 |
+
+
+---
+
+| **目的** | **T77 次段条件整理**。`2P=XInput0` を将来 normal live に上げる条件があるかを、**実装ではなく docs / 判断のみ**で整理する。現行固定は **2P=Keyboard は live、2P=XInput0 は dry-run**。 |
+| **想定順序** | 単一 pad 環境では `2P=XInput0` を **normal live に上げない**と先に固定 → **複数 pad かつ別 identity** が成立する場合だけ再検討候補とする → 必要なら次段で production-like routing を別テーマとして扱う。 |
+| **前提条件** | **1P owner / guide** を壊さない。**2P=Keyboard live** を壊さない。**absent / recovery** と **inventory refresh 非干渉** を前提維持。**cross-player family change** を起こさない。**trial/debug 経路**の意味を壊さない。 |
+| **保留事項** | `2P=XInput0` live 実装、non-kb live 一般化、3P/4P 展開、route / consume / staged / live の再設計、UI 文言変更、MainApp.cpp 大改修は **次段以降**。 |

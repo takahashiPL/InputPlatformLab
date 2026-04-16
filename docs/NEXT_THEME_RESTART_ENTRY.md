@@ -102,7 +102,45 @@
 
 # 7. 次回の最初の着手単位
 
-**次回の着手は本書ではなく、表示 / render 文書軸の docs-only 再開結果を踏まえた** **次テーマ選定** から始める。
+**次回の着手は本書ではなく、次テーマとして選定した `T77` 次段条件整理から始める。**
+
+---
+
+# 6. 次テーマ（現行）
+
+次の実務テーマは **T77 次段条件整理** とする。ここで進めるのは **実装ではなく条件整理** のみである。
+
+## 6.1 固定する前提
+
+- **2P=Keyboard** は現行受け入れ済み（通常 live 可）。
+- **2P=XInput0** は現行受け入れ済みとして **dry-run 維持**。
+- **absent / recovery** 後も 2P Keyboard live 維持は確認済み。
+- **T35** は **A/D までで stop**。B/C・render policy・実装変更には入らない。
+
+## 6.2 次段で整理する問い
+
+**`2P=XInput0` を将来 normal live に上げる条件はあるか。**
+
+ただし現時点の固定は次のとおり。
+
+- **単一 pad 環境では `2P=XInput0` を normal live に上げない。**
+- **複数 pad かつ別 identity が成立する場合だけ、再検討候補**とする。
+- ここでは **実装変更を行わない**。
+
+## 6.3 維持する線
+
+- **1P owner / guide** を壊さない。
+- **2P=Keyboard live** を壊さない。
+- **cross-player family change** を起こさない。
+- **trial/debug 経路**の意味を壊さない。
+
+## 6.4 今まだ触らないもの
+
+- non-kb live 一般化
+- 3P/4P 展開
+- route / consume / staged / live の再設計
+- MainApp.cpp 大改修
+
 
 1. **表示 / render 文書軸の docs-only 再開（A 本体 / D 補助）は完了**として扱う。
 2. 固定済みの結論は、**T17 logs = `axis=mode` / committed = `axis=committed` / 両者は別軸**である。
