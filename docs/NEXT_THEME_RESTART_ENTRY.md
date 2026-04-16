@@ -83,7 +83,7 @@
 
 - **完了済みとして扱うもの**: `architecture.md` の責務ラベル地図、`ENGINE_LOOP_MAPPING_UNITY_UNREAL_MAINAPP.md` と `WNDPROC_MESSAGE_RESPONSIBILITY_MAP.md` の phase wording、`decisions.md` / `roadmap.md` / 本書の stop line 同期。
 - **この文書で今後やらないこと**: `MainApp.cpp` の物理分割、`WndProc` 改変、`InvalidateRect` 条件変更、T19/T20 accepted 意味の再解釈。
-- **次の別フェーズ**: ここから先は **表示 / render 文書軸**へ移り、入口は **`docs/T34_T35_DISPLAY_RENDER_RESTART_ENTRY.md`** とする。主眼は **T35 §5 の A を本体、D を補助**として読み直すこと（**T17 ログと committed の読み分け**を先に固定し、`axis=*` はその補助として使うこと）であり、**表示方針そのものは変えない**。
+- **次の別フェーズ**: ここから先の **表示 / render 文書軸の docs-only 再開**（`docs/T34_T35_DISPLAY_RENDER_RESTART_ENTRY.md` を入口に、**T35 §5 の A を本体、D を補助**として読み直し、**T17 ログと committed の読み分け**を先に固定し、`axis=*` をその補助として使うこと）は **完了**した。**表示方針そのものは変えていない**。T35 は **A/D までで stop** とし、**B/C は次段以降**に残す。
 
 ---
 
@@ -102,13 +102,13 @@
 
 # 7. 次回の最初の着手単位
 
-**次回の着手は本書ではなく、表示 / render 文書軸から始める**。
+**次回の着手は本書ではなく、表示 / render 文書軸の docs-only 再開結果を踏まえた** **次テーマ選定** から始める。
 
-1. **`docs/T34_T35_DISPLAY_RENDER_RESTART_ENTRY.md`** を入口にし、**T35 §5 の A を本体、D を補助**として今回の実務テーマに固定する。
-2. **`docs/T35_SECTION5_A_T17_COMMITTED_LOG_READING.md`** を先に読み、**T17 ログは `axis=mode`、committed は `axis=committed`** のまま **別軸でどう読むか**だけを確認する。
-3. 続いて **`docs/T35_OBSERVABILITY_AXIS_READING_GUIDE.md`** を読み、`axis=*` を **観測性補助**としてどう使うかを確認する。
-4. そのうえで **`docs/T35_SECTION5_UNDECIDED_BACKLOG.md`** を見て、**今回は A / D に留め、B / C へは進まない**ことを再確認する。
-5. **実装変更は行わない**。表示方針・ログ文言・UI・`WM_*` / `InvalidateRect` / T19-T20 accepted は上書きしない。
+1. **表示 / render 文書軸の docs-only 再開（A 本体 / D 補助）は完了**として扱う。
+2. 固定済みの結論は、**T17 logs = `axis=mode` / committed = `axis=committed` / 両者は別軸**である。
+3. **B / C**（T36 昇格、GDI 仮想解像度）は **今回は進めない**。
+4. **実装変更は行わない**。表示方針・ログ文言・UI・`WM_*` / `InvalidateRect` / T19-T20 accepted は上書きしない。
+5. **次は別テーマ選定**へ移る。
 
 ## 参照（既存 docs）
 

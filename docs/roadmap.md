@@ -39,7 +39,7 @@
 
 ---
 
-| **目的** | Win32 周辺 docs の**stop line 固定は完了**。**次の第一候補**は、[T34_T35_DISPLAY_RENDER_RESTART_ENTRY.md](T34_T35_DISPLAY_RENDER_RESTART_ENTRY.md) を入口に、**T35 §5 の A を本体、D を補助**として（**T17 ログと committed の読み分け**を先に固定し、**`axis=*` はその補助**として）**docs のみ**で再開すること。 |
-| **想定順序** | `T34_T35_DISPLAY_RENDER_RESTART_ENTRY.md` → `T35_SECTION5_A_T17_COMMITTED_LOG_READING.md` → `T35_OBSERVABILITY_AXIS_READING_GUIDE.md` → `T35_SECTION5_UNDECIDED_BACKLOG.md` の順で読み、**T17 と committed は別軸**のまま **どう読むか**を先に整理し、`axis=*` は **観測性補助**として確認する。**表示方針そのものは変えない**。 |
+| **目的** | Win32 周辺 docs の**stop line 固定**に続き、**T35 §5 の A/D docs-only 再開は完了**。**T17 ログと committed は別軸**のまま読む結論まで同期し、**T35 は A/D までで stop** とする。 |
+| **想定順序** | `T34_T35_DISPLAY_RENDER_RESTART_ENTRY.md` → `T35_SECTION5_A_T17_COMMITTED_LOG_READING.md` → `T35_OBSERVABILITY_AXIS_READING_GUIDE.md` → `T35_SECTION5_UNDECIDED_BACKLOG.md` の順で読んで、**A を本体・D を補助**として整理する作業は **完了**。**次は別テーマ選定**へ移る。 |
 | **前提条件** | T34/T35 の一次情報は `t34_t35_display_and_render.md` / `t35_display_mode_policy.md`。**`WM_INPUT` / `WM_TIMER` / `WM_PAINT` / `InvalidateRect` / T19-T20 accepted の意味は上書きしない**。T76 close・T77 foundation close・Go(1) 2 手で一区切りも別軸の固定として保つ。 |
-| **保留事項** | T35 §5 の **B / C**（T36 昇格、GDI 仮想解像度）や、描画実装・ログ文言変更・UI 変更は **次段以降**。今回は **A を本体、D を補助として読む再開導線の固定**に留める。 |
+| **保留事項** | T35 §5 の **B / C**（T36 昇格、GDI 仮想解像度）や、描画実装・ログ文言変更・UI 変更は **次段以降**。今回は **A/D の読み分け結論まで**で止め、**実装変更には入らない**。 |
