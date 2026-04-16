@@ -58,6 +58,8 @@ PlayerSlotActualConsumePolicy ComputeDefaultStep13ConsumePolicy(
     return PlayerSlotActualConsumePolicy::Disabled;
 }
 
+static void LogT77Obs_DefaultSeedPolicyIfChanged(unsigned i, const PlayerSlotState& s);
+
 void RefreshDefaultConsumePolicyFromSeatFlags()
 {
     for (unsigned i = 0; i < kPlayerInputSlotCap; ++i)
@@ -78,6 +80,7 @@ void RefreshDefaultConsumePolicyFromSeatFlags()
         {
             s.actualConsumePolicy = PlayerSlotActualConsumePolicy::Live;
         }
+        LogT77Obs_DefaultSeedPolicyIfChanged(i, s);
     }
 }
 
@@ -175,31 +178,235 @@ static bool SlotKeyboardBoundNormalLiveEligible(const PlayerSlotState* s)
     return SlotKeyboardBoundLiveTrialEligible(s);
 }
 
+// Observability only: mirrors ShouldSlot dry-run tail using an already-resolved live slot when known.
+static bool T77obs_ShouldDryForDispatchLog(
+    const PlayerSlotState* s,
+    PlayerInputSlotIndex slot,
+    bool haveLiveSlot,
+    PlayerInputSlotIndex liveSlot)
+{
+    if (!s)
+    {
+        return false;
+    }
+    if (s->actualConsumePolicy == PlayerSlotActualConsumePolicy::DryRun)
+    {
+        return true;
+    }
+    if (slot == TrialTargetOrLegacySlot1() && SlotLiveManualLiveReady(s))
+    {
+        if (!g_liveConsumeTrialArmed)
+        {
+            return true;
+        }
+        if (!SlotManualLiveKeyboardTrialRouteOk(s))
+        {
+            return true;
+        }
+        if (!haveLiveSlot)
+        {
+            return false;
+        }
+        return liveSlot != slot;
+    }
+    return false;
+}
+
+static void LogT77Obs_DefaultSeedPolicyIfChanged(unsigned i, const PlayerSlotState& s)
+{
+    struct Snap
+    {
+        PlayerSlotBindingAssignment ba{};
+        InputGuideSourceKind bsk = InputGuideSourceKind::Unknown;
+        PlayerBoundDeviceIdentityKind idk = PlayerBoundDeviceIdentityKind::Unknown;
+        PlayerSlotConsumePolicySource cps = PlayerSlotConsumePolicySource::DefaultStep13Seed;
+        PlayerSlotActualConsumePolicy acp = PlayerSlotActualConsumePolicy::Disabled;
+    };
+    static Snap prev[kPlayerInputSlotCap]{};
+    static bool have[kPlayerInputSlotCap]{};
+
+    const Snap now{
+        s.bindingAssignment,
+        s.boundSourceKind,
+        s.boundDeviceIdentity.kind,
+        s.consumePolicySource,
+        s.actualConsumePolicy,
+    };
+
+    if (have[i] && now.ba == prev[i].ba && now.bsk == prev[i].bsk && now.idk == prev[i].idk &&
+        now.cps == prev[i].cps && now.acp == prev[i].acp)
+    {
+        return;
+    }
+    have[i] = true;
+    prev[i] = now;
+
+    wchar_t line[320] = {};
+    swprintf_s(
+        line,
+        _countof(line),
+        L"[T77obs] policyRefresh slot=%u assign=%u bsrc=%u idk=%u polSrc=%u actPol=%u\r\n",
+        static_cast<unsigned>(i),
+        static_cast<unsigned>(now.ba),
+        static_cast<unsigned>(now.bsk),
+        static_cast<unsigned>(now.idk),
+        static_cast<unsigned>(now.cps),
+        static_cast<unsigned>(now.acp));
+    OutputDebugStringW(line);
+}
+
+// kbGate: 1=unarmed_kb_ok 2=unarmed_kb_fail 3=armed_bad_trg 4=armed_trial_kb_fail 5=armed_trial_ok
+static void LogT77Obs_ResolvedLiveIfChanged(
+    PlayerInputSlotIndex result,
+    bool armed,
+    PlayerInputSlotIndex trialTarget,
+    int kbGate)
+{
+    static bool havePrev = false;
+    static PlayerInputSlotIndex prevResult = 0u;
+
+    if (havePrev && prevResult == result)
+    {
+        return;
+    }
+    havePrev = true;
+    prevResult = result;
+
+    wchar_t line[280] = {};
+    swprintf_s(
+        line,
+        _countof(line),
+        L"[T77obs] resolvedLive armed=%d trg=%u ret=%u kbGate=%d\r\n",
+        armed ? 1 : 0,
+        static_cast<unsigned>(trialTarget),
+        static_cast<unsigned>(result),
+        kbGate);
+    OutputDebugStringW(line);
+}
+
+static void LogT77Obs_DispatchSlot12IfChanged(
+    PlayerInputSlotIndex slot,
+    PlayerSlotActualConsumePolicy pol,
+    bool haveLiveSlot,
+    PlayerInputSlotIndex liveSlot,
+    bool canLive,
+    bool shouldDry)
+{
+    if (slot != 1u && slot != 2u)
+    {
+        return;
+    }
+
+    struct Snap
+    {
+        unsigned pol = 0;
+        unsigned liveKey = 999u; // 999 = n/a (no Resolved call on this path)
+        unsigned can = 0;
+        unsigned dry = 0;
+    };
+    static Snap prev[kPlayerInputSlotCap]{};
+    static bool have[kPlayerInputSlotCap]{};
+
+    const unsigned liveKey =
+        haveLiveSlot ? static_cast<unsigned>(liveSlot) : 999u;
+    const Snap now{
+        static_cast<unsigned>(pol),
+        liveKey,
+        canLive ? 1u : 0u,
+        shouldDry ? 1u : 0u,
+    };
+
+    const unsigned idx = static_cast<unsigned>(slot);
+    if (have[idx] && now.pol == prev[idx].pol && now.liveKey == prev[idx].liveKey && now.can == prev[idx].can &&
+        now.dry == prev[idx].dry)
+    {
+        return;
+    }
+    have[idx] = true;
+    prev[idx] = now;
+
+    wchar_t line[320] = {};
+    if (haveLiveSlot)
+    {
+        swprintf_s(
+            line,
+            _countof(line),
+            L"[T77obs] dispatch slot=%u actPol=%u liveSlot=%u canLive=%u shouldDry=%u branch=%ls\r\n",
+            static_cast<unsigned>(slot),
+            static_cast<unsigned>(pol),
+            static_cast<unsigned>(liveSlot),
+            canLive ? 1u : 0u,
+            shouldDry ? 1u : 0u,
+            canLive ? L"live" : (shouldDry ? L"dry-run" : L"skip"));
+    }
+    else
+    {
+        swprintf_s(
+            line,
+            _countof(line),
+            L"[T77obs] dispatch slot=%u actPol=%u liveSlot=-- canLive=%u shouldDry=%u branch=%ls\r\n",
+            static_cast<unsigned>(slot),
+            static_cast<unsigned>(pol),
+            canLive ? 1u : 0u,
+            shouldDry ? 1u : 0u,
+            canLive ? L"live" : (shouldDry ? L"dry-run" : L"skip"));
+    }
+    OutputDebugStringW(line);
+}
+
 // T77 step19/21: one live menu consumer per tick. Non-primary only when armed + target Manual Live + kb eligible.
 PlayerInputSlotIndex ResolvedSingleLiveConsumeSlotIndex()
 {
     EnsurePrimaryPlayerSlotSeededForT76();
 
+    PlayerInputSlotIndex result = 0u;
+    const bool armed = g_liveConsumeTrialArmed;
+    const PlayerInputSlotIndex trialTarget = g_liveConsumeTrialTargetSlot;
+    int kbGate = 0;
+
     // Go(2) minimal: when trial is not armed, allow only the fixed 2P=Keyboard case to own live.
     // This keeps the existing trial/debug path intact and avoids non-kb generalization.
-    if (!g_liveConsumeTrialArmed)
+    if (!armed)
     {
         const PlayerSlotState* s1 = TryMutableSlot(1u);
-        return SlotKeyboardBoundNormalLiveEligible(s1) ? 1u : 0u;
+        if (SlotKeyboardBoundNormalLiveEligible(s1))
+        {
+            result = 1u;
+            kbGate = 1;
+        }
+        else
+        {
+            result = 0u;
+            kbGate = 2;
+        }
+    }
+    else
+    {
+        const PlayerInputSlotIndex t = g_liveConsumeTrialTargetSlot;
+        if (t == kPlayerInputNoLiveConsumeTrialTarget || t == 0u ||
+            static_cast<unsigned>(t) >= kPlayerInputSlotCap)
+        {
+            result = 0u;
+            kbGate = 3;
+        }
+        else
+        {
+            const PlayerSlotState* st = TryMutableSlot(t);
+            if (!SlotManualLiveKeyboardTrialRouteOk(st))
+            {
+                result = 0u;
+                kbGate = 4;
+            }
+            else
+            {
+                result = t;
+                kbGate = 5;
+            }
+        }
     }
 
-    const PlayerInputSlotIndex t = g_liveConsumeTrialTargetSlot;
-    if (t == kPlayerInputNoLiveConsumeTrialTarget || t == 0u ||
-        static_cast<unsigned>(t) >= kPlayerInputSlotCap)
-    {
-        return 0u;
-    }
-    const PlayerSlotState* st = TryMutableSlot(t);
-    if (!SlotManualLiveKeyboardTrialRouteOk(st))
-    {
-        return 0u;
-    }
-    return t;
+    LogT77Obs_ResolvedLiveIfChanged(result, armed, trialTarget, kbGate);
+    return result;
 }
 
 // Step17: single trial phase for T18 + debug (0=off … 4=kOn).
@@ -1285,9 +1492,31 @@ bool InputGuideArbiter_CanSlotDispatchLiveConsume(PlayerInputSlotIndex slot)
     const PlayerSlotState* s = TryMutableSlot(slot);
     if (!s || s->actualConsumePolicy != PlayerSlotActualConsumePolicy::Live)
     {
+        if ((slot == 1u || slot == 2u) && s)
+        {
+            LogT77Obs_DispatchSlot12IfChanged(
+                slot,
+                s->actualConsumePolicy,
+                false,
+                0,
+                false,
+                T77obs_ShouldDryForDispatchLog(s, slot, false, 0));
+        }
         return false;
     }
-    return slot == ResolvedSingleLiveConsumeSlotIndex();
+    const PlayerInputSlotIndex liveSlot = ResolvedSingleLiveConsumeSlotIndex();
+    const bool can = (slot == liveSlot);
+    if (slot == 1u || slot == 2u)
+    {
+        LogT77Obs_DispatchSlot12IfChanged(
+            slot,
+            s->actualConsumePolicy,
+            true,
+            liveSlot,
+            can,
+            T77obs_ShouldDryForDispatchLog(s, slot, true, liveSlot));
+    }
+    return can;
 }
 
 bool InputGuideArbiter_ShouldSlotDispatchDryRunConsume(PlayerInputSlotIndex slot)
@@ -1302,24 +1531,45 @@ bool InputGuideArbiter_ShouldSlotDispatchDryRunConsume(PlayerInputSlotIndex slot
     {
         return false;
     }
+    bool out = false;
+    bool haveResolved = false;
+    PlayerInputSlotIndex liveSlot = 0;
+
     if (s->actualConsumePolicy == PlayerSlotActualConsumePolicy::DryRun)
     {
-        return true;
+        out = true;
     }
-    if (slot == TrialTargetOrLegacySlot1() && SlotLiveManualLiveReady(s))
+    else if (slot == TrialTargetOrLegacySlot1() && SlotLiveManualLiveReady(s))
     {
         // Live manual: scratch until trial armed; armed non-keyboard stays scratch (step16).
         if (!g_liveConsumeTrialArmed)
         {
-            return true;
+            out = true;
         }
-        if (!SlotManualLiveKeyboardTrialRouteOk(s))
+        else if (!SlotManualLiveKeyboardTrialRouteOk(s))
         {
-            return true;
+            out = true;
         }
-        return ResolvedSingleLiveConsumeSlotIndex() != slot;
+        else
+        {
+            liveSlot = ResolvedSingleLiveConsumeSlotIndex();
+            haveResolved = true;
+            out = (liveSlot != slot);
+        }
     }
-    return false;
+    else
+    {
+        out = false;
+    }
+
+    if (slot == 1u || slot == 2u)
+    {
+        const bool canLive = s->actualConsumePolicy == PlayerSlotActualConsumePolicy::Live && haveResolved &&
+            (slot == liveSlot);
+        LogT77Obs_DispatchSlot12IfChanged(
+            slot, s->actualConsumePolicy, haveResolved, liveSlot, canLive, out);
+    }
+    return out;
 }
 
 void InputGuideArbiter_SetLiveConsumeTrialArmed(bool armed)
